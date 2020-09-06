@@ -1,8 +1,8 @@
 /*
  * ECMA Test 262 Runner for QuickJS
  * 
- * Copyright (c) 2017-2018 Fabrice Bellard
- * Copyright (c) 2017-2018 Charlie Gordon
+ * Copyright (c) 2017-2020 Fabrice Bellard
+ * Copyright (c) 2017-2020 Charlie Gordon
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -41,8 +41,6 @@
 
 /* enable test262 thread support to test SharedArrayBuffer and Atomics */
 #define CONFIG_AGENT
-/* cross-realm tests (not supported yet) */
-//#define CONFIG_REALM
 
 #define CMD_NAME "run-test262"
 
@@ -730,18 +728,20 @@ static JSValue js_new_agent(JSContext *ctx)
 }
 #endif
 
-#ifdef CONFIG_REALM
 static JSValue js_createRealm(JSContext *ctx, JSValue this_val,
                               int argc, JSValue *argv)
 {
     JSContext *ctx1;
-    /* XXX: the context is not freed, need a refcount */
+    JSValue ret;
+    
     ctx1 = JS_NewContext(JS_GetRuntime(ctx));
     if (!ctx1)
         return JS_ThrowOutOfMemory(ctx);
-    return add_helpers1(ctx1);
+    ret = add_helpers1(ctx1);
+    /* ctx1 has a refcount so it stays alive */
+    JS_FreeContext(ctx1);
+    return ret;
 }
-#endif
 
 static JSValue add_helpers1(JSContext *ctx)
 {
@@ -770,12 +770,9 @@ static JSValue add_helpers1(JSContext *ctx)
 
     JS_SetPropertyStr(ctx, obj262, "global",
                       JS_DupValue(ctx, global_obj));
-
-#ifdef CONFIG_REALM
     JS_SetPropertyStr(ctx, obj262, "createRealm",
                       JS_NewCFunction(ctx, js_createRealm,
                                       "createRealm", 0));
-#endif
 
     JS_SetPropertyStr(ctx, global_obj, "$262", JS_DupValue(ctx, obj262));
     

@@ -1,9 +1,15 @@
+test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: Test262Error: Expected a ReferenceError but got a ReferenceError
+test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: strict mode: Test262Error: Expected a ReferenceError but got a ReferenceError
+test262/test/built-ins/Proxy/ownKeys/trap-is-undefined-target-is-proxy.js:29: Test262Error: Expected [0, length, foo, Symbol()] and [Symbol(), length, foo, 0] to have the same contents. 
+test262/test/built-ins/Proxy/ownKeys/trap-is-undefined-target-is-proxy.js:29: strict mode: Test262Error: Expected [0, length, foo, Symbol()] and [Symbol(), length, foo, 0] to have the same contents. 
 test262/test/language/expressions/arrow-function/eval-var-scope-syntax-err.js:47: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/expressions/async-arrow-function/eval-var-scope-syntax-err.js:49: TypeError: $DONE() not called
 test262/test/language/expressions/async-function/named-eval-var-scope-syntax-err.js:33: TypeError: $DONE() not called
 test262/test/language/expressions/async-function/nameless-eval-var-scope-syntax-err.js:33: TypeError: $DONE() not called
 test262/test/language/expressions/async-generator/eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/expressions/async-generator/named-eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/class/elements/grammar-private-field-optional-chaining.js:26: SyntaxError: expecting field name
+test262/test/language/expressions/class/elements/grammar-private-field-optional-chaining.js:26: strict mode: SyntaxError: expecting field name
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: TypeError: $DONE() not called
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: strict mode: TypeError: $DONE() not called
 test262/test/language/expressions/function/eval-var-scope-syntax-err.js:48: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
@@ -16,7 +22,7 @@ test262/test/language/expressions/optional-chaining/optional-call-preserves-this
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: value has no property
 test262/test/language/statements/async-function/eval-var-scope-syntax-err.js:33: TypeError: $DONE() not called
 test262/test/language/statements/async-generator/eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-iter-rtrn-close-null.js:81: TypeError: $DONE() not called
-test262/test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-iter-rtrn-close-null.js:81: strict mode: TypeError: $DONE() not called
+test262/test/language/statements/class/elements/grammar-private-field-optional-chaining.js:26: SyntaxError: expecting field name
+test262/test/language/statements/class/elements/grammar-private-field-optional-chaining.js:26: strict mode: SyntaxError: expecting field name
 test262/test/language/statements/function/eval-var-scope-syntax-err.js:49: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/statements/generators/eval-var-scope-syntax-err.js:49: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all

@@ -1,3 +1,10 @@
+2020-04-12:
+
+- added cross realm support
+- added AggregateError and Promise.any
+- added env, uid and gid options in os.exec()
+- misc bug fixes
+
 2020-03-16:
 
 - reworked error handling in std and os libraries: suppressed I/O

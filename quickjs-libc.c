@@ -239,6 +239,7 @@ static JSValue js_printf_internal(JSContext *ctx,
                 case 's':
                     if (i >= argc)
                         goto missing;
+                    /* XXX: handle strings containing null characters */
                     string_arg = JS_ToCString(ctx, argv[i++]);
                     if (!string_arg)
                         goto fail;
@@ -843,6 +844,7 @@ static JSValue js_std_file_puts(JSContext *ctx, JSValueConst this_val,
     FILE *f;
     int i;
     const char *str;
+    size_t len;
 
     if (magic == 0) {
         f = stdout;
@@ -853,10 +855,10 @@ static JSValue js_std_file_puts(JSContext *ctx, JSValueConst this_val,
     }
     
     for(i = 0; i < argc; i++) {
-        str = JS_ToCString(ctx, argv[i]);
+        str = JS_ToCStringLen(ctx, &len, argv[i]);
         if (!str)
             return JS_EXCEPTION;
-        fputs(str, f);
+        fwrite(str, 1, len, f);
         JS_FreeCString(ctx, str);
     }
     return JS_UNDEFINED;
@@ -2325,6 +2327,121 @@ static JSValue js_os_utimes(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, ret);
 }
 
+static char **build_envp(JSContext *ctx, JSValueConst obj)
+{
+    uint32_t len, i;
+    JSPropertyEnum *tab;
+    char **envp, *pair;
+    const char *key, *str;
+    JSValue val;
+    size_t key_len, str_len;
+    
+    if (JS_GetOwnPropertyNames(ctx, &tab, &len, obj,
+                               JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0)
+        return NULL;
+    envp = js_mallocz(ctx, sizeof(envp[0]) * ((size_t)len + 1));
+    if (!envp)
+        goto fail;
+    for(i = 0; i < len; i++) {
+        val = JS_GetProperty(ctx, obj, tab[i].atom);
+        if (JS_IsException(val))
+            goto fail;
+        str = JS_ToCString(ctx, val);
+        JS_FreeValue(ctx, val);
+        if (!str)
+            goto fail;
+        key = JS_AtomToCString(ctx, tab[i].atom);
+        if (!key) {
+            JS_FreeCString(ctx, str);
+            goto fail;
+        }
+        key_len = strlen(key);
+        str_len = strlen(str);
+        pair = js_malloc(ctx, key_len + str_len + 2);
+        if (!pair) {
+            JS_FreeCString(ctx, key);
+            JS_FreeCString(ctx, str);
+            goto fail;
+        }
+        memcpy(pair, key, key_len);
+        pair[key_len] = '=';
+        memcpy(pair + key_len + 1, str, str_len);
+        pair[key_len + 1 + str_len] = '\0';
+        envp[i] = pair;
+        JS_FreeCString(ctx, key);
+        JS_FreeCString(ctx, str);
+    }
+ done:
+    for(i = 0; i < len; i++)
+        JS_FreeAtom(ctx, tab[i].atom);
+    js_free(ctx, tab);
+    return envp;
+ fail:
+    if (envp) {
+        for(i = 0; i < len; i++)
+            js_free(ctx, envp[i]);
+        js_free(ctx, envp);
+        envp = NULL;
+    }
+    goto done;
+}
+
+/* execvpe is not available on non GNU systems */
+static int my_execvpe(const char *filename, char **argv, char **envp)
+{
+    char *path, *p, *p_next, *p1;
+    char buf[PATH_MAX];
+    size_t filename_len, path_len;
+    BOOL eacces_error;
+    
+    filename_len = strlen(filename);
+    if (filename_len == 0) {
+        errno = ENOENT;
+        return -1;
+    }
+    if (strchr(filename, '/'))
+        return execve(filename, argv, envp);
+    
+    path = getenv("PATH");
+    if (!path)
+        path = "/bin:/usr/bin";
+    eacces_error = FALSE;
+    p = path;
+    for(p = path; p != NULL; p = p_next) {
+        p1 = strchr(p, ':');
+        if (!p1) {
+            p_next = NULL;
+            path_len = strlen(p);
+        } else {
+            p_next = p1 + 1;
+            path_len = p1 - p;
+        }
+        /* path too long */
+        if ((path_len + 1 + filename_len + 1) > PATH_MAX)
+            continue;
+        memcpy(buf, p, path_len);
+        buf[path_len] = '/';
+        memcpy(buf + path_len + 1, filename, filename_len);
+        buf[path_len + 1 + filename_len] = '\0';
+        
+        execve(buf, argv, envp);
+
+        switch(errno) {
+        case EACCES:
+            eacces_error = TRUE;
+            break;
+        case ENOENT:
+        case ENOTDIR:
+            break;
+        default:
+            return -1;
+        }
+    }
+    if (eacces_error)
+        errno = EACCES;
+    return -1;
+}
+
 /* exec(args[, options]) -> exitcode */
 static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv)
@@ -2332,11 +2449,13 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     JSValueConst options, args = argv[0];
     JSValue val, ret_val;
     const char **exec_argv, *file = NULL, *str, *cwd = NULL;
+    char **envp = environ;
     uint32_t exec_argc, i;
     int ret, pid, status;
     BOOL block_flag = TRUE, use_path = TRUE;
     static const char *std_name[3] = { "stdin", "stdout", "stderr" };
     int std_fds[3];
+    uint32_t uid = -1, gid = -1;
     
     val = JS_GetPropertyStr(ctx, args, "length");
     if (JS_IsException(val))
@@ -2410,6 +2529,36 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                 std_fds[i] = fd;
             }
         }
+
+        val = JS_GetPropertyStr(ctx, options, "env");
+        if (JS_IsException(val))
+            goto exception;
+        if (!JS_IsUndefined(val)) {
+            envp = build_envp(ctx, val);
+            JS_FreeValue(ctx, val);
+            if (!envp)
+                goto exception;
+        }
+        
+        val = JS_GetPropertyStr(ctx, options, "uid");
+        if (JS_IsException(val))
+            goto exception;
+        if (!JS_IsUndefined(val)) {
+            ret = JS_ToUint32(ctx, &uid, val);
+            JS_FreeValue(ctx, val);
+            if (ret)
+                goto exception;
+        }
+
+        val = JS_GetPropertyStr(ctx, options, "gid");
+        if (JS_IsException(val))
+            goto exception;
+        if (!JS_IsUndefined(val)) {
+            ret = JS_ToUint32(ctx, &gid, val);
+            JS_FreeValue(ctx, val);
+            if (ret)
+                goto exception;
+        }
     }
 
     pid = fork();
@@ -2435,12 +2584,21 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
             if (chdir(cwd) < 0)
                 _exit(127);
         }
+        if (uid != -1) {
+            if (setuid(uid) < 0)
+                _exit(127);
+        }
+        if (gid != -1) {
+            if (setgid(gid) < 0)
+                _exit(127);
+        }
+
         if (!file)
             file = exec_argv[0];
         if (use_path)
-            ret = execvp(file, (char **)exec_argv);
+            ret = my_execvpe(file, (char **)exec_argv, envp);
         else
-            ret = execv(file, (char **)exec_argv);
+            ret = execve(file, (char **)exec_argv, envp);
         _exit(127);
     }
     /* parent */
@@ -2467,6 +2625,15 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     for(i = 0; i < exec_argc; i++)
         JS_FreeCString(ctx, exec_argv[i]);
     js_free(ctx, exec_argv);
+    if (envp != environ) {
+        char **p;
+        p = envp;
+        while (*p != NULL) {
+            js_free(ctx, *p);
+            p++;
+        }
+        js_free(ctx, envp);
+    }
     return ret_val;
  exception:
     ret_val = JS_EXCEPTION;
@@ -2700,14 +2867,15 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
 {
     int i;
     const char *str;
+    size_t len;
 
     for(i = 0; i < argc; i++) {
         if (i != 0)
             putchar(' ');
-        str = JS_ToCString(ctx, argv[i]);
+        str = JS_ToCStringLen(ctx, &len, argv[i]);
         if (!str)
             return JS_EXCEPTION;
-        fputs(str, stdout);
+        fwrite(str, 1, len, stdout);
         JS_FreeCString(ctx, str);
     }
     putchar('\n');

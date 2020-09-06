@@ -72,7 +72,7 @@ ul.no-bullet {list-style: none}
 <ul class="no-bullet">
   <li><a name="toc-Language-support" href="#Language-support">3.1 Language support</a>
   <ul class="no-bullet">
-    <li><a name="toc-ES2019-support" href="#ES2019-support">3.1.1 ES2019 support</a></li>
+    <li><a name="toc-ES2020-support" href="#ES2020-support">3.1.1 ES2020 support</a></li>
     <li><a name="toc-JSON" href="#JSON">3.1.2 JSON</a></li>
     <li><a name="toc-ECMA402" href="#ECMA402">3.1.3 ECMA402</a></li>
     <li><a name="toc-Extensions" href="#Extensions">3.1.4 Extensions</a></li>
@@ -130,7 +130,7 @@ ul.no-bullet {list-style: none}
 <h2 class="chapter">1 Introduction</h2>
 
 <p>QuickJS is a small and embeddable Javascript engine. It supports the
-upcoming ES2020 specification
+ES2020 specification
 <a name="DOCF1" href="#FOOT1"><sup>1</sup></a>
 including modules, asynchronous generators, proxies and BigInt.
 </p>
@@ -146,12 +146,12 @@ and operator overloading.
 
 </li><li> Fast interpreter with very low startup time: runs the 69000 tests of the ECMAScript Test Suite<a name="DOCF2" href="#FOOT2"><sup>2</sup></a> in about 95 seconds on a single core of a desktop PC. The complete life cycle of a runtime instance completes in less than 300 microseconds.
 
-</li><li> Almost complete ES2019 support including modules, asynchronous
+</li><li> Almost complete ES2020 support including modules, asynchronous
 generators and full Annex B support (legacy web compatibility). Many
-features from the upcoming ES2020 specification
+features from the upcoming ES2021 specification
 <a name="DOCF3" href="#FOOT3"><sup>3</sup></a> are also supported.
 
-</li><li> Passes nearly 100% of the ECMAScript Test Suite tests when selecting the ES2019 features.
+</li><li> Passes nearly 100% of the ECMAScript Test Suite tests when selecting the ES2020 features.
 
 </li><li> Compile Javascript sources to executables with no external dependency.
 
@@ -394,18 +394,16 @@ about 100 seconds).
 <a name="Language-support"></a>
 <h3 class="section">3.1 Language support</h3>
 
-<a name="ES2019-support"></a>
-<h4 class="subsection">3.1.1 ES2019 support</h4>
+<a name="ES2020-support"></a>
+<h4 class="subsection">3.1.1 ES2020 support</h4>
 
-<p>The ES2019 specification is almost fully supported including the Annex
+<p>The ES2020 specification is almost fully supported including the Annex
 B (legacy web compatibility) and the Unicode related features.
 </p>
 <p>The following features are not supported yet:
 </p>
 <ul>
-<li> Realms (although the C API supports different runtimes and contexts)
-
-</li><li> Tail calls<a name="DOCF6" href="#FOOT6"><sup>6</sup></a>
+<li> Tail calls<a name="DOCF6" href="#FOOT6"><sup>6</sup></a>
 
 </li></ul>
 
@@ -916,7 +914,21 @@ object containing optional parameters:
 <dt><code>stdout</code></dt>
 <dt><code>stderr</code></dt>
 <dd><p>If present, set the handle in the child for stdin, stdout or stderr.
-</p> 
+</p>
+</dd>
+<dt><code>env</code></dt>
+<dd><p>Object. If present, set the process environment from the object
+  key-value pairs. Otherwise use the same environment as the current
+  process.
+</p>
+</dd>
+<dt><code>uid</code></dt>
+<dd><p>Integer. If present, the process uid with <code>setuid</code>.
+</p>
+</dd>
+<dt><code>gid</code></dt>
+<dd><p>Integer. If present, the process gid with <code>setgid</code>.
+</p>
 </dd>
 </dl>
 
@@ -1266,7 +1278,7 @@ Bellard and Charlie Gordon.
 <h4 class="footnotes-heading">Footnotes</h4>
 
 <h3><a name="FOOT1" href="#DOCF1">(1)</a></h3>
-<p><a href="https://www.ecma-international.org/ecma-262/10.0">https://www.ecma-international.org/ecma-262/10.0</a></p>
+<p><a href="https://tc39.es/ecma262/">https://tc39.es/ecma262/</a></p>
 <h3><a name="FOOT2" href="#DOCF2">(2)</a></h3>
 <p><a href="https://github.com/tc39/test262">https://github.com/tc39/test262</a></p>
 <h3><a name="FOOT3" href="#DOCF3">(3)</a></h3>

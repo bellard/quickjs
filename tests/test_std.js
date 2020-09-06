@@ -214,7 +214,11 @@ function test_os_exec()
     assert(ret, 1);
     
     fds = os.pipe();
-    pid = os.exec(["echo", "hello"], { stdout: fds[1], block: false } );
+    pid = os.exec(["sh", "-c", "echo $FOO"], {
+        stdout: fds[1],
+        block: false,
+        env: { FOO: "hello" },
+    } );
     assert(pid >= 0);
     os.close(fds[1]); /* close the write end (as it is only in the child)  */
     f = std.fdopen(fds[0], "r");

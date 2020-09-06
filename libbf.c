@@ -1701,10 +1701,12 @@ static int __bf_div(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
         memset(taba, 0, d * sizeof(limb_t));
         memcpy(taba + d, a->tab, a->len * sizeof(limb_t));
         if (bf_resize(r, n + 1))
+            goto fail1;
+        if (mp_divnorm(s, r->tab, taba, na, b->tab, nb)) {
+        fail1:
+            bf_free(s, taba);
             goto fail;
-        if (mp_divnorm(s, r->tab, taba, na, b->tab, nb))
-            goto fail;
-        
+        }
         /* see if non zero remainder */
         if (mp_scan_nz(taba, nb))
             r->tab[0] |= 1;
