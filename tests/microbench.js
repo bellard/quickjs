@@ -917,11 +917,9 @@ function load_result(filename)
     var f, str, res;
     if (typeof std === "undefined")
         return null;
-    try {
-        f = std.open(filename, "r");
-    } catch(e) {
+    f = std.open(filename, "r");
+    if (!f)
         return null;
-    }
     str = f.readAsString();
     res = JSON.parse(str);
     f.close();

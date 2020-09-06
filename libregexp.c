@@ -434,8 +434,9 @@ static int __attribute__((format(printf, 2, 3))) re_parse_error(REParseState *s,
     return -1;
 }
 
-/* Return -1 in case of overflow */
-static int parse_digits(const uint8_t **pp)
+/* If allow_overflow is false, return -1 in case of
+   overflow. Otherwise return INT32_MAX. */
+static int parse_digits(const uint8_t **pp, BOOL allow_overflow)
 {
     const uint8_t *p;
     uint64_t v;
@@ -448,8 +449,12 @@ static int parse_digits(const uint8_t **pp)
         if (c < '0' || c > '9')
             break;
         v = v * 10 + c - '0';
-        if (v >= INT32_MAX)
-            return -1;
+        if (v >= INT32_MAX) {
+            if (allow_overflow)
+                v = INT32_MAX;
+            else
+                return -1;
+        }
         p++;
     }
     *pp = p;
@@ -1225,14 +1230,27 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
             re_emit_op(s, REOP_prev);
         break;
     case '{':
-        /* As an extension (see ES6 annex B), we accept '{' not
-           followed by digits as a normal atom */
-        if (!is_digit(p[1])) {
-            if (s->is_utf16)
-                goto invalid_quant_count;
+        if (s->is_utf16) {
+            return re_parse_error(s, "syntax error");
+        } else if (!is_digit(p[1])) {
+            /* Annex B: we accept '{' not followed by digits as a
+               normal atom */
             goto parse_class_atom;
+        } else {
+            const uint8_t *p1 = p + 1;
+            /* Annex B: error if it is like a repetition count */
+            parse_digits(&p1, TRUE);
+            if (*p1 == ',') {
+                p1++;
+                if (is_digit(*p1)) {
+                    parse_digits(&p1, TRUE);
+                }
+            }
+            if (*p1 != '}') {
+                goto parse_class_atom;
+            }
         }
-        /* fall tru */
+        /* fall thru */
     case '*':
     case '+':
     case '?':
@@ -1387,7 +1405,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
             {
                 const uint8_t *q = ++p;
                 
-                c = parse_digits(&p);
+                c = parse_digits(&p, FALSE);
                 if (c < 0 || (c >= s->capture_count && c >= re_count_captures(s))) {
                     if (!s->is_utf16) {
                         /* Annex B.1.4: accept legacy octal */
@@ -1484,32 +1502,38 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
             quant_max = 1;
             goto quantifier;
         case '{':
-            /* As an extension (see ES6 annex B), we accept '{' not
-               followed by digits as a normal atom */
-            if (!is_digit(p[1])) {
-                if (s->is_utf16)
-                    goto invalid_quant_count;
-                break;
-            }
-            p++;
-            quant_min = parse_digits(&p);
-            if (quant_min < 0) {
-            invalid_quant_count:
-                return re_parse_error(s, "invalid repetition count");
-            }
-            quant_max = quant_min;
-            if (*p == ',') {
-                p++;
-                if (is_digit(*p)) {
-                    quant_max = parse_digits(&p);
-                    if (quant_max < 0 || quant_max < quant_min)
+            {
+                const uint8_t *p1 = p;
+                /* As an extension (see ES6 annex B), we accept '{' not
+                   followed by digits as a normal atom */
+                if (!is_digit(p[1])) {
+                    if (s->is_utf16)
                         goto invalid_quant_count;
-                } else {
-                    quant_max = INT32_MAX; /* infinity */
+                    break;
                 }
+                p++;
+                quant_min = parse_digits(&p, TRUE);
+                quant_max = quant_min;
+                if (*p == ',') {
+                    p++;
+                    if (is_digit(*p)) {
+                        quant_max = parse_digits(&p, TRUE);
+                        if (quant_max < quant_min) {
+                        invalid_quant_count:
+                            return re_parse_error(s, "invalid repetition count");
+                        }
+                    } else {
+                        quant_max = INT32_MAX; /* infinity */
+                    }
+                }
+                if (*p != '}' && !s->is_utf16) {
+                    /* Annex B: normal atom if invalid '{' syntax */
+                    p = p1;
+                    break;
+                }
+                if (re_parse_expect(s, &p, '}'))
+                    return -1;
             }
-            if (re_parse_expect(s, &p, '}'))
-                return -1;
         quantifier:
             greedy = TRUE;
             if (*p == '?') {

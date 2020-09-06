@@ -106,6 +106,9 @@ function test_popen()
     f.puts(content);
     f.close();
 
+    /* test loadFile */
+    assert(std.loadFile(fname), content);
+    
     /* execute the 'cat' shell command */
     f = std.popen("cat " + fname, "r");
     str = f.readAsString();
@@ -142,12 +145,18 @@ function test_os()
         buf[i] = i;
     assert(os.write(fd, buf.buffer, 0, buf.length) === buf.length);
 
-    assert(os.seek(fd, 0, os.SEEK_SET) === 0);
+    assert(os.seek(fd, 0, std.SEEK_SET) === 0);
     buf2 = new Uint8Array(buf.length);
     assert(os.read(fd, buf2.buffer, 0, buf2.length) === buf2.length);
     
     for(i = 0; i < buf.length; i++)
         assert(buf[i] == buf2[i]);
+    
+    if (typeof BigInt !== "undefined") {
+        assert(os.seek(fd, BigInt(6), std.SEEK_SET), BigInt(6));
+        assert(os.read(fd, buf2.buffer, 0, 1) === 1);
+        assert(buf[6] == buf2[0]);
+    }
     
     assert(os.close(fd) === 0);
 

@@ -1,8 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.1, http://www.gnu.org/software/texinfo/ -->
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>Javascript Bignum Extensions</title>
 
 <meta name="description" content="Javascript Bignum Extensions">
@@ -10,6 +9,7 @@
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <link href="#SEC_Contents" rel="contents" title="Table of Contents">
 <style type="text/css">
 <!--
@@ -121,7 +121,7 @@ changes were done in order to simplify the implementation.
 <ul>
 <li> <code>with operators from</code> is not supported. Operator overloading is always enabled.
 
-</li><li> The dispatch is not based on a static <code>[[OperatorSet]]</code> field in all instances. Instead, a dynamic lookup the of the <code>Symbol.operatorSet</code> property is done. This property is typically added in the prototype of each object.
+</li><li> The dispatch is not based on a static <code>[[OperatorSet]]</code> field in all instances. Instead, a dynamic lookup of the <code>Symbol.operatorSet</code> property is done. This property is typically added in the prototype of each object.
 
 </li><li> <code>Operators.create(...dictionaries)</code> is used to create a new OperatorSet object. The <code>Operators</code> function is supported as an helper to be closer to the TC39 proposal.
 
@@ -194,7 +194,7 @@ raised if <em>a &lt; 0</em>.
 <h3 class="section">4.1 Introduction</h3>
 
 <p>This extension adds the <code>BigFloat</code> primitive type. The
-<code>BigFloat</code> type represents floating point numbers are in base 2
+<code>BigFloat</code> type represents floating point numbers in base 2
 with the IEEE 754 semantics. A floating
 point number is represented as a sign, mantissa and exponent. The
 special values <code>NaN</code>, <code>+/-Infinity</code>, <code>+0</code> and <code>-0</code>
@@ -216,15 +216,13 @@ point environment is used.
 <code>RNDN</code> (&ldquo;round to nearest with ties to even&rdquo;)<a name="DOCF1" href="#FOOT1"><sup>1</sup></a>. The status flags of the global environment cannot be
 read<a name="DOCF2" href="#FOOT2"><sup>2</sup></a>. The precision of the global environment is
 <code>BigFloatEnv.prec</code>. The number of exponent bits of the global
-environment is <code>BigFloatEnv.expBits</code>.  If <code>BigFloatEnv.expBits</code> is
-strictly smaller than the maximum allowed number of exponent bits
-(<code>BigFloatEnv.expBitsMax</code>), then the global environment subnormal
-flag is set to <code>true</code>. Otherwise it is set to <code>false</code>;
+environment is <code>BigFloatEnv.expBits</code>. The global environment
+subnormal flag is set to <code>true</code>.
 </p>
-<p>For example, <code>prec = 53</code> and <code> expBits = 11</code> give exactly
-the same precision as the IEEE 754 64 bit floating point. The
+<p>For example, <code>prec = 53</code> and <code> expBits = 11</code> exactly give
+the same precision as the IEEE 754 64 bit floating point format. The
 default precision is <code>prec = 113</code> and <code> expBits = 15</code> (IEEE
-754 128 bit floating point).
+754 128 bit floating point format).
 </p>
 <p>The global floating point environment can only be modified temporarily
 when calling a function (see <code>BigFloatEnv.setPrec</code>). Hence a
@@ -433,9 +431,8 @@ environment. The initial value is <code>113</code>.
 </dd>
 <dt><code>expBits</code></dt>
 <dd><p>Getter. Return the exponent size in bits of the global floating point
-environment assuming an IEEE 754 representation. If <code>expBits &lt;
-expBitsMax</code>, then subnormal numbers are supported. The initial value
-is <code>15</code>.
+environment assuming an IEEE 754 representation. The initial value is
+<code>15</code>.
 </p>
 </dd>
 <dt><code>setPrec(f, p[, e])</code></dt>
@@ -608,7 +605,7 @@ Number value.
 
 <p>It returns <code>0m</code> if no parameter is provided. Otherwise the first
 parameter is converted to a bigdecimal by using ToString(). Hence
-Number value are not converted to their exact numerical value as
+Number values are not converted to their exact numerical value as
 BigDecimal.
 </p>
 <a name="Properties-of-the-BigDecimal-object"></a>
@@ -702,11 +699,11 @@ always represented as BigFloat.
 
 </li><li> The logical xor operator is still available with the <code>^^</code> operator.
 
-</li><li> The integer division operator can be overloaded by modifying the corresponding operator in <code>BigInt.prototype.[[OperatorSet]]</code>.
-
-</li><li> The integer power operator with a non zero negative exponent can be overloaded by modifying the corresponding operator in <code>BigInt.prototype.[[OperatorSet]]</code>.
-
 </li><li> The modulo operator (<code>%</code>) returns the Euclidian remainder (always positive) instead of the truncated remainder.
+
+</li><li> The integer division operator can be overloaded with <code>Operators.updateBigIntOperators(dictionary)</code>.
+
+</li><li> The integer power operator with a non zero negative exponent can be overloaded with <code>Operators.updateBigIntOperators(dictionary)</code>.
 
 </li></ul>
 

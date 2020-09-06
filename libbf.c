@@ -2526,19 +2526,18 @@ fail:
     return BF_ST_MEM_ERROR;
 }
 
-/* The rounding mode is always BF_RNDZ. Return BF_ST_OVERFLOW if there
+/* The rounding mode is always BF_RNDZ. Return BF_ST_INVALID_OP if there
    is an overflow and 0 otherwise. */
 int bf_get_int32(int *pres, const bf_t *a, int flags)
 {
     uint32_t v;
     int ret;
     if (a->expn >= BF_EXP_INF) {
-        ret = 0;
+        ret = BF_ST_INVALID_OP;
         if (flags & BF_GET_INT_MOD) {
             v = 0;
         } else if (a->expn == BF_EXP_INF) {
             v = (uint32_t)INT32_MAX + a->sign;
-            /* XXX: return overflow ? */
         } else {
             v = INT32_MAX;
         }
@@ -2551,7 +2550,7 @@ int bf_get_int32(int *pres, const bf_t *a, int flags)
             v = -v;
         ret = 0;
     } else if (!(flags & BF_GET_INT_MOD)) {
-        ret = BF_ST_OVERFLOW;
+        ret = BF_ST_INVALID_OP;
         if (a->sign) {
             v = (uint32_t)INT32_MAX + 1;
             if (a->expn == 32 && 
@@ -2571,14 +2570,14 @@ int bf_get_int32(int *pres, const bf_t *a, int flags)
     return ret;
 }
 
-/* The rounding mode is always BF_RNDZ. Return BF_ST_OVERFLOW if there
+/* The rounding mode is always BF_RNDZ. Return BF_ST_INVALID_OP if there
    is an overflow and 0 otherwise. */
 int bf_get_int64(int64_t *pres, const bf_t *a, int flags)
 {
     uint64_t v;
     int ret;
     if (a->expn >= BF_EXP_INF) {
-        ret = 0;
+        ret = BF_ST_INVALID_OP;
         if (flags & BF_GET_INT_MOD) {
             v = 0;
         } else if (a->expn == BF_EXP_INF) {
@@ -2603,7 +2602,7 @@ int bf_get_int64(int64_t *pres, const bf_t *a, int flags)
             v = -v;
         ret = 0;
     } else if (!(flags & BF_GET_INT_MOD)) {
-        ret = BF_ST_OVERFLOW;
+        ret = BF_ST_INVALID_OP;
         if (a->sign) {
             uint64_t v1;
             v = (uint64_t)INT64_MAX + 1;
@@ -2627,6 +2626,40 @@ int bf_get_int64(int64_t *pres, const bf_t *a, int flags)
         if (a->sign)
             v = -v;
         ret = 0;
+    }
+    *pres = v;
+    return ret;
+}
+
+/* The rounding mode is always BF_RNDZ. Return BF_ST_INVALID_OP if there
+   is an overflow and 0 otherwise. */
+int bf_get_uint64(uint64_t *pres, const bf_t *a)
+{
+    uint64_t v;
+    int ret;
+    if (a->expn == BF_EXP_NAN) {
+        goto overflow;
+    } else if (a->expn <= 0) {
+        v = 0;
+        ret = 0;
+    } else if (a->sign) {
+        v = 0;
+        ret = BF_ST_INVALID_OP;
+    } else if (a->expn <= 64) {
+#if LIMB_BITS == 32
+        if (a->expn <= 32)
+            v = a->tab[a->len - 1] >> (LIMB_BITS - a->expn);
+        else
+            v = (((uint64_t)a->tab[a->len - 1] << 32) |
+                 get_limbz(a, a->len - 2)) >> (64 - a->expn);
+#else
+        v = a->tab[a->len - 1] >> (LIMB_BITS - a->expn);
+#endif
+        ret = 0;
+    } else {
+    overflow:
+        v = UINT64_MAX;
+        ret = BF_ST_INVALID_OP;
     }
     *pres = v;
     return ret;

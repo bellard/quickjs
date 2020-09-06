@@ -50,21 +50,30 @@ fi
 
 if [ "$binary" = "yes" ] ; then
 
+make -j4 qjs run-test262
+make -j4 CONFIG_M32=y qjs32 run-test262-32
+strip qjs run-test262 qjs32 run-test262-32
+
 d="quickjs-linux-x86_64-${version}"
-name="quickjs-linux-x86_64-${version}"
 outdir="/tmp/${d}"
 
 rm -rf $outdir
 mkdir -p $outdir
 
-files="qjs run-test262"
+cp qjs run-test262 $outdir
 
-make -j4 $files
+( cd /tmp/$d && rm -f ../${d}.zip && zip -r ../${d}.zip . )
 
-strip $files
-cp $files $outdir
+d="quickjs-linux-i686-${version}"
+outdir="/tmp/${d}"
 
-( cd /tmp/$d && rm -f ../${name}.zip && zip -r ../${name}.zip . )
+rm -rf $outdir
+mkdir -p $outdir
+
+cp qjs32 $outdir/qjs
+cp run-test262-32 $outdir/run-test262
+
+( cd /tmp/$d && rm -f ../${d}.zip && zip -r ../${d}.zip . )
 
 fi
 

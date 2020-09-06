@@ -376,6 +376,7 @@ char *bf_ftoa(size_t *plen, const bf_t *a, int radix, limb_t prec,
 #define BF_GET_INT_MOD (1 << 0) 
 int bf_get_int32(int *pres, const bf_t *a, int flags);
 int bf_get_int64(int64_t *pres, const bf_t *a, int flags);
+int bf_get_uint64(uint64_t *pres, const bf_t *a);
 
 /* the following functions are exported for testing only. */
 void mp_print_str(const char *str, const limb_t *tab, limb_t n);

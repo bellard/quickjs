@@ -57,7 +57,7 @@ More precisely, the following modifications were made:
 
 @item @code{with operators from} is not supported. Operator overloading is always enabled.
 
-@item The dispatch is not based on a static @code{[[OperatorSet]]} field in all instances. Instead, a dynamic lookup the of the @code{Symbol.operatorSet} property is done. This property is typically added in the prototype of each object.
+@item The dispatch is not based on a static @code{[[OperatorSet]]} field in all instances. Instead, a dynamic lookup of the @code{Symbol.operatorSet} property is done. This property is typically added in the prototype of each object.
 
 @item @code{Operators.create(...dictionaries)} is used to create a new OperatorSet object. The @code{Operators} function is supported as an helper to be closer to the TC39 proposal.
 
@@ -119,7 +119,7 @@ Return the number of trailing zeros in the two's complement binary representatio
 @section Introduction
 
 This extension adds the @code{BigFloat} primitive type. The
-@code{BigFloat} type represents floating point numbers are in base 2
+@code{BigFloat} type represents floating point numbers in base 2
 with the IEEE 754 semantics. A floating
 point number is represented as a sign, mantissa and exponent. The
 special values @code{NaN}, @code{+/-Infinity}, @code{+0} and @code{-0}
@@ -143,15 +143,13 @@ explicit.}. The status flags of the global environment cannot be
 read@footnote{The rationale is to avoid side effects for the built-in
 operators.}. The precision of the global environment is
 @code{BigFloatEnv.prec}. The number of exponent bits of the global
-environment is @code{BigFloatEnv.expBits}.  If @code{BigFloatEnv.expBits} is
-strictly smaller than the maximum allowed number of exponent bits
-(@code{BigFloatEnv.expBitsMax}), then the global environment subnormal
-flag is set to @code{true}. Otherwise it is set to @code{false};
+environment is @code{BigFloatEnv.expBits}. The global environment
+subnormal flag is set to @code{true}.
 
-For example, @code{prec = 53} and @code{ expBits = 11} give exactly
-the same precision as the IEEE 754 64 bit floating point. The
+For example, @code{prec = 53} and @code{ expBits = 11} exactly give
+the same precision as the IEEE 754 64 bit floating point format. The
 default precision is @code{prec = 113} and @code{ expBits = 15} (IEEE
-754 128 bit floating point).
+754 128 bit floating point format).
 
 The global floating point environment can only be modified temporarily
 when calling a function (see @code{BigFloatEnv.setPrec}). Hence a
@@ -345,9 +343,8 @@ environment. The initial value is @code{113}.
 
 @item expBits
 Getter. Return the exponent size in bits of the global floating point
-environment assuming an IEEE 754 representation. If @code{expBits <
-expBitsMax}, then subnormal numbers are supported. The initial value
-is @code{15}.
+environment assuming an IEEE 754 representation. The initial value is
+@code{15}.
 
 @item setPrec(f, p[, e])
 Set the precision of the global floating point environment to @code{p}
@@ -492,7 +489,7 @@ BigDecimal literals are decimal floating point numbers with a trailing
 
 It returns @code{0m} if no parameter is provided. Otherwise the first
 parameter is converted to a bigdecimal by using ToString(). Hence
-Number value are not converted to their exact numerical value as
+Number values are not converted to their exact numerical value as
 BigDecimal.
 
 @subsection Properties of the @code{BigDecimal} object
@@ -581,11 +578,11 @@ The following changes are made to the Javascript semantics:
 
 @item The logical xor operator is still available with the @code{^^} operator.
 
-@item The integer division operator can be overloaded by modifying the corresponding operator in @code{BigInt.prototype.[[OperatorSet]]}.
-
-@item The integer power operator with a non zero negative exponent can be overloaded by modifying the corresponding operator in @code{BigInt.prototype.[[OperatorSet]]}.
-
 @item The modulo operator (@code{%}) returns the Euclidian remainder (always positive) instead of the truncated remainder.
+
+@item The integer division operator can be overloaded with @code{Operators.updateBigIntOperators(dictionary)}.
+
+@item The integer power operator with a non zero negative exponent can be overloaded with @code{Operators.updateBigIntOperators(dictionary)}.
 
 @end itemize
 

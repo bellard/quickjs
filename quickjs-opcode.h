@@ -119,7 +119,6 @@ DEF(           eval, 5, 1, 1, npop_u16) /* func args... -> ret_val */
 DEF(     apply_eval, 3, 2, 1, u16) /* func array -> ret_eval */
 DEF(         regexp, 1, 2, 1, none) /* create a RegExp object from the pattern and a
                                        bytecode string */
-DEF( get_super_ctor, 1, 1, 1, none)
 DEF(      get_super, 1, 1, 1, none)
 DEF(         import, 1, 1, 1, none) /* dynamic module import */
 

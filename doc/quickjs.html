@@ -1,8 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.1, http://www.gnu.org/software/texinfo/ -->
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>QuickJS Javascript Engine</title>
 
 <meta name="description" content="QuickJS Javascript Engine">
@@ -10,6 +9,7 @@
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <link href="#SEC_Contents" rel="contents" title="Table of Contents">
 <style type="text/css">
 <!--
@@ -519,50 +519,39 @@ optional properties:
 <dd><p>Evaluate the file <code>filename</code> as a script (global eval).
 </p>
 </dd>
-<dt><code>Error(errno)</code></dt>
-<dd>
-<p><code>std.Error</code> constructor. Error instances contain the field
-<code>errno</code> (error code) and <code>message</code> (result of
-<code>std.Error.strerror(errno)</code>).
-</p>
-<p>The constructor contains the following fields:
-</p>
-<dl compact="compact">
-<dt><code>EINVAL</code></dt>
-<dt><code>EIO</code></dt>
-<dt><code>EACCES</code></dt>
-<dt><code>EEXIST</code></dt>
-<dt><code>ENOSPC</code></dt>
-<dt><code>ENOSYS</code></dt>
-<dt><code>EBUSY</code></dt>
-<dt><code>ENOENT</code></dt>
-<dt><code>EPERM</code></dt>
-<dt><code>EPIPE</code></dt>
-<dd><p>Integer value of common errors (additional error codes may be defined).
-  </p></dd>
-<dt><code>strerror(errno)</code></dt>
-<dd><p>Return a string that describes the error <code>errno</code>.
-  </p></dd>
-</dl>
-
-</dd>
-<dt><code>open(filename, flags)</code></dt>
-<dd><p>Open a file (wrapper to the libc <code>fopen()</code>). Throws 
-<code>std.Error</code> in case of I/O error.
+<dt><code>loadFile(filename)</code></dt>
+<dd><p>Load the file <code>filename</code> and return it as a string assuming UTF-8
+encoding. Return <code>null</code> in case of I/O error.
 </p>
 </dd>
-<dt><code>popen(command, flags)</code></dt>
-<dd><p>Open a process by creating a pipe (wrapper to the libc <code>popen()</code>). Throws 
-<code>std.Error</code> in case of I/O error.
+<dt><code>open(filename, flags, errorObj = undefined)</code></dt>
+<dd><p>Open a file (wrapper to the libc <code>fopen()</code>). Return the FILE
+object or <code>null</code> in case of I/O error. If <code>errorObj</code> is not
+undefined, set its <code>errno</code> property to the error code or to 0 if
+no error occured.
 </p>
 </dd>
-<dt><code>fdopen(fd, flags)</code></dt>
+<dt><code>popen(command, flags, errorObj = undefined)</code></dt>
+<dd><p>Open a process by creating a pipe (wrapper to the libc
+<code>popen()</code>). Return the FILE
+object or <code>null</code> in case of I/O error. If <code>errorObj</code> is not
+undefined, set its <code>errno</code> property to the error code or to 0 if
+no error occured.
+</p>
+</dd>
+<dt><code>fdopen(fd, flags, errorObj = undefined)</code></dt>
 <dd><p>Open a file from a file handle (wrapper to the libc
-<code>fdopen()</code>). Throws <code>std.Error</code> in case of I/O error.
+<code>fdopen()</code>). Return the FILE
+object or <code>null</code> in case of I/O error. If <code>errorObj</code> is not
+undefined, set its <code>errno</code> property to the error code or to 0 if
+no error occured.
 </p>
 </dd>
-<dt><code>tmpfile()</code></dt>
-<dd><p>Open a temporary file. Throws <code>std.Error</code> in case of I/O error.
+<dt><code>tmpfile(errorObj = undefined)</code></dt>
+<dd><p>Open a temporary file. Return the FILE
+object or <code>null</code> in case of I/O error. If <code>errorObj</code> is not
+undefined, set its <code>errno</code> property to the error code or to 0 if
+no error occured.
 </p>
 </dd>
 <dt><code>puts(str)</code></dt>
@@ -587,6 +576,29 @@ optional properties:
 <dt><code>SEEK_CUR</code></dt>
 <dt><code>SEEK_END</code></dt>
 <dd><p>Constants for seek().
+</p>
+</dd>
+<dt><code>Error</code></dt>
+<dd>
+<p>Enumeration object containing the integer value of common errors
+(additional error codes may be defined):
+</p>
+<dl compact="compact">
+<dt><code>EINVAL</code></dt>
+<dt><code>EIO</code></dt>
+<dt><code>EACCES</code></dt>
+<dt><code>EEXIST</code></dt>
+<dt><code>ENOSPC</code></dt>
+<dt><code>ENOSYS</code></dt>
+<dt><code>EBUSY</code></dt>
+<dt><code>ENOENT</code></dt>
+<dt><code>EPERM</code></dt>
+<dt><code>EPIPE</code></dt>
+</dl>
+
+</dd>
+<dt><code>strerror(errno)</code></dt>
+<dd><p>Return a string that describes the error <code>errno</code>.
 </p>
 </dd>
 <dt><code>gc()</code></dt>
@@ -614,12 +626,14 @@ optional properties:
 </p>
 </dd>
 <dt><code>full</code></dt>
-<dd><p>Boolean (default = false). If true, return the an object contains
+<dd>  
+<p>Boolean (default = false). If true, return the an object contains
   the properties <code>response</code> (response content),
   <code>responseHeaders</code> (headers separated by CRLF), <code>status</code>
-  (status code). If <code>full</code> is false, only the response is
-  returned if the status is between 200 and 299. Otherwise an
-  <code>std.Error</code> exception is raised.
+  (status code). <code>response</code> is <code>null</code> is case of protocol or
+  network error. If <code>full</code> is false, only the response is
+  returned if the status is between 200 and 299. Otherwise <code>null</code>
+  is returned.
 </p>
 </dd>
 </dl>
@@ -631,7 +645,7 @@ optional properties:
 </p>
 <dl compact="compact">
 <dt><code>close()</code></dt>
-<dd><p>Close the file.
+<dd><p>Close the file. Return 0 if OK or <code>-errno</code> in case of I/O error.
 </p></dd>
 <dt><code>puts(str)</code></dt>
 <dd><p>Outputs the string with the UTF-8 encoding.
@@ -643,17 +657,27 @@ optional properties:
 <dd><p>Flush the buffered file.
 </p></dd>
 <dt><code>seek(offset, whence)</code></dt>
-<dd><p>Seek to a give file position (whence is <code>std.SEEK_*</code>). Throws a
-<code>std.Error</code> in case of I/O error.
+<dd><p>Seek to a give file position (whence is
+<code>std.SEEK_*</code>). <code>offset</code> can be a number or a bigint. Return
+0 if OK or <code>-errno</code> in case of I/O error.
 </p></dd>
 <dt><code>tell()</code></dt>
 <dd><p>Return the current file position.
+</p></dd>
+<dt><code>tello()</code></dt>
+<dd><p>Return the current file position as a bigint.
 </p></dd>
 <dt><code>eof()</code></dt>
 <dd><p>Return true if end of file.
 </p></dd>
 <dt><code>fileno()</code></dt>
 <dd><p>Return the associated OS handle.
+</p></dd>
+<dt><code>error()</code></dt>
+<dd><p>Return true if there was an error.
+</p></dd>
+<dt><code>clearerr()</code></dt>
+<dd><p>Clear the error indication.
 </p>
 </dd>
 <dt><code>read(buffer, position, length)</code></dt>
@@ -727,7 +751,9 @@ error code.
 </p>
 </dd>
 <dt><code>seek(fd, offset, whence)</code></dt>
-<dd><p>Seek in the file. Use <code>std.SEEK_*</code> for <code>whence</code>.
+<dd><p>Seek in the file. Use <code>std.SEEK_*</code> for
+<code>whence</code>. <code>offset</code> is either a number or a bigint. If
+<code>offset</code> is a bigint, a bigint is returned too.
 </p>
 </dd>
 <dt><code>read(fd, buffer, offset, length)</code></dt>
@@ -755,11 +781,11 @@ Return the number of written bytes or &lt; 0 if error.
 </p>
 </dd>
 <dt><code>remove(filename)</code></dt>
-<dd><p>Remove a file. Return 0 if OK or &lt; 0 if error.
+<dd><p>Remove a file. Return 0 if OK or <code>-errno</code>.
 </p>
 </dd>
 <dt><code>rename(oldname, newname)</code></dt>
-<dd><p>Rename a file. Return 0 if OK or &lt; 0 if error.
+<dd><p>Rename a file. Return 0 if OK or <code>-errno</code>.
 </p>
 </dd>
 <dt><code>realpath(path)</code></dt>
@@ -773,11 +799,11 @@ and <code>err</code> the error code.
 </p>
 </dd>
 <dt><code>chdir(path)</code></dt>
-<dd><p>Change the current directory. Return the error code.
+<dd><p>Change the current directory. Return 0 if OK or <code>-errno</code>.
 </p>
 </dd>
 <dt><code>mkdir(path, mode = 0o777)</code></dt>
-<dd><p>Create a directory at <code>path</code>. Return the error code.
+<dd><p>Create a directory at <code>path</code>. Return 0 if OK or <code>-errno</code>.
 </p>
 </dd>
 <dt><code>stat(path)</code></dt>
@@ -809,11 +835,11 @@ itself.
 </dd>
 <dt><code>utimes(path, atime, mtime)</code></dt>
 <dd><p>Change the access and modification times of the file <code>path</code>. The
-times are specified in milliseconds since 1970.
+times are specified in milliseconds since 1970. Return 0 if OK or <code>-errno</code>.
 </p>
 </dd>
 <dt><code>symlink(target, linkpath)</code></dt>
-<dd><p>Create a link at <code>linkpath</code> containing the string <code>target</code>.
+<dd><p>Create a link at <code>linkpath</code> containing the string <code>target</code>. Return 0 if OK or <code>-errno</code>.
 </p>
 </dd>
 <dt><code>readlink(path)</code></dt>
@@ -896,7 +922,8 @@ object containing optional parameters:
 
 </dd>
 <dt><code>waitpid(pid, options)</code></dt>
-<dd><p><code>waitpid</code> Unix system call. Return the array <code>[ret, status]</code>.
+<dd><p><code>waitpid</code> Unix system call. Return the array <code>[ret,
+status]</code>. <code>ret</code> contains <code>-errno</code> in case of error.
 </p>
 </dd>
 <dt><code>WNOHANG</code></dt>

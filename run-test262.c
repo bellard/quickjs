@@ -385,8 +385,11 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
             str = JS_ToCString(ctx, argv[i]);
             if (!str)
                 return JS_EXCEPTION;
-            if (!strcmp(str, "Test262:AsyncTestComplete"))
+            if (!strcmp(str, "Test262:AsyncTestComplete")) {
                 async_done++;
+            } else if (strstart(str, "Test262:AsyncTestFailure", NULL)) {
+                async_done = 2; /* force an error */
+            }
             fputs(str, outfile);
             JS_FreeCString(ctx, str);
         }

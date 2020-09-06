@@ -501,6 +501,10 @@ function test_regexp()
     a = eval("/\0a/");
     assert(a.toString(), "/\0a/");
     assert(a.exec("\0a")[0], "\0a");
+
+    assert(/{1a}/.toString(), "/{1a}/");
+    a = /a{1+/.exec("a{11");
+    assert(a, ["a{11"] );
 }
 
 function test_symbol()
