@@ -270,6 +270,7 @@ void help(void)
            "-T  --trace        trace memory allocation\n"
            "-d  --dump         dump the memory usage stats\n"
            "    --memory-limit n       limit the memory usage to 'n' bytes\n"
+           "    --stack-size n         limit the stack size to 'n' bytes\n"
            "    --unhandled-rejection  dump unhandled promise rejections\n"
            "-q  --quit         just instantiate the interpreter and quit\n");
     exit(1);
@@ -295,7 +296,8 @@ int main(int argc, char **argv)
 #ifdef CONFIG_BIGNUM
     int load_jscalc, bignum_ext = 0;
 #endif
-
+    size_t stack_size = 0;
+    
 #ifdef CONFIG_BIGNUM
     /* load jscalc runtime if invoked as 'qjscalc' */
     {
@@ -407,6 +409,14 @@ int main(int argc, char **argv)
                 memory_limit = (size_t)strtod(argv[optind++], NULL);
                 continue;
             }
+            if (!strcmp(longopt, "stack-size")) {
+                if (optind >= argc) {
+                    fprintf(stderr, "expecting stack size");
+                    exit(1);
+                }
+                stack_size = (size_t)strtod(argv[optind++], NULL);
+                continue;
+            }
             if (opt) {
                 fprintf(stderr, "qjs: unknown option '-%c'\n", opt);
             } else {
@@ -428,6 +438,9 @@ int main(int argc, char **argv)
     }
     if (memory_limit != 0)
         JS_SetMemoryLimit(rt, memory_limit);
+    if (stack_size != 0)
+        JS_SetMaxStackSize(rt, stack_size);
+    js_std_init_handlers(rt);
     ctx = JS_NewContext(rt);
     if (!ctx) {
         fprintf(stderr, "qjs: cannot allocate JS context\n");

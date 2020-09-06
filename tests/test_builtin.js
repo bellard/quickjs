@@ -287,6 +287,10 @@ function test_math()
     assert(Math.ceil(a), 2);
     assert(Math.imul(0x12345678, 123), -1088058456);
     assert(Math.fround(0.1), 0.10000000149011612);
+    assert(Math.hypot() == 0);
+    assert(Math.hypot(-2) == 2);
+    assert(Math.hypot(3, 4) == 5);
+    assert(Math.abs(Math.hypot(3, 4, 5) - 7.0710678118654755) <= 1e-15);
 }
 
 function test_number()

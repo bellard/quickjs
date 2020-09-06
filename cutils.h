@@ -268,6 +268,10 @@ void dbuf_free(DynBuf *s);
 static inline BOOL dbuf_error(DynBuf *s) {
     return s->error;
 }
+static inline void dbuf_set_error(DynBuf *s)
+{
+    s->error = TRUE;
+}
 
 #define UTF8_CHAR_LEN_MAX 6
 

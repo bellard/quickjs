@@ -110,12 +110,14 @@ static inline int is_digit(int c) {
     return c >= '0' && c <= '9';
 }
 
-/* insert 'len' bytes at position 'pos' */
-static void dbuf_insert(DynBuf *s, int pos, int len)
+/* insert 'len' bytes at position 'pos'. Return < 0 if error. */
+static int dbuf_insert(DynBuf *s, int pos, int len)
 {
-    dbuf_realloc(s, s->size + len);
+    if (dbuf_realloc(s, s->size + len))
+        return -1;
     memmove(s->buf + pos + len, s->buf + pos, s->size - pos);
     s->size += len;
+    return 0;
 }
 
 /* canonicalize with the specific JS regexp rules */
@@ -434,6 +436,11 @@ static int __attribute__((format(printf, 2, 3))) re_parse_error(REParseState *s,
     return -1;
 }
 
+static int re_parse_out_of_memory(REParseState *s)
+{
+    return re_parse_error(s, "out of memory");
+}
+
 /* If allow_overflow is false, return -1 in case of
    overflow. Otherwise return INT32_MAX. */
 static int parse_digits(const uint8_t **pp, BOOL allow_overflow)
@@ -693,7 +700,7 @@ static int parse_unicode_property(REParseState *s, CharRange *cr,
     *pp = p;
     return 0;
  out_of_memory:
-    return re_parse_error(s, "out of memory");
+    return re_parse_out_of_memory(s);
 }
 #endif /* CONFIG_ALL_UNICODE */
 
@@ -928,7 +935,7 @@ static int re_parse_char_class(REParseState *s, const uint8_t **pp)
     *pp = p;
     return 0;
  memory_error:
-    re_parse_error(s, "out of memory");
+    re_parse_out_of_memory(s);
  fail:
     cr_free(cr);
     return -1;
@@ -1295,6 +1302,8 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     return -1;
                 re_emit_op(s, REOP_match);
                 /* jump after the 'match' after the lookahead is successful */
+                if (dbuf_error(&s->byte_code))
+                    return -1;
                 put_u32(s->byte_code.buf + pos, s->byte_code.size - (pos + 4));
             } else if (p[2] == '<') {
                 p += 3;
@@ -1548,12 +1557,15 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                 
                 if (quant_max > 0) {
                     /* specific optimization for simple quantifiers */
+                    if (dbuf_error(&s->byte_code))
+                        goto out_of_memory;
                     len = re_is_simple_quantifier(s->byte_code.buf + last_atom_start,
                                                  s->byte_code.size - last_atom_start);
                     if (len > 0) {
                         re_emit_op(s, REOP_match);
                         
-                        dbuf_insert(&s->byte_code, last_atom_start, 17);
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 17))
+                            goto out_of_memory;
                         pos = last_atom_start;
                         s->byte_code.buf[pos++] = REOP_simple_greedy_quant;
                         put_u32(&s->byte_code.buf[pos],
@@ -1569,6 +1581,8 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     }
                 }
                 
+                if (dbuf_error(&s->byte_code))
+                    goto out_of_memory;
                 add_zero_advance_check = (re_check_advance(s->byte_code.buf + last_atom_start,
                                                            s->byte_code.size - last_atom_start) == 0);
             } else {
@@ -1582,7 +1596,8 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     /* need to reset the capture in case the atom is
                        not executed */
                     if (last_capture_count != s->capture_count) {
-                        dbuf_insert(&s->byte_code, last_atom_start, 3);
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 3))
+                            goto out_of_memory;
                         s->byte_code.buf[last_atom_start++] = REOP_save_reset;
                         s->byte_code.buf[last_atom_start++] = last_capture_count;
                         s->byte_code.buf[last_atom_start++] = s->capture_count - 1;
@@ -1590,12 +1605,14 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     if (quant_max == 0) {
                         s->byte_code.size = last_atom_start;
                     } else if (quant_max == 1) {
-                        dbuf_insert(&s->byte_code, last_atom_start, 5);
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 5))
+                            goto out_of_memory;
                         s->byte_code.buf[last_atom_start] = REOP_split_goto_first +
                             greedy;
                         put_u32(s->byte_code.buf + last_atom_start + 1, len);
                     } else if (quant_max == INT32_MAX) {
-                        dbuf_insert(&s->byte_code, last_atom_start, 5 + add_zero_advance_check);
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 5 + add_zero_advance_check))
+                            goto out_of_memory;
                         s->byte_code.buf[last_atom_start] = REOP_split_goto_first +
                             greedy;
                         put_u32(s->byte_code.buf + last_atom_start + 1,
@@ -1611,7 +1628,8 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                             re_emit_goto(s, REOP_goto, last_atom_start);
                         }
                     } else {
-                        dbuf_insert(&s->byte_code, last_atom_start, 10);
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 10))
+                            goto out_of_memory;
                         pos = last_atom_start;
                         s->byte_code.buf[pos++] = REOP_push_i32;
                         put_u32(s->byte_code.buf + pos, quant_max);
@@ -1629,7 +1647,8 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     if (quant_min == 1) {
                         /* nothing to add */
                     } else {
-                        dbuf_insert(&s->byte_code, last_atom_start, 5);
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 5))
+                            goto out_of_memory;
                         s->byte_code.buf[last_atom_start] = REOP_push_i32;
                         put_u32(s->byte_code.buf + last_atom_start + 1,
                                 quant_min);
@@ -1670,6 +1689,8 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
  done:
     s->buf_ptr = p;
     return 0;
+ out_of_memory:
+    return re_parse_out_of_memory(s);
 }
 
 static int re_parse_alternative(REParseState *s, BOOL is_backward_dir)
@@ -1719,7 +1740,9 @@ static int re_parse_disjunction(REParseState *s, BOOL is_backward_dir)
         len = s->byte_code.size - start;
 
         /* insert a split before the first alternative */
-        dbuf_insert(&s->byte_code, start, 5);
+        if (dbuf_insert(&s->byte_code, start, 5)) {
+            return re_parse_out_of_memory(s);
+        }
         s->byte_code.buf[start] = REOP_split_next_first;
         put_u32(s->byte_code.buf + start + 1, len + 5);
 
@@ -1844,7 +1867,7 @@ uint8_t *lre_compile(int *plen, char *error_msg, int error_msg_size,
     }
 
     if (dbuf_error(&s->byte_code)) {
-        re_parse_error(s, "out of memory");
+        re_parse_out_of_memory(s);
         goto error;
     }
     

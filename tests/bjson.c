@@ -31,6 +31,7 @@ static JSValue js_bjson_read(JSContext *ctx, JSValueConst this_val,
     uint64_t pos, len;
     JSValue obj;
     size_t size;
+    int flags;
     
     if (JS_ToIndex(ctx, &pos, argv[1]))
         return JS_EXCEPTION;
@@ -41,7 +42,10 @@ static JSValue js_bjson_read(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     if (pos + len > size)
         return JS_ThrowRangeError(ctx, "array buffer overflow");
-    obj = JS_ReadObject(ctx, buf + pos, len, 0);
+    flags = 0;
+    if (JS_ToBool(ctx, argv[3]))
+        flags |= JS_READ_OBJ_REFERENCE;
+    obj = JS_ReadObject(ctx, buf + pos, len, flags);
     return obj;
 }
 
@@ -51,8 +55,12 @@ static JSValue js_bjson_write(JSContext *ctx, JSValueConst this_val,
     size_t len;
     uint8_t *buf;
     JSValue array;
+    int flags;
     
-    buf = JS_WriteObject(ctx, &len, argv[0], 0);
+    flags = 0;
+    if (JS_ToBool(ctx, argv[1]))
+        flags |= JS_WRITE_OBJ_REFERENCE;
+    buf = JS_WriteObject(ctx, &len, argv[0], flags);
     if (!buf)
         return JS_EXCEPTION;
     array = JS_NewArrayBufferCopy(ctx, buf, len);
@@ -61,8 +69,8 @@ static JSValue js_bjson_write(JSContext *ctx, JSValueConst this_val,
 }
 
 static const JSCFunctionListEntry js_bjson_funcs[] = {
-    JS_CFUNC_DEF("read", 3, js_bjson_read ),
-    JS_CFUNC_DEF("write", 1, js_bjson_write ),
+    JS_CFUNC_DEF("read", 4, js_bjson_read ),
+    JS_CFUNC_DEF("write", 2, js_bjson_write ),
 };
 
 static int js_bjson_init(JSContext *ctx, JSModuleDef *m)

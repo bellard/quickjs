@@ -1,7 +1,8 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Created by GNU Texinfo 6.1, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
 <head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>QuickJS Javascript Engine</title>
 
 <meta name="description" content="QuickJS Javascript Engine">
@@ -9,7 +10,6 @@
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <link href="#SEC_Contents" rel="contents" title="Table of Contents">
 <style type="text/css">
 <!--
@@ -73,10 +73,9 @@ ul.no-bullet {list-style: none}
   <li><a name="toc-Language-support" href="#Language-support">3.1 Language support</a>
   <ul class="no-bullet">
     <li><a name="toc-ES2020-support" href="#ES2020-support">3.1.1 ES2020 support</a></li>
-    <li><a name="toc-JSON" href="#JSON">3.1.2 JSON</a></li>
-    <li><a name="toc-ECMA402" href="#ECMA402">3.1.3 ECMA402</a></li>
-    <li><a name="toc-Extensions" href="#Extensions">3.1.4 Extensions</a></li>
-    <li><a name="toc-Mathematical-extensions" href="#Mathematical-extensions">3.1.5 Mathematical extensions</a></li>
+    <li><a name="toc-ECMA402" href="#ECMA402">3.1.2 ECMA402</a></li>
+    <li><a name="toc-Extensions" href="#Extensions">3.1.3 Extensions</a></li>
+    <li><a name="toc-Mathematical-extensions" href="#Mathematical-extensions">3.1.4 Mathematical extensions</a></li>
   </ul></li>
   <li><a name="toc-Modules" href="#Modules">3.2 Modules</a></li>
   <li><a name="toc-Standard-library" href="#Standard-library">3.3 Standard library</a>
@@ -407,18 +406,13 @@ B (legacy web compatibility) and the Unicode related features.
 
 </li></ul>
 
-<a name="JSON"></a>
-<h4 class="subsection">3.1.2 JSON</h4>
-
-<p>The JSON parser is currently more tolerant than the specification.
-</p>
 <a name="ECMA402"></a>
-<h4 class="subsection">3.1.3 ECMA402</h4>
+<h4 class="subsection">3.1.2 ECMA402</h4>
 
 <p>ECMA402 (Internationalization API) is not supported.
 </p>
 <a name="Extensions"></a>
-<h4 class="subsection">3.1.4 Extensions</h4>
+<h4 class="subsection">3.1.3 Extensions</h4>
 
 <ul>
 <li> The directive <code>&quot;use strip&quot;</code> indicates that the debug information (including the source code of the functions) should not be retained to save memory. As <code>&quot;use strict&quot;</code>, the directive can be global to a script or local to a function.
@@ -428,7 +422,7 @@ B (legacy web compatibility) and the Unicode related features.
 </li></ul>
 
 <a name="Mathematical-extensions"></a>
-<h4 class="subsection">3.1.5 Mathematical extensions</h4>
+<h4 class="subsection">3.1.4 Mathematical extensions</h4>
 
 <p>The mathematical extensions are fully backward compatible with
 standard Javascript. See <code>jsbignum.pdf</code> for more information.
@@ -557,7 +551,7 @@ no error occured.
 </p>
 </dd>
 <dt><code>printf(fmt, ...args)</code></dt>
-<dd><p>Equivalent to <code>std.out.printf(fmt, ...args)</code>
+<dd><p>Equivalent to <code>std.out.printf(fmt, ...args)</code>.
 </p>
 </dd>
 <dt><code>sprintf(fmt, ...args)</code></dt>
@@ -637,6 +631,21 @@ optional properties:
 </dl>
 
 </dd>
+<dt><code>parseExtJSON(str)</code></dt>
+<dd>
+<p>Parse <code>str</code> using a superset of <code>JSON.parse</code>. The
+  following extensions are accepted:
+</p>
+<ul>
+<li> Single line and multiline comments
+  </li><li> unquoted properties (ASCII-only Javascript identifiers)
+  </li><li> trailing comma in array and object definitions
+  </li><li> single quoted strings
+  </li><li> <code>\f</code> and <code>\v</code> are accepted as space characters
+  </li><li> leading plus in numbers
+  </li><li> octal (<code>0o</code> prefix) and hexadecimal (<code>0x</code> prefix) numbers
+  </li></ul>
+</dd>
 </dl>
 
 <p>FILE prototype:
@@ -649,8 +658,14 @@ optional properties:
 <dd><p>Outputs the string with the UTF-8 encoding.
 </p></dd>
 <dt><code>printf(fmt, ...args)</code></dt>
-<dd><p>Formatted printf, same formats as the libc printf.
-</p></dd>
+<dd><p>Formatted printf.
+</p>
+<p>The same formats as the standard C library <code>printf</code> are
+supported. Integer format types (e.g. <code>%d</code>) truncate the Numbers
+or BigInts to 32 bits. Use the <code>l</code> modifier (e.g. <code>%ld</code>) to
+truncate to 64 bits.
+</p>
+</dd>
 <dt><code>flush()</code></dt>
 <dd><p>Flush the buffered file.
 </p></dd>
@@ -718,6 +733,7 @@ is read up its end.
 </li><li> signals
 </li><li> timers
 </li><li> asynchronous I/O
+</li><li> workers (threads)
 </li></ul>
 
 <p>The OS functions usually return 0 if OK or an OS specific negative
@@ -869,7 +885,7 @@ the handler.
 <dd><p>Call the function <code>func</code> when the signal <code>signal</code>
 happens. Only a single handler per signal number is supported. Use
 <code>null</code> to set the default handler or <code>undefined</code> to ignore
-the signal.
+the signal. Signal handlers can only be defined in the main thread.
 </p>
 </dd>
 <dt><code>SIGINT</code></dt>
@@ -972,6 +988,49 @@ to the timer.
 <dd><p>Return a string representing the platform: <code>&quot;linux&quot;</code>, <code>&quot;darwin&quot;</code>,
 <code>&quot;win32&quot;</code> or <code>&quot;js&quot;</code>.
 </p>
+</dd>
+<dt><code>Worker(source)</code></dt>
+<dd><p>Constructor to create a new thread (worker) with an API close to the
+<code>WebWorkers</code>. <code>source</code> is a string containing the module
+source which is executed in the newly created thread. Threads normally
+don&rsquo;t share any data and communicate between each other with
+messages. Nested workers are not supported. An example is available in
+<samp>tests/test_worker.js</samp>.
+</p>
+<p>The worker class has the following static properties:
+</p>
+<dl compact="compact">
+<dt><code>parent</code></dt>
+<dd><p>In the created worker, <code>Worker.parent</code> represents the parent
+  worker and is used to send or receive messages.
+  </p></dd>
+</dl>
+
+<p>The worker instances have the following properties:
+</p>
+<dl compact="compact">
+<dt><code>postMessage(msg)</code></dt>
+<dd>  
+<p>Send a message to the corresponding worker. <code>msg</code> is cloned in
+  the destination worker using an algorithm similar to the <code>HTML</code>
+  structured clone algorithm. <code>SharedArrayBuffer</code> are shared
+  between workers.
+</p>
+<p>Current limitations: <code>Map</code> and <code>Set</code> are not supported
+  yet.
+</p>
+</dd>
+<dt><code>onmessage</code></dt>
+<dd>
+<p>Getter and setter. Set a function which is called each time a
+  message is received. The function is called with a single
+  argument. It is an object with a <code>data</code> property containing the
+  received message. The thread is not terminated if there is at least
+  one non <code>null</code> <code>onmessage</code> handler.
+</p>
+</dd>
+</dl>
+
 </dd>
 </dl>
 

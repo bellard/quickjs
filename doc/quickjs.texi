@@ -272,10 +272,6 @@ The following features are not supported yet:
 
 @end itemize
 
-@subsection JSON
-
-The JSON parser is currently more tolerant than the specification.
-
 @subsection ECMA402
 
 ECMA402 (Internationalization API) is not supported.
@@ -405,7 +401,7 @@ no error occured.
 Equivalent to @code{std.out.puts(str)}.
 
 @item printf(fmt, ...args)
-Equivalent to @code{std.out.printf(fmt, ...args)}
+Equivalent to @code{std.out.printf(fmt, ...args)}.
 
 @item sprintf(fmt, ...args)
 Equivalent to the libc sprintf().
@@ -474,6 +470,20 @@ optional properties:
 
   @end table
 
+@item parseExtJSON(str)
+
+  Parse @code{str} using a superset of @code{JSON.parse}. The
+  following extensions are accepted:
+
+  @itemize
+  @item Single line and multiline comments
+  @item unquoted properties (ASCII-only Javascript identifiers)
+  @item trailing comma in array and object definitions
+  @item single quoted strings
+  @item @code{\f} and @code{\v} are accepted as space characters
+  @item leading plus in numbers
+  @item octal (@code{0o} prefix) and hexadecimal (@code{0x} prefix) numbers
+  @end itemize
 @end table
 
 FILE prototype:
@@ -484,7 +494,13 @@ Close the file. Return 0 if OK or @code{-errno} in case of I/O error.
 @item puts(str)
 Outputs the string with the UTF-8 encoding.
 @item printf(fmt, ...args)
-Formatted printf, same formats as the libc printf.
+Formatted printf.
+
+The same formats as the standard C library @code{printf} are
+supported. Integer format types (e.g. @code{%d}) truncate the Numbers
+or BigInts to 32 bits. Use the @code{l} modifier (e.g. @code{%ld}) to
+truncate to 64 bits.
+
 @item flush()
 Flush the buffered file.
 @item seek(offset, whence)
@@ -537,6 +553,7 @@ The @code{os} module provides Operating System specific functions:
 @item signals
 @item timers
 @item asynchronous I/O
+@item workers (threads)
 @end itemize
 
 The OS functions usually return 0 if OK or an OS specific negative
@@ -664,7 +681,7 @@ the handler.
 Call the function @code{func} when the signal @code{signal}
 happens. Only a single handler per signal number is supported. Use
 @code{null} to set the default handler or @code{undefined} to ignore
-the signal.
+the signal. Signal handlers can only be defined in the main thread.
 
 @item SIGINT
 @item SIGABRT
@@ -746,6 +763,45 @@ Cancel a timer.
 @item platform
 Return a string representing the platform: @code{"linux"}, @code{"darwin"},
 @code{"win32"} or @code{"js"}.
+
+@item Worker(source)
+Constructor to create a new thread (worker) with an API close to the
+@code{WebWorkers}. @code{source} is a string containing the module
+source which is executed in the newly created thread. Threads normally
+don't share any data and communicate between each other with
+messages. Nested workers are not supported. An example is available in
+@file{tests/test_worker.js}.
+
+The worker class has the following static properties:
+
+  @table @code
+  @item parent
+  In the created worker, @code{Worker.parent} represents the parent
+  worker and is used to send or receive messages.
+  @end table
+
+The worker instances have the following properties:
+
+  @table @code
+  @item postMessage(msg)
+  
+  Send a message to the corresponding worker. @code{msg} is cloned in
+  the destination worker using an algorithm similar to the @code{HTML}
+  structured clone algorithm. @code{SharedArrayBuffer} are shared
+  between workers.
+
+  Current limitations: @code{Map} and @code{Set} are not supported
+  yet.
+
+  @item onmessage
+
+  Getter and setter. Set a function which is called each time a
+  message is received. The function is called with a single
+  argument. It is an object with a @code{data} property containing the
+  received message. The thread is not terminated if there is at least
+  one non @code{null} @code{onmessage} handler.
+
+  @end table
 
 @end table
 

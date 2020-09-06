@@ -2,6 +2,8 @@ test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-r
 test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: strict mode: Test262Error: Expected a ReferenceError but got a ReferenceError
 test262/test/built-ins/Proxy/ownKeys/trap-is-undefined-target-is-proxy.js:29: Test262Error: Expected [0, length, foo, Symbol()] and [Symbol(), length, foo, 0] to have the same contents. 
 test262/test/built-ins/Proxy/ownKeys/trap-is-undefined-target-is-proxy.js:29: strict mode: Test262Error: Expected [0, length, foo, Symbol()] and [Symbol(), length, foo, 0] to have the same contents. 
+test262/test/built-ins/RegExp/named-groups/non-unicode-property-names-valid.js:46: SyntaxError: invalid group name
+test262/test/built-ins/RegExp/named-groups/non-unicode-property-names-valid.js:46: strict mode: SyntaxError: invalid group name
 test262/test/language/expressions/arrow-function/eval-var-scope-syntax-err.js:47: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/expressions/async-arrow-function/eval-var-scope-syntax-err.js:49: TypeError: $DONE() not called
 test262/test/language/expressions/async-function/named-eval-var-scope-syntax-err.js:33: TypeError: $DONE() not called
@@ -18,8 +20,8 @@ test262/test/language/expressions/object/method-definition/async-gen-meth-eval-v
 test262/test/language/expressions/object/method-definition/async-meth-eval-var-scope-syntax-err.js:36: TypeError: $DONE() not called
 test262/test/language/expressions/object/method-definition/gen-meth-eval-var-scope-syntax-err.js:54: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/expressions/object/method-definition/meth-eval-var-scope-syntax-err.js:50: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: value has no property
-test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: value has no property
+test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: cannot read property 'c' of undefined
+test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: cannot read property '_b' of undefined
 test262/test/language/statements/async-function/eval-var-scope-syntax-err.js:33: TypeError: $DONE() not called
 test262/test/language/statements/async-generator/eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/statements/class/elements/grammar-private-field-optional-chaining.js:26: SyntaxError: expecting field name

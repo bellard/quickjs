@@ -26,6 +26,12 @@ try { std.loadScript("test_assert.js"); } catch(e) {}
 function test_printf()
 {
     assert(std.sprintf("a=%d s=%s", 123, "abc"), "a=123 s=abc");
+    assert(std.sprintf("%010d", 123), "0000000123");
+    assert(std.sprintf("%x", -2), "fffffffe");
+    assert(std.sprintf("%lx", -2), "fffffffffffffffe");
+    assert(std.sprintf("%10.1f", 2.1), "       2.1");
+    assert(std.sprintf("%*.*f", 10, 2, -2.13), "     -2.13");
+    assert(std.sprintf("%#lx", 0x7fffffffffffffffn), "0x7fffffffffffffff");
 }
 
 function test_file1()
@@ -117,6 +123,20 @@ function test_popen()
     assert(str, content);
 
     os.remove(fname);
+}
+
+function test_ext_json()
+{
+    var expected, input, obj;
+    expected = '{"x":false,"y":true,"z2":null,"a":[1,8,160],"s":"str"}';
+    input = `{ "x":false, /*comments are allowed */
+               "y":true,  // also a comment
+               z2:null, // unquoted property names
+               "a":[+1,0o10,0xa0,], // plus prefix, octal, hexadecimal
+               "s":"str",} // trailing comma in objects and arrays
+            `;
+    obj = std.parseExtJSON(input);
+    assert(JSON.stringify(obj), expected);
 }
 
 function test_os()
@@ -258,3 +278,4 @@ test_popen();
 test_os();
 test_os_exec();
 test_timer();
+test_ext_json();

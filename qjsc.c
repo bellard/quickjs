@@ -326,6 +326,7 @@ static const char main_c_template1[] =
     "  JSRuntime *rt;\n"
     "  JSContext *ctx;\n"
     "  rt = JS_NewRuntime();\n"
+    "  js_std_init_handlers(rt);\n"
     ;
 
 static const char main_c_template2[] =
@@ -351,7 +352,8 @@ void help(void)
            "-M module_name[,cname] add initialization code for an external C module\n"
            "-x          byte swapped output\n"
            "-p prefix   set the prefix of the generated C names\n"
-           );
+           "-S n        set the maximum stack size to 'n' bytes (default=%d)\n",
+           JS_DEFAULT_STACK_SIZE);
 #ifdef CONFIG_LTO
     {
         int i;
@@ -447,6 +449,7 @@ static int output_executable(const char *out_filename, const char *cfilename,
     *arg++ = libjsname;
     *arg++ = "-lm";
     *arg++ = "-ldl";
+    *arg++ = "-lpthread";
     *arg = NULL;
     
     if (verbose) {
@@ -487,6 +490,7 @@ int main(int argc, char **argv)
     BOOL use_lto;
     int module;
     OutputTypeEnum output_type;
+    size_t stack_size;
 #ifdef CONFIG_BIGNUM
     BOOL bignum_ext = FALSE;
 #endif
@@ -499,13 +503,14 @@ int main(int argc, char **argv)
     byte_swap = FALSE;
     verbose = 0;
     use_lto = FALSE;
+    stack_size = 0;
     
     /* add system modules */
     namelist_add(&cmodule_list, "std", "std", 0);
     namelist_add(&cmodule_list, "os", "os", 0);
 
     for(;;) {
-        c = getopt(argc, argv, "ho:cN:f:mxevM:p:");
+        c = getopt(argc, argv, "ho:cN:f:mxevM:p:S:");
         if (c == -1)
             break;
         switch(c) {
@@ -580,6 +585,9 @@ int main(int argc, char **argv)
         case 'p':
             c_ident_prefix = optarg;
             break;
+        case 'S':
+            stack_size = (size_t)strtod(optarg, NULL);
+            break;
         default:
             break;
         }
@@ -652,6 +660,11 @@ int main(int argc, char **argv)
         fputs(main_c_template1, fo);
         fprintf(fo, "  ctx = JS_NewContextRaw(rt);\n");
 
+        if (stack_size != 0) {
+            fprintf(fo, "  JS_SetMaxStackSize(rt, %u);\n",
+                    (unsigned int)stack_size);
+        }
+        
         /* add the module loader if necessary */
         if (feature_bitmap & (1 << FE_MODULE_LOADER)) {
             fprintf(fo, "  JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);\n");

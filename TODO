@@ -1,4 +1,5 @@
 Misc:
+- use realpath in module name normalizer and put it in quickjs-libc
 - use custom printf to avoid C library compatibility issues
 - rename CONFIG_ALL_UNICODE, CONFIG_BIGNUM, CONFIG_ATOMICS, CONFIG_CHECK_JSVALUE ?
 - unify coding style and naming conventions
@@ -56,12 +57,12 @@ Extensions:
   handle #if, #ifdef, #line, limited support for #define
 - get rid of __loadScript, use more common name
 - BSD sockets
-- Workers
 
 REPL:
 - debugger
 - readline: support MS Windows terminal
 - readline: handle dynamic terminal resizing
+- readline: handle double width unicode characters
 - multiline editing
 - runtime object and function inspectors
 - interactive object browser
@@ -73,6 +74,5 @@ REPL:
 Test262o:   0/11262 errors, 463 excluded
 Test262o commit: 7da91bceb9ce7613f87db47ddd1292a2dda58b42 (es5-tests branch)
 
-Test262: 28/70829 errors, 877 excluded, 425 skipped
-Test262 commit: 4a8e49b3ca7f9f74a4cafe6621ff9ba548ccc353
-
+Test262: 30/71095 errors, 870 excluded, 549 skipped
+Test262 commit: 281eb10b2844929a7c0ac04527f5b42ce56509fd

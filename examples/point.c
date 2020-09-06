@@ -130,11 +130,11 @@ static int js_point_init(JSContext *ctx, JSModuleDef *m)
 
     point_proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, point_proto, js_point_proto_funcs, countof(js_point_proto_funcs));
-    JS_SetClassProto(ctx, js_point_class_id, point_proto);
     
     point_class = JS_NewCFunction2(ctx, js_point_ctor, "Point", 2, JS_CFUNC_constructor, 0);
     /* set proto.constructor and ctor.prototype */
     JS_SetConstructor(ctx, point_class, point_proto);
+    JS_SetClassProto(ctx, js_point_class_id, point_proto);
                       
     JS_SetModuleExport(ctx, m, "Point", point_class);
     return 0;

@@ -228,6 +228,19 @@ function prop_create(n)
     return n * 4;
 }
 
+function prop_delete(n)
+{
+    var obj, j;
+    obj = {};
+    for(j = 0; j < n; j++) {
+        obj[j] = 1;
+    }
+    for(j = 0; j < n; j++) {
+        delete obj[j];
+    }
+    return n;
+}
+
 function array_read(n)
 {
     var tab, len, sum, i, j;
@@ -945,6 +958,7 @@ function main(argc, argv, g)
         prop_read,
         prop_write,
         prop_create,
+        prop_delete,
         array_read,
         array_write,
         array_prop_create,
