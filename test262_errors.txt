@@ -1,0 +1,4 @@
+test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: TypeError: $DONE() not called
+test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: strict mode: TypeError: $DONE() not called
+test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: value has no property
+test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: value has no property
