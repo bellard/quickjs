@@ -277,6 +277,8 @@ function test_string()
     assert("aaaa".split("aaaaa", 1), [ "aaaa" ]);
 
     assert(eval('"\0"'), "\0");
+
+    assert("abc".padStart(Infinity, ""), "abc");
 }
 
 function test_math()

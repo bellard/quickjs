@@ -359,6 +359,23 @@ function test_labels()
     while (0) x: { break x; };
 }
 
+function test_destructuring()
+{
+    function * g () { return 0; };
+    var [x] = g();
+    assert(x, void 0);
+}
+
+function test_spread()
+{
+    var x;
+    x = [1, 2, ...[3, 4]];
+    assert(x.toString(), "1,2,3,4");
+
+    x = [ ...[ , ] ];
+    assert(Object.getOwnPropertyNames(x).toString(), "0,length");
+}
+
 test_op1();
 test_cvt();
 test_eq();
@@ -373,3 +390,5 @@ test_template_skip();
 test_object_literal();
 test_regexp_skip();
 test_labels();
+test_destructuring();
+test_spread();

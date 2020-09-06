@@ -25,38 +25,7 @@ function test_worker()
 {
     var counter;
 
-    /* Note: can use std.loadFile() to read from a file */
-    worker = new os.Worker(`
-        import * as std from "std";
-        import * as os from "os";
-
-        var parent = os.Worker.parent;
-
-        function handle_msg(e) {
-          var ev = e.data;
-//          print("child_recv", JSON.stringify(ev));
-          switch(ev.type) {
-          case "abort":
-             parent.postMessage({ type: "done" });
-             break;
-          case "sab":
-             /* modify the SharedArrayBuffer */
-             ev.buf[2] = 10;
-             parent.postMessage({ type: "sab_done", buf: ev.buf });
-             break;
-          }
-        }
-
-        function worker_main() {
-            var i;
-
-            parent.onmessage = handle_msg;
-            for(i = 0; i < 10; i++) {
-                parent.postMessage({ type: "num", num: i }); 
-            }
-        }
-        worker_main();
-`);
+    worker = new os.Worker("./test_worker_module.js");
 
     counter = 0;
     worker.onmessage = function (e) {

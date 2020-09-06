@@ -1826,7 +1826,7 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
                 j = emin + i;
                 if (j == -1) {
                     if (a[i] != 0)
-                        throw RangError("cannot represent integ(1/X)");
+                        throw RangeError("cannot represent integ(1/X)");
                 } else {
                     r[i] = a[i] / (j + 1);
                 }
@@ -1853,7 +1853,7 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         log() {
             var a = this, r;
             if (a.emin != 0)
-                throw Range("log argument must have a non zero constant term");
+                throw RangeError("log argument must have a non zero constant term");
             r = integ(deriv(a) / a);
             /* add the constant term */
             r += global.log(a[0]);

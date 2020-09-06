@@ -120,7 +120,7 @@ Load as ES6 script (default=autodetect).
 
 @item --bignum
 Enable the bignum extensions: BigDecimal object, BigFloat object and
-the @code{"use bigint"} and @code{"use math"} directives.
+the @code{"use math"} directive.
 
 @item -I file
 @item --include file
@@ -167,6 +167,12 @@ Set the C name of the generated data.
 @item -m
 Compile as Javascript module (default=autodetect).
 
+@item -D module_name
+Compile a dynamically loaded module and its dependencies. This option
+is needed when your code uses the @code{import} keyword or the
+@code{os.Worker} constructor because the compiler cannot statically
+find the name of the dynamically loaded modules.
+
 @item -M module_name[,cname]
 Add initialization code for an external C module. See the
 @code{c_module} example.
@@ -184,7 +190,7 @@ Disable selected language features to produce a smaller executable file.
 
 @item -fbignum
 Enable the bignum extensions: BigDecimal object, BigFloat object and
-the @code{"use bigint"} and @code{"use math"} directives.
+the @code{"use math"} directive.
 
 @end table
 
@@ -764,13 +770,14 @@ Cancel a timer.
 Return a string representing the platform: @code{"linux"}, @code{"darwin"},
 @code{"win32"} or @code{"js"}.
 
-@item Worker(source)
+@item Worker(module_filename)
 Constructor to create a new thread (worker) with an API close to the
-@code{WebWorkers}. @code{source} is a string containing the module
-source which is executed in the newly created thread. Threads normally
-don't share any data and communicate between each other with
-messages. Nested workers are not supported. An example is available in
-@file{tests/test_worker.js}.
+@code{WebWorkers}. @code{module_filename} is a string specifying the
+module filename which is executed in the newly created thread. As for
+dynamically imported module, it is relative to the current script or
+module path. Threads normally don't share any data and communicate
+between each other with messages. Nested workers are not supported. An
+example is available in @file{tests/test_worker.js}.
 
 The worker class has the following static properties:
 

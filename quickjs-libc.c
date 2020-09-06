@@ -2993,9 +2993,8 @@ typedef struct {
 } JSWorkerData;
 
 typedef struct {
-    /* source code of the worker */
-    char *eval_buf;
-    size_t eval_buf_len;
+    char *filename; /* module filename */
+    char *basename; /* module base name */
     JSWorkerMessagePipe *recv_pipe, *send_pipe;
 } WorkerFuncArgs;
 
@@ -3005,6 +3004,7 @@ typedef struct {
 } JSSABHeader;
 
 static JSClassID js_worker_class_id;
+static JSContext *(*js_worker_new_context_func)(JSRuntime *rt);
 
 static int atomic_add_int(int *ptr, int v)
 {
@@ -3136,7 +3136,6 @@ static void *worker_func(void *opaque)
     JSRuntime *rt;
     JSThreadState *ts;
     JSContext *ctx;
-    JSValue retval;
     
     rt = JS_NewRuntime();
     if (rt == NULL) {
@@ -3145,12 +3144,16 @@ static void *worker_func(void *opaque)
     }        
     js_std_init_handlers(rt);
 
+    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
+
     /* set the pipe to communicate with the parent */
     ts = JS_GetRuntimeOpaque(rt);
     ts->recv_pipe = args->recv_pipe;
     ts->send_pipe = args->send_pipe;
     
-    ctx = JS_NewContext(rt);
+    /* function pointer to avoid linking the whole JS_NewContext() if
+       not needed */
+    ctx = js_worker_new_context_func(rt);
     if (ctx == NULL) {
         fprintf(stderr, "JS_NewContext failure");
     }
@@ -3159,18 +3162,11 @@ static void *worker_func(void *opaque)
 
     js_std_add_helpers(ctx, -1, NULL);
 
-    /* system modules */
-    js_init_module_std(ctx, "std");
-    js_init_module_os(ctx, "os");
-
-    retval = JS_Eval(ctx, args->eval_buf, args->eval_buf_len,
-                      "<worker>", JS_EVAL_TYPE_MODULE);
-    free(args->eval_buf);
-    free(args);
-
-    if (JS_IsException(retval))
+    if (!JS_RunModule(ctx, args->basename, args->filename))
         js_std_dump_error(ctx);
-    JS_FreeValue(ctx, retval);
+    free(args->filename);
+    free(args->basename);
+    free(args);
 
     js_std_loop(ctx);
 
@@ -3216,52 +3212,53 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
                               int argc, JSValueConst *argv)
 {
     JSRuntime *rt = JS_GetRuntime(ctx);
-    WorkerFuncArgs *args;
-    const char *str;
-    size_t str_len;
+    WorkerFuncArgs *args = NULL;
     pthread_t tid;
     pthread_attr_t attr;
     JSValue obj = JS_UNDEFINED;
     int ret;
+    const char *filename = NULL, *basename;
+    JSAtom basename_atom;
     
     /* XXX: in order to avoid problems with resource liberation, we
        don't support creating workers inside workers */
     if (!is_main_thread(rt))
         return JS_ThrowTypeError(ctx, "cannot create a worker inside a worker");
+
+    /* base name, assuming the calling function is a normal JS
+       function */
+    basename_atom = JS_GetScriptOrModuleName(ctx, 1);
+    if (basename_atom == JS_ATOM_NULL) {
+        return JS_ThrowTypeError(ctx, "could not determine calling script or module name");
+    }
+    basename = JS_AtomToCString(ctx, basename_atom);
+    JS_FreeAtom(ctx, basename_atom);
+    if (!basename)
+        goto fail;
     
-    /* script source */
-    
-    str = JS_ToCStringLen(ctx, &str_len, argv[0]);
-    if (!str)
-        return JS_EXCEPTION;
+    /* module name */
+    filename = JS_ToCString(ctx, argv[0]);
+    if (!filename)
+        goto fail;
 
     args = malloc(sizeof(*args));
-    if (!args) {
-        JS_ThrowOutOfMemory(ctx);
-        goto fail;
-    }
+    if (!args)
+        goto oom_fail;
     memset(args, 0, sizeof(*args));
-    args->eval_buf = malloc(str_len + 1);
-    if (!args->eval_buf) {
-        JS_ThrowOutOfMemory(ctx);
-        goto fail;
-    }
-    memcpy(args->eval_buf, str, str_len + 1);
-    args->eval_buf_len = str_len;
-    JS_FreeCString(ctx, str);
-    str = NULL;
+    args->filename = strdup(filename);
+    args->basename = strdup(basename);
 
     /* ports */
     args->recv_pipe = js_new_message_pipe();
     if (!args->recv_pipe)
-        goto fail;
+        goto oom_fail;
     args->send_pipe = js_new_message_pipe();
     if (!args->send_pipe)
-        goto fail;
+        goto oom_fail;
 
     obj = js_worker_ctor_internal(ctx, new_target,
                                   args->send_pipe, args->recv_pipe);
-    if (JS_IsUndefined(obj))
+    if (JS_IsException(obj))
         goto fail;
     
     pthread_attr_init(&attr);
@@ -3273,11 +3270,17 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
         JS_ThrowTypeError(ctx, "could not create worker");
         goto fail;
     }
+    JS_FreeCString(ctx, basename);
+    JS_FreeCString(ctx, filename);
     return obj;
+ oom_fail:
+    JS_ThrowOutOfMemory(ctx);
  fail:
-    JS_FreeCString(ctx, str);
+    JS_FreeCString(ctx, basename);
+    JS_FreeCString(ctx, filename);
     if (args) {
-        free(args->eval_buf);
+        free(args->filename);
+        free(args->basename);
         js_free_message_pipe(args->recv_pipe);
         js_free_message_pipe(args->send_pipe);
         free(args);
@@ -3416,6 +3419,13 @@ static const JSCFunctionListEntry js_worker_proto_funcs[] = {
 };
 
 #endif /* USE_WORKER */
+
+void js_std_set_worker_new_context_func(JSContext *(*func)(JSRuntime *rt))
+{
+#ifdef USE_WORKER
+    js_worker_new_context_func = func;
+#endif
+}
 
 #if defined(_WIN32)
 #define OS_PLATFORM "win32"
@@ -3667,6 +3677,12 @@ void js_std_free_handlers(JSRuntime *rt)
         if (!th->has_object)
             free_timer(rt, th);
     }
+
+#ifdef USE_WORKER
+    /* XXX: free port_list ? */
+    js_free_message_pipe(ts->recv_pipe);
+    js_free_message_pipe(ts->send_pipe);
+#endif
 
     free(ts);
     JS_SetRuntimeOpaque(rt, NULL); /* fail safe */

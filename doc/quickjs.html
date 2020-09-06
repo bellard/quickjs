@@ -1,8 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.1, http://www.gnu.org/software/texinfo/ -->
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>QuickJS Javascript Engine</title>
 
 <meta name="description" content="QuickJS Javascript Engine">
@@ -10,6 +9,7 @@
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <link href="#SEC_Contents" rel="contents" title="Table of Contents">
 <style type="text/css">
 <!--
@@ -237,7 +237,7 @@ source is <code>import</code>.
 </dd>
 <dt><code>--bignum</code></dt>
 <dd><p>Enable the bignum extensions: BigDecimal object, BigFloat object and
-the <code>&quot;use bigint&quot;</code> and <code>&quot;use math&quot;</code> directives.
+the <code>&quot;use math&quot;</code> directive.
 </p>
 </dd>
 <dt><code>-I file</code></dt>
@@ -293,6 +293,13 @@ executable file.
 <dd><p>Compile as Javascript module (default=autodetect).
 </p>
 </dd>
+<dt><code>-D module_name</code></dt>
+<dd><p>Compile a dynamically loaded module and its dependencies. This option
+is needed when your code uses the <code>import</code> keyword or the
+<code>os.Worker</code> constructor because the compiler cannot statically
+find the name of the dynamically loaded modules.
+</p>
+</dd>
 <dt><code>-M module_name[,cname]</code></dt>
 <dd><p>Add initialization code for an external C module. See the
 <code>c_module</code> example.
@@ -314,7 +321,7 @@ when the <code>-fno-x</code> options are used.
 </dd>
 <dt><code>-fbignum</code></dt>
 <dd><p>Enable the bignum extensions: BigDecimal object, BigFloat object and
-the <code>&quot;use bigint&quot;</code> and <code>&quot;use math&quot;</code> directives.
+the <code>&quot;use math&quot;</code> directive.
 </p>
 </dd>
 </dl>
@@ -989,13 +996,14 @@ to the timer.
 <code>&quot;win32&quot;</code> or <code>&quot;js&quot;</code>.
 </p>
 </dd>
-<dt><code>Worker(source)</code></dt>
+<dt><code>Worker(module_filename)</code></dt>
 <dd><p>Constructor to create a new thread (worker) with an API close to the
-<code>WebWorkers</code>. <code>source</code> is a string containing the module
-source which is executed in the newly created thread. Threads normally
-don&rsquo;t share any data and communicate between each other with
-messages. Nested workers are not supported. An example is available in
-<samp>tests/test_worker.js</samp>.
+<code>WebWorkers</code>. <code>module_filename</code> is a string specifying the
+module filename which is executed in the newly created thread. As for
+dynamically imported module, it is relative to the current script or
+module path. Threads normally don&rsquo;t share any data and communicate
+between each other with messages. Nested workers are not supported. An
+example is available in <samp>tests/test_worker.js</samp>.
 </p>
 <p>The worker class has the following static properties:
 </p>
