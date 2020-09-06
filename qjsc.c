@@ -36,9 +36,6 @@
 #include "cutils.h"
 #include "quickjs-libc.h"
 
-/* enable bignums */
-#define CONFIG_BIGNUM
-
 typedef struct {
     char *name;
     char *short_name;
@@ -79,7 +76,9 @@ static const FeatureEntry feature_list[] = {
     { "promise", "Promise" },
 #define FE_MODULE_LOADER 9
     { "module-loader", NULL },
+#ifdef CONFIG_BIGNUM
     { "bigint", "BigInt" },
+#endif
 };
 
 void namelist_add(namelist_t *lp, const char *name, const char *short_name,
@@ -485,9 +484,12 @@ int main(int argc, char **argv)
     FILE *fo;
     JSRuntime *rt;
     JSContext *ctx;
-    BOOL use_lto, bignum_ext;
+    BOOL use_lto;
     int module;
     OutputTypeEnum output_type;
+#ifdef CONFIG_BIGNUM
+    BOOL bignum_ext = FALSE;
+#endif
     
     out_filename = NULL;
     output_type = OUTPUT_EXECUTABLE;
@@ -497,7 +499,6 @@ int main(int argc, char **argv)
     byte_swap = FALSE;
     verbose = 0;
     use_lto = FALSE;
-    bignum_ext = FALSE;
     
     /* add system modules */
     namelist_add(&cmodule_list, "std", "std", 0);
@@ -538,9 +539,13 @@ int main(int argc, char **argv)
                     }
                     if (i == countof(feature_list))
                         goto bad_feature;
-                } else if (!strcmp(optarg, "bignum")) {
+                } else
+#ifdef CONFIG_BIGNUM
+                if (!strcmp(optarg, "bignum")) {
                     bignum_ext = TRUE;
-                } else {
+                } else
+#endif
+                {
                 bad_feature:
                     fprintf(stderr, "unsupported feature: %s\n", optarg);
                     exit(1);
@@ -615,6 +620,7 @@ int main(int argc, char **argv)
     if (bignum_ext) {
         JS_AddIntrinsicBigFloat(ctx);
         JS_AddIntrinsicBigDecimal(ctx);
+        JS_AddIntrinsicOperators(ctx);
         JS_EnableBignumExt(ctx, TRUE);
     }
 #endif
@@ -661,13 +667,15 @@ int main(int argc, char **argv)
                         feature_list[i].init_name);
             }
         }
+#ifdef CONFIG_BIGNUM
         if (bignum_ext) {
             fprintf(fo,
                     "  JS_AddIntrinsicBigFloat(ctx);\n"
                     "  JS_AddIntrinsicBigDecimal(ctx);\n"
+                    "  JS_AddIntrinsicOperators(ctx);\n"
                     "  JS_EnableBignumExt(ctx, 1);\n");
         }
-        
+#endif
         fprintf(fo, "  js_std_add_helpers(ctx, argc, argv);\n");
 
         for(i = 0; i < init_module_list.count; i++) {

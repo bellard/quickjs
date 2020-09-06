@@ -219,6 +219,8 @@ DEF(BigInt, "BigInt")
 DEF(BigFloat, "BigFloat")
 DEF(BigFloatEnv, "BigFloatEnv")
 DEF(BigDecimal, "BigDecimal")
+DEF(OperatorSet, "OperatorSet")
+DEF(Operators, "Operators")
 #endif
 DEF(Map, "Map")
 DEF(Set, "Set") /* Map + 1 */
@@ -263,27 +265,7 @@ DEF(Symbol_species, "Symbol.species")
 DEF(Symbol_unscopables, "Symbol.unscopables")
 DEF(Symbol_asyncIterator, "Symbol.asyncIterator")
 #ifdef CONFIG_BIGNUM
-DEF(Symbol_operatorOrder, "Symbol.operatorOrder")
-DEF(Symbol_operatorAdd, "Symbol.operatorAdd")
-DEF(Symbol_operatorSub, "Symbol.operatorSub")
-DEF(Symbol_operatorMul, "Symbol.operatorMul")
-DEF(Symbol_operatorDiv, "Symbol.operatorDiv")
-DEF(Symbol_operatorMod, "Symbol.operatorMod")
-DEF(Symbol_operatorPow, "Symbol.operatorPow")
-DEF(Symbol_operatorShl, "Symbol.operatorShl")
-DEF(Symbol_operatorShr, "Symbol.operatorShr")
-DEF(Symbol_operatorAnd, "Symbol.operatorAnd")
-DEF(Symbol_operatorOr, "Symbol.operatorOr")
-DEF(Symbol_operatorXor, "Symbol.operatorXor")
-DEF(Symbol_operatorCmpLT, "Symbol.operatorCmpLT")
-DEF(Symbol_operatorCmpLE, "Symbol.operatorCmpLE")
-DEF(Symbol_operatorCmpEQ, "Symbol.operatorCmpEQ")
-DEF(Symbol_operatorPlus, "Symbol.operatorPlus")
-DEF(Symbol_operatorNeg, "Symbol.operatorNeg")
-DEF(Symbol_operatorNot, "Symbol.operatorNot")
-DEF(Symbol_operatorInc, "Symbol.operatorInc")
-DEF(Symbol_operatorDec, "Symbol.operatorDec")
-DEF(Symbol_operatorMathMod, "Symbol.operatorMathMod")
+DEF(Symbol_operatorSet, "Symbol.operatorSet")
 #endif
-
+    
 #endif /* DEF */

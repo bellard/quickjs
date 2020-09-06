@@ -73,6 +73,5 @@ REPL:
 Test262o:   0/11262 errors, 463 excluded
 Test262o commit: 7da91bceb9ce7613f87db47ddd1292a2dda58b42 (es5-tests branch)
 
-Test262:   4/67619 errors, 913 excluded, 1660 skipped
-Test262bn: 4/69722 errors, 846 excluded, 672 skipped
-test262 commit: 19fd4bea797646ae9bbfc9d325f14052ca370b54
+Test262:   17/69942 errors, 855 excluded, 581 skipped
+test262 commit: 28b4fcca4b1b1d278dfe0cc0e69c7d9d59b31aab

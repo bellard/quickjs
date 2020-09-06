@@ -41,8 +41,8 @@ typedef unsigned __int128 uint128_t;
 typedef int64_t slimb_t;
 typedef uint64_t limb_t;
 typedef uint128_t dlimb_t;
-#define EXP_MIN INT64_MIN
-#define EXP_MAX INT64_MAX
+#define BF_RAW_EXP_MIN INT64_MIN
+#define BF_RAW_EXP_MAX INT64_MAX
 
 #define LIMB_DIGITS 19
 #define BF_DEC_BASE UINT64_C(10000000000000000000)
@@ -52,8 +52,8 @@ typedef uint128_t dlimb_t;
 typedef int32_t slimb_t;
 typedef uint32_t limb_t;
 typedef uint64_t dlimb_t;
-#define EXP_MIN INT32_MIN
-#define EXP_MAX INT32_MAX
+#define BF_RAW_EXP_MIN INT32_MIN
+#define BF_RAW_EXP_MAX INT32_MAX
 
 #define LIMB_DIGITS 9
 #define BF_DEC_BASE 1000000000U
@@ -61,10 +61,17 @@ typedef uint64_t dlimb_t;
 #endif
 
 /* in bits */
+/* minimum number of bits for the exponent */
 #define BF_EXP_BITS_MIN 3
-#define BF_EXP_BITS_MAX (LIMB_BITS - 2)
+/* maximum number of bits for the exponent */
+#define BF_EXP_BITS_MAX (LIMB_BITS - 3)
+/* extended range for exponent, used internally */
+#define BF_EXT_EXP_BITS_MAX (BF_EXP_BITS_MAX + 1)
+/* minimum possible precision */
 #define BF_PREC_MIN 2
-#define BF_PREC_MAX (((limb_t)1 << BF_EXP_BITS_MAX) - 2)
+/* minimum possible precision */
+#define BF_PREC_MAX (((limb_t)1 << (LIMB_BITS - 2)) - 2)
+/* some operations support infinite precision */
 #define BF_PREC_INF (BF_PREC_MAX + 1) /* infinite precision */
 
 #if LIMB_BITS == 64
@@ -73,9 +80,9 @@ typedef uint64_t dlimb_t;
 #define BF_CHKSUM_MOD 975620677U
 #endif
 
-#define BF_EXP_ZERO EXP_MIN
-#define BF_EXP_INF (EXP_MAX - 1)
-#define BF_EXP_NAN EXP_MAX
+#define BF_EXP_ZERO BF_RAW_EXP_MIN
+#define BF_EXP_INF (BF_RAW_EXP_MAX - 1)
+#define BF_EXP_NAN BF_RAW_EXP_MAX
 
 /* +/-zero is represented with expn = BF_EXP_ZERO and len = 0,
    +/-infinity is represented with expn = BF_EXP_INF and len = 0,
@@ -101,26 +108,28 @@ typedef struct {
 typedef enum {
     BF_RNDN, /* round to nearest, ties to even */
     BF_RNDZ, /* round to zero */
-    BF_RNDD, /* round to -inf */
+    BF_RNDD, /* round to -inf (the code relies on (BF_RNDD xor BF_RNDU) = 1) */
     BF_RNDU, /* round to +inf */
     BF_RNDNA, /* round to nearest, ties away from zero */
-    BF_RNDNU, /* round to nearest, ties to +inf */
+    BF_RNDA, /* round away from zero */
     BF_RNDF, /* faithful rounding (nondeterministic, either RNDD or RNDU,
                 inexact flag is always set)  */
 } bf_rnd_t;
 
 /* allow subnormal numbers. Only available if the number of exponent
-   bits is < BF_EXP_BITS_MAX and prec != BF_PREC_INF. Not supported
-   for decimal floating point numbers. */
+   bits is <= BF_EXP_BITS_USER_MAX and prec != BF_PREC_INF. */
 #define BF_FLAG_SUBNORMAL (1 << 3)
 /* 'prec' is the precision after the radix point instead of the whole
-   mantissa. Can only be used with bf_round(), bfdec_round() and
-   bfdev_div(). */
+   mantissa. Can only be used with bf_round() and
+   bfdec_[add|sub|mul|div|sqrt|round](). */
 #define BF_FLAG_RADPNT_PREC (1 << 4)
 
 #define BF_RND_MASK 0x7
 #define BF_EXP_BITS_SHIFT 5
 #define BF_EXP_BITS_MASK 0x3f
+
+/* shortcut for bf_set_exp_bits(BF_EXT_EXP_BITS_MAX) */
+#define BF_FLAG_EXT_EXP (BF_EXP_BITS_MASK << BF_EXP_BITS_SHIFT)
 
 /* contains the rounding mode and number of exponents bits */
 typedef uint32_t bf_flags_t;
@@ -142,12 +151,17 @@ typedef struct bf_context_t {
 
 static inline int bf_get_exp_bits(bf_flags_t flags)
 {
-    return BF_EXP_BITS_MAX - ((flags >> BF_EXP_BITS_SHIFT) & BF_EXP_BITS_MASK);
+    int e;
+    e = (flags >> BF_EXP_BITS_SHIFT) & BF_EXP_BITS_MASK;
+    if (e == BF_EXP_BITS_MASK)
+        return BF_EXP_BITS_MAX + 1;
+    else
+        return BF_EXP_BITS_MAX - e;
 }
 
 static inline bf_flags_t bf_set_exp_bits(int n)
 {
-    return (BF_EXP_BITS_MAX - n) << BF_EXP_BITS_SHIFT;
+    return ((BF_EXP_BITS_MAX - n) & BF_EXP_BITS_MASK) << BF_EXP_BITS_SHIFT;
 }
 
 /* returned status */
@@ -249,9 +263,22 @@ int bf_set_float64(bf_t *a, double d);
 
 int bf_cmpu(const bf_t *a, const bf_t *b);
 int bf_cmp_full(const bf_t *a, const bf_t *b);
-int bf_cmp_eq(const bf_t *a, const bf_t *b);
-int bf_cmp_le(const bf_t *a, const bf_t *b);
-int bf_cmp_lt(const bf_t *a, const bf_t *b);
+int bf_cmp(const bf_t *a, const bf_t *b);
+static inline int bf_cmp_eq(const bf_t *a, const bf_t *b)
+{
+    return bf_cmp(a, b) == 0;
+}
+
+static inline int bf_cmp_le(const bf_t *a, const bf_t *b)
+{
+    return bf_cmp(a, b) <= 0;
+}
+
+static inline int bf_cmp_lt(const bf_t *a, const bf_t *b)
+{
+    return bf_cmp(a, b) < 0;
+}
+
 int bf_add(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec, bf_flags_t flags);
 int bf_sub(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec, bf_flags_t flags);
 int bf_add_si(bf_t *r, const bf_t *a, int64_t b1, limb_t prec, bf_flags_t flags);
@@ -264,12 +291,10 @@ int bf_div(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec, bf_flags_t flags)
 #define BF_DIVREM_EUCLIDIAN BF_RNDF
 int bf_divrem(bf_t *q, bf_t *r, const bf_t *a, const bf_t *b,
               limb_t prec, bf_flags_t flags, int rnd_mode);
-int bf_fmod(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
-            bf_flags_t flags);
-int bf_remainder(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
-                 bf_flags_t flags);
+int bf_rem(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
+           bf_flags_t flags, int rnd_mode);
 int bf_remquo(slimb_t *pq, bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
-              bf_flags_t flags);
+              bf_flags_t flags, int rnd_mode);
 /* round to integer with infinite precision */
 int bf_rint(bf_t *r, int rnd_mode);
 int bf_round(bf_t *r, limb_t prec, bf_flags_t flags);
@@ -304,8 +329,8 @@ int bf_mul_pow_radix(bf_t *r, const bf_t *T, limb_t radix,
 /* Conversion of floating point number to string. Return a null
    terminated string or NULL if memory error. *plen contains its
    length if plen != NULL.  The exponent letter is "e" for base 10,
-   "p" for bases 2, 8, 16 with the binary exponent and "@" for the
-   other bases. */
+   "p" for bases 2, 8, 16 with a binary exponent and "@" for the other
+   bases. */
 
 #define BF_FTOA_FORMAT_MASK (3 << 16)
 
@@ -316,17 +341,23 @@ int bf_mul_pow_radix(bf_t *r, const bf_t *T, limb_t radix,
 /* fractional format: prec digits after the decimal point rounded with
    (flags & BF_RND_MASK) */
 #define BF_FTOA_FORMAT_FRAC  (1 << 16)
-/* free format: use as many digits as necessary so that bf_atof()
-   return the same number when using precision 'prec', rounding to
-   nearest and the subnormal+exponent configuration of 'flags'. The
-   result is meaningful only if 'a' is already rounded to the wanted
-   precision.
+/* free format: 
    
-   Infinite precision (BF_PREC_INF) is supported when the radix is a
-   power of two. */
+   For binary radices with bf_ftoa() and for bfdec_ftoa(): use the minimum
+   number of digits to represent 'a'. The precision and the rounding
+   mode are ignored.
+   
+   For the non binary radices with bf_ftoa(): use as many digits as
+   necessary so that bf_atof() return the same number when using
+   precision 'prec', rounding to nearest and the subnormal
+   configuration of 'flags'. The result is meaningful only if 'a' is
+   already rounded to 'prec' bits. If the subnormal flag is set, the
+   exponent in 'flags' must also be set to the desired exponent range.
+*/
 #define BF_FTOA_FORMAT_FREE  (2 << 16)
 /* same as BF_FTOA_FORMAT_FREE but uses the minimum number of digits
-   (takes more computation time). */
+   (takes more computation time). Identical to BF_FTOA_FORMAT_FREE for
+   binary radices with bf_ftoa() and for bfdec_ftoa(). */
 #define BF_FTOA_FORMAT_FREE_MIN (3 << 16)
 
 /* force exponential notation for fixed or free format */
@@ -370,7 +401,7 @@ int bf_const_log2(bf_t *T, limb_t prec, bf_flags_t flags);
 int bf_const_pi(bf_t *T, limb_t prec, bf_flags_t flags);
 int bf_exp(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags);
 int bf_log(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags);
-#define BF_POW_JS_QUICKS (1 << 16)
+#define BF_POW_JS_QUIRKS (1 << 16) /* (+/-1)^(+/-Inf) = NaN, 1^NaN = NaN */
 int bf_pow(bf_t *r, const bf_t *x, const bf_t *y, limb_t prec, bf_flags_t flags);
 int bf_cos(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags);
 int bf_sin(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags);
@@ -448,17 +479,21 @@ static inline int bfdec_cmp_full(const bfdec_t *a, const bfdec_t *b)
 {
     return bf_cmp_full((const bf_t *)a, (const bf_t *)b);
 }
+static inline int bfdec_cmp(const bfdec_t *a, const bfdec_t *b)
+{
+    return bf_cmp((const bf_t *)a, (const bf_t *)b);
+}
 static inline int bfdec_cmp_eq(const bfdec_t *a, const bfdec_t *b)
 {
-    return bf_cmp_eq((const bf_t *)a, (const bf_t *)b);
+    return bfdec_cmp(a, b) == 0;
 }
 static inline int bfdec_cmp_le(const bfdec_t *a, const bfdec_t *b)
 {
-    return bf_cmp_le((const bf_t *)a, (const bf_t *)b);
+    return bfdec_cmp(a, b) <= 0;
 }
 static inline int bfdec_cmp_lt(const bfdec_t *a, const bfdec_t *b)
 {
-    return bf_cmp_lt((const bf_t *)a, (const bf_t *)b);
+    return bfdec_cmp(a, b) < 0;
 }
 
 int bfdec_add(bfdec_t *r, const bfdec_t *a, const bfdec_t *b, limb_t prec,
@@ -475,8 +510,8 @@ int bfdec_div(bfdec_t *r, const bfdec_t *a, const bfdec_t *b, limb_t prec,
               bf_flags_t flags);
 int bfdec_divrem(bfdec_t *q, bfdec_t *r, const bfdec_t *a, const bfdec_t *b,
                  limb_t prec, bf_flags_t flags, int rnd_mode);
-int bfdec_fmod(bfdec_t *r, const bfdec_t *a, const bfdec_t *b, limb_t prec,
-               bf_flags_t flags);
+int bfdec_rem(bfdec_t *r, const bfdec_t *a, const bfdec_t *b, limb_t prec,
+              bf_flags_t flags, int rnd_mode);
 int bfdec_rint(bfdec_t *r, int rnd_mode);
 int bfdec_sqrt(bfdec_t *r, const bfdec_t *a, limb_t prec, bf_flags_t flags);
 int bfdec_round(bfdec_t *r, limb_t prec, bf_flags_t flags);
@@ -488,7 +523,7 @@ int bfdec_atof(bfdec_t *r, const char *str, const char **pnext,
                limb_t prec, bf_flags_t flags);
 
 /* the following functions are exported for testing only. */
-extern limb_t mp_pow_dec[LIMB_DIGITS + 1];
+extern const limb_t mp_pow_dec[LIMB_DIGITS + 1];
 void bfdec_print_str(const char *str, const bfdec_t *a);
 static inline int bfdec_resize(bfdec_t *r, limb_t len)
 {

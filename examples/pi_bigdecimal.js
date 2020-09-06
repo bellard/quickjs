@@ -6,10 +6,10 @@
 
 /* compute PI with a precision of 'prec' digits */
 function calc_pi(prec) {
-    const CHUD_A = 13591409d;
-    const CHUD_B = 545140134d;
-    const CHUD_C = 640320d;
-    const CHUD_C3 = 10939058860032000d; /* C^3/24 */
+    const CHUD_A = 13591409m;
+    const CHUD_B = 545140134m;
+    const CHUD_C = 640320m;
+    const CHUD_C3 = 10939058860032000m; /* C^3/24 */
     const CHUD_DIGITS_PER_TERM = 14.18164746272548; /* log10(C/12)*3 */
     
     /* return [P, Q, G] */
@@ -17,7 +17,7 @@ function calc_pi(prec) {
         var c, P, Q, G, P1, Q1, G1, P2, Q2, G2, b1;
         if (a == (b - 1n)) {
             b1 = BigDecimal(b);
-            G = (2d * b1 - 1d) * (6d * b1 - 1d) * (6d * b1 - 5d);
+            G = (2m * b1 - 1m) * (6m * b1 - 1m) * (6m * b1 - 5m);
             P = G * (CHUD_B * b1 + CHUD_A);
             if (b & 1n)
                 P = -P;
@@ -32,7 +32,7 @@ function calc_pi(prec) {
             if (need_G)
                 G = G1 * G2;
             else
-                G = 0d;
+                G = 0m;
         }
         return [P, Q, G];
     }
@@ -44,7 +44,7 @@ function calc_pi(prec) {
     Q = BigDecimal.div(Q, (P + Q * CHUD_A),
                        { roundingMode: "half-even",
                          maximumSignificantDigits: prec });
-    G = (CHUD_C / 12d) * BigDecimal.sqrt(CHUD_C,
+    G = (CHUD_C / 12m) * BigDecimal.sqrt(CHUD_C,
                                          { roundingMode: "half-even",
                                            maximumSignificantDigits: prec });
     return Q * G;
@@ -64,7 +64,5 @@ function calc_pi(prec) {
     /* we add more digits to reduce the probability of bad rounding for
        the last digits */
     r = calc_pi(n_digits + 20);
-    r = BigDecimal.round(r, { roundingMode: "down",
-                              maximumFractionDigits: n_digits })
-    print(r);
+    print(r.toFixed(n_digits, "down"));
 })();

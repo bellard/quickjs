@@ -1,7 +1,8 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Created by GNU Texinfo 6.1, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
 <head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>QuickJS Javascript Engine</title>
 
 <meta name="description" content="QuickJS Javascript Engine">
@@ -9,7 +10,6 @@
 <meta name="resource-type" content="document">
 <meta name="distribution" content="global">
 <meta name="Generator" content="makeinfo">
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <link href="#SEC_Contents" rel="contents" title="Table of Contents">
 <style type="text/css">
 <!--
@@ -206,7 +206,7 @@ Javascript files and/or expressions as arguments to execute them:
 <a name="qjs-interpreter"></a>
 <h4 class="subsection">2.3.1 <code>qjs</code> interpreter</h4>
 
-<pre class="verbatim">usage: qjs [options] [files]
+<pre class="verbatim">usage: qjs [options] [file [args]]
 </pre>
 <p>Options are:
 </p><dl compact="compact">
@@ -239,6 +239,11 @@ source is <code>import</code>.
 <dt><code>--bignum</code></dt>
 <dd><p>Enable the bignum extensions: BigDecimal object, BigFloat object and
 the <code>&quot;use bigint&quot;</code> and <code>&quot;use math&quot;</code> directives.
+</p>
+</dd>
+<dt><code>-I file</code></dt>
+<dt><code>--include file</code></dt>
+<dd><p>Include an additional file.
 </p>
 </dd>
 </dl>
@@ -765,6 +770,10 @@ pathname of <code>path</code> and <code>err</code> the error code.
 <dt><code>getcwd()</code></dt>
 <dd><p>Return <code>[str, err]</code> where <code>str</code> is the current working directory
 and <code>err</code> the error code.
+</p>
+</dd>
+<dt><code>chdir(path)</code></dt>
+<dd><p>Change the current directory. Return the error code.
 </p>
 </dd>
 <dt><code>mkdir(path, mode = 0o777)</code></dt>

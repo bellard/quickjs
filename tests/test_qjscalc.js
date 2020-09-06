@@ -66,13 +66,14 @@ function test_integer()
     
     r = (1 << 31) < 0;
     assert(r, false, "(1 << 31) < 0 === false");
+
+    assert(typeof 1 === "number");
+    assert(typeof 9007199254740991 === "number");
+    assert(typeof 9007199254740992 === "bigint");
 }
 
 function test_float()
 {
-    var e, a, b, sqrt2;
-    
-    assert(typeof 1 === "bigint");
     assert(typeof 1.0 === "bigfloat");
     assert(1 == 1.0);
     assert(1 !== 1.0);
@@ -99,6 +100,16 @@ function test_modulo()
     assert(!Integer.isPrime((2^107-1) * (2^89-1)));
     a = Integer.factor((2^89-1)*2^3*11*13^2*1009);
     assert(a == [ 2,2,2,11,13,13,1009,618970019642690137449562111 ]);
+}
+
+function test_fraction()
+{
+    assert((1/3 + 1).toString(), "4/3")
+    assert((2/3)^30, 1073741824/205891132094649);
+    assert(1/3 < 2/3);
+    assert(1/3 < 1);
+    assert(1/3 == 1.0/3);
+    assert(1.0/3 < 2/3);
 }
 
 function test_mod()
@@ -235,6 +246,7 @@ test_integer();
 test_float();
 
 test_modulo();
+test_fraction();
 test_mod();
 test_polynomial();
 test_poly_mod();

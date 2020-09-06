@@ -92,7 +92,7 @@ generates a @code{hello} executable with no external dependency.
 @subsection @code{qjs} interpreter
 
 @verbatim
-usage: qjs [options] [files]
+usage: qjs [options] [file [args]]
 @end verbatim
 
 Options are:
@@ -121,6 +121,10 @@ Load as ES6 script (default=autodetect).
 @item --bignum
 Enable the bignum extensions: BigDecimal object, BigFloat object and
 the @code{"use bigint"} and @code{"use math"} directives.
+
+@item -I file
+@item --include file
+Include an additional file.
 
 @end table
 
@@ -575,6 +579,9 @@ pathname of @code{path} and @code{err} the error code.
 @item getcwd()
 Return @code{[str, err]} where @code{str} is the current working directory
 and @code{err} the error code.
+
+@item chdir(path)
+Change the current directory. Return the error code.
 
 @item mkdir(path, mode = 0o777)
 Create a directory at @code{path}. Return the error code.

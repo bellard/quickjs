@@ -260,9 +260,7 @@ DEF(             or, 1, 2, 1, none)
 DEF(is_undefined_or_null, 1, 1, 1, none)
 #ifdef CONFIG_BIGNUM
 DEF(      mul_pow10, 1, 2, 1, none)
-DEF(       math_div, 1, 2, 1, none)
 DEF(       math_mod, 1, 2, 1, none)
-DEF(       math_pow, 1, 2, 1, none)
 #endif
 /* must be the last non short and non temporary opcode */
 DEF(            nop, 1, 0, 0, none) 
@@ -271,7 +269,6 @@ DEF(            nop, 1, 0, 0, none)
 
 def(set_arg_valid_upto, 3, 0, 0, arg) /* emitted in phase 1, removed in phase 2 */
 
-def(close_var_object, 1, 0, 0, none) /* emitted in phase 1, removed in phase 2 */
 def(    enter_scope, 3, 0, 0, u16)  /* emitted in phase 1, removed in phase 2 */
 def(    leave_scope, 3, 0, 0, u16)  /* emitted in phase 1, removed in phase 2 */
 

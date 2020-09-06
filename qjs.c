@@ -41,9 +41,6 @@
 #include "cutils.h"
 #include "quickjs-libc.h"
 
-/* enable bignums */
-#define CONFIG_BIGNUM
-
 extern const uint8_t qjsc_repl[];
 extern const uint32_t qjsc_repl_size;
 #ifdef CONFIG_BIGNUM
@@ -258,12 +255,13 @@ static const JSMallocFunctions trace_mf = {
 void help(void)
 {
     printf("QuickJS version " CONFIG_VERSION "\n"
-           "usage: " PROG_NAME " [options] [file]\n"
+           "usage: " PROG_NAME " [options] [file [args]]\n"
            "-h  --help         list options\n"
            "-e  --eval EXPR    evaluate EXPR\n"
            "-i  --interactive  go to interactive mode\n"
            "-m  --module       load as ES6 module (default=autodetect)\n"
            "    --script       load as ES6 script (default=autodetect)\n"
+           "-I  --include file include an additional file\n"
            "    --std          make 'std' and 'os' available to the loaded script\n"
 #ifdef CONFIG_BIGNUM
            "    --bignum       enable the bignum extensions (BigFloat, BigDecimal)\n"
@@ -292,6 +290,8 @@ int main(int argc, char **argv)
     int load_std = 0;
     int dump_unhandled_promise_rejection = 0;
     size_t memory_limit = 0;
+    char *include_list[32];
+    int i, include_count = 0;
 #ifdef CONFIG_BIGNUM
     int load_jscalc, bignum_ext = 0;
 #endif
@@ -344,6 +344,18 @@ int main(int argc, char **argv)
                 }
                 fprintf(stderr, "qjs: missing expression for -e\n");
                 exit(2);
+            }
+            if (opt == 'I' || !strcmp(longopt, "include")) {
+                if (optind >= argc) {
+                    fprintf(stderr, "expecting filename");
+                    exit(1);
+                }
+                if (include_count >= countof(include_list)) {
+                    fprintf(stderr, "too many included files");
+                    exit(1);
+                }
+                include_list[include_count++] = argv[optind++];
+                continue;
             }
             if (opt == 'i' || !strcmp(longopt, "interactive")) {
                 interactive++;
@@ -426,6 +438,7 @@ int main(int argc, char **argv)
     if (bignum_ext || load_jscalc) {
         JS_AddIntrinsicBigFloat(ctx);
         JS_AddIntrinsicBigDecimal(ctx);
+        JS_AddIntrinsicOperators(ctx);
         JS_EnableBignumExt(ctx, TRUE);
     }
 #endif
@@ -457,6 +470,11 @@ int main(int argc, char **argv)
                 "globalThis.std = std;\n"
                 "globalThis.os = os;\n";
             eval_buf(ctx, str, strlen(str), "<input>", JS_EVAL_TYPE_MODULE);
+        }
+
+        for(i = 0; i < include_count; i++) {
+            if (eval_file(ctx, include_list[i], module))
+                goto fail;
         }
 
         if (expr) {

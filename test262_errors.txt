@@ -1,4 +1,17 @@
+test262/test/language/expressions/arrow-function/eval-var-scope-syntax-err.js:47: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/async-generator/eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/async-generator/named-eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/class/super-evaluation-order.js:26: Test262Error: via ArgumentListEvaluation Expected SameValue(«0», «123») to be true
+test262/test/language/expressions/class/super-evaluation-order.js:26: strict mode: Test262Error: via ArgumentListEvaluation Expected SameValue(«0», «123») to be true
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: TypeError: $DONE() not called
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: strict mode: TypeError: $DONE() not called
+test262/test/language/expressions/function/eval-var-scope-syntax-err.js:48: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/generators/eval-var-scope-syntax-err.js:49: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/object/method-definition/async-gen-meth-eval-var-scope-syntax-err.js:32: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/object/method-definition/gen-meth-eval-var-scope-syntax-err.js:54: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/object/method-definition/meth-eval-var-scope-syntax-err.js:50: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: value has no property
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: value has no property
+test262/test/language/statements/async-generator/eval-var-scope-syntax-err.js:28: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/statements/function/eval-var-scope-syntax-err.js:49: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/statements/generators/eval-var-scope-syntax-err.js:49: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all

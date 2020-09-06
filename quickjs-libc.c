@@ -2027,6 +2027,20 @@ static JSValue js_os_getcwd(JSContext *ctx, JSValueConst this_val,
 
 #if !defined(_WIN32)
 
+static JSValue js_os_chdir(JSContext *ctx, JSValueConst this_val,
+                           int argc, JSValueConst *argv)
+{
+    const char *target;
+    int err;
+
+    target = JS_ToCString(ctx, argv[0]);
+    if (!target)
+        return JS_EXCEPTION;
+    err = chdir(target);
+    JS_FreeCString(ctx, target);
+    return js_os_return(ctx, err);
+}
+
 /* return [path, errorcode] */
 static JSValue js_os_realpath(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
@@ -2581,6 +2595,7 @@ static const JSCFunctionListEntry js_os_funcs[] = {
     JS_PROP_STRING_DEF("platform", OS_PLATFORM, 0 ),
     JS_CFUNC_DEF("getcwd", 0, js_os_getcwd ),
 #if !defined(_WIN32)
+    JS_CFUNC_DEF("chdir", 0, js_os_chdir ),
     JS_CFUNC_DEF("realpath", 1, js_os_realpath ),
     JS_CFUNC_DEF("mkdir", 1, js_os_mkdir ),
     JS_CFUNC_MAGIC_DEF("stat", 1, js_os_stat, 0 ),

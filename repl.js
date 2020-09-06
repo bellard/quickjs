@@ -1,8 +1,8 @@
 /*
  * QuickJS Read Eval Print Loop
  * 
- * Copyright (c) 2017-2019 Fabrice Bellard
- * Copyright (c) 2017-2019 Charlie Gordon
+ * Copyright (c) 2017-2020 Fabrice Bellard
+ * Copyright (c) 2017-2020 Charlie Gordon
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -860,18 +860,6 @@ import * as os from "os";
     var hex_mode = false;
     var eval_mode = "std";
 
-    function bignum_typeof(a) {
-        "use bigint";
-        return typeof a;
-    }
-
-    function eval_mode_typeof(a) {
-        if (eval_mode === "std")
-            return typeof a;
-        else
-            return bignum_typeof(a);
-    }
-    
     function number_to_string(a, radix) {
         var s;
         if (!isFinite(a)) {
@@ -896,13 +884,6 @@ import * as os from "os";
                 } else {
                     s = a.toString();
                 }
-            }
-            if (eval_mode !== "std" && s.indexOf(".") < 0 &&
-                ((radix == 16 && s.indexOf("p") < 0) ||
-                 (radix == 10 && s.indexOf("e") < 0))) {
-                /* add a decimal point so that the floating point type
-                   is visible */
-                s += ".0";
             }
             return s;
         }
@@ -975,7 +956,7 @@ import * as os from "os";
         function print_rec(a) {
             var n, i, keys, key, type, s;
             
-            type = eval_mode_typeof(a);
+            type = typeof(a);
             if (type === "object") {
                 if (a === null) {
                     std.puts(a);
@@ -1037,7 +1018,7 @@ import * as os from "os";
             } else if (type === "bigfloat") {
                 std.puts(bigfloat_to_string(a, hex_mode ? 16 : 10));
             } else if (type === "bigdecimal") {
-                std.puts(a.toString() + "d");
+                std.puts(a.toString() + "m");
             } else if (type === "symbol") {
                 std.puts(String(a));
             } else if (type === "function") {
@@ -1133,8 +1114,7 @@ import * as os from "os";
             param = expr.substring(cmd.length + 1).trim();
             if (param === "") {
                 std.puts("Running mode=" + eval_mode + "\n");
-            } else if (param === "std" || param === "math" ||
-                       param === "bigint") {
+            } else if (param === "std" || param === "math") {
                 eval_mode = param;
             } else {
                 std.puts("Invalid mode\n");
@@ -1192,7 +1172,7 @@ import * as os from "os";
             std.puts("\\p [m [e]]  set the BigFloat precision to 'm' bits\n" +
                      "\\digits n   set the BigFloat precision to 'ceil(n*log2(10))' bits\n");
             if (!has_jscalc) {
-                std.puts("\\mode [std|bigint|math] change the running mode (current = " + eval_mode + ")\n");
+                std.puts("\\mode [std|math] change the running mode (current = " + eval_mode + ")\n");
             }
         }
         if (!config_numcalc) {
@@ -1206,8 +1186,6 @@ import * as os from "os";
         try {
             if (eval_mode === "math")
                 expr = '"use math"; void 0;' + expr;
-            else if (eval_mode === "bigint")
-                expr = '"use bigint"; void 0;' + expr;
             var now = (new Date).getTime();
             /* eval as a script */
             result = std.evalScript(expr, { backtrace_barrier: true });

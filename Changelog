@@ -1,3 +1,15 @@
+2020-01-19:
+
+- keep CONFIG_BIGNUM in the makefile
+- added os.chdir()
+- qjs: added -I option
+- more memory checks in the bignum operations
+- modified operator overloading semantics to be closer to the TC39
+  proposal
+- suppressed "use bigint" mode. Simplified "use math" mode
+- BigDecimal: changed suffix from 'd' to 'm'
+- misc bug fixes
+
 2020-01-05:
 
 - always compile the bignum code. Added '--bignum' option to qjs.

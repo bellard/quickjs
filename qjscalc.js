@@ -1,7 +1,7 @@
 /*
  * QuickJS Javascript Calculator
  * 
- * Copyright (c) 2017-2018 Fabrice Bellard
+ * Copyright (c) 2017-2020 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,20 +27,8 @@
 var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunction, Series, Matrix;
 
 (function(global) {
-    /* the types index are used to dispatch the operator functions */
-    var OT_INT = 0;
-    var OT_FRACTION = 10;
-    var OT_FLOAT64 = 19;
-    var OT_FLOAT = 20;
-    var OT_COMPLEX = 30;
-    var OT_MOD = 40;
-    var OT_POLY = 50;
-    var OT_POLYMOD = 55;
-    var OT_RFUNC = 60;
-    var OT_SERIES = 70;
-    var OT_ARRAY = 80;
-
     global.Integer = global.BigInt;
+    global.Float = global.BigFloat;
     global.algebraicMode = true;
     
     /* add non enumerable properties */
@@ -62,6 +50,42 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             }
             Object.defineProperty(obj, prop, desc);
         }
+    }
+
+    /* same as proto[Symbol.operatorSet] = Operators.create(..op_list)
+       but allow shortcuts: left: [], right: [] or both
+    */
+    function operators_set(proto, ...op_list)
+    {
+        var new_op_list, i, a, j, b, k, obj, tab;
+        var fields = [ "left", "right" ];
+        new_op_list = [];
+        for(i = 0; i < op_list.length; i++) {
+            a = op_list[i];
+            if (a.left || a.right) {
+                tab = [ a.left, a.right ];
+                delete a.left;
+                delete a.right;
+                for(k = 0; k < 2; k++) {
+                    obj = tab[k];
+                    if (obj) {
+                        if (!Array.isArray(obj)) {
+                            obj = [ obj ];
+                        }
+                        for(j = 0; j < obj.length; j++) {
+                            b = {};
+                            Object.assign(b, a);
+                            b[fields[k]] = obj[j];
+                            new_op_list.push(b);
+                        }
+                    }
+                }
+            } else {
+                new_op_list.push(a);
+            }
+        }
+        proto[Symbol.operatorSet] =
+            Operators.create.call(null, ...new_op_list); 
     }
     
     /* Integer */
@@ -104,11 +128,12 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         var d, r, s, i, j, a;
         d = n - 1;
         s = 0;
-        while (d & 1) {
+        while ((d & 1) == 0) {
             d >>= 1;
             s++;
         }
-        t = Math.min(t, small_primes.length);
+        if (small_primes.length < t)
+            t = small_primes.length;
         loop: for(j = 0; j < t; j++) {
             a = small_primes[j];
             r = Integer.pmod(a, d, n);
@@ -140,25 +165,31 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             return fact_rec(a, i) * fact_rec(i + 1, b);
         }
     }
-    
+
+    /* math mode specific quirk to overload the integer division and power */
+    Operators.updateBigIntOperators(
+        {
+            "/"(a, b) {
+                if (algebraicMode) {
+                    return Fraction.toFraction(a, b);
+                } else {
+                    return Float(a) / Float(b);
+                }
+            },
+            "**"(a, b) {
+                if (algebraicMode) {
+                    return generic_pow(a, b);
+                } else {
+                    return Float(a) ** Float(b);
+                }
+            }
+        });
+            
     add_props(Integer, {
         isInteger(a) {
-            return typeof a === "bigint";
-        },
-        [Symbol.operatorOrder]: OT_INT,
-        [Symbol.operatorDiv](a, b) {
-            if (algebraicMode) {
-                return Fraction.toFraction(a, b);
-            } else {
-                return Float(a) / Float(b);
-            }
-        },
-        [Symbol.operatorPow](a, b) {
-            if (algebraicMode) {
-                return generic_pow(a, b);
-            } else {
-                return Float(a) ** Float(b);
-            }
+            /* integers are represented either as bigint or as number */
+            return typeof a === "bigint" ||
+                (typeof a === "number" && Number.isSafeInteger(a));
         },
         gcd(a, b) {
             var r;
@@ -311,7 +342,10 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             return this * this;
         },
         abs() {
-            return Math.abs(this);
+            var v = this;
+            if (v < 0)
+                v = -v;
+            return v;
         },
         conj() {
             return this;
@@ -373,8 +407,119 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         return obj;
     }
 
+    function fraction_add(a, b) {
+        a = Fraction(a);
+        b = Fraction(b);
+        return Fraction.toFraction(a.num * b.den + a.den * b.num, a.den * b.den);
+    }
+    function fraction_sub(a, b) {
+        a = Fraction(a);
+        b = Fraction(b);
+        return Fraction.toFraction(a.num * b.den - a.den * b.num, a.den * b.den);
+    }
+    function fraction_mul(a, b) {
+        a = Fraction(a);
+        b = Fraction(b);
+        return Fraction.toFraction(a.num * b.num, a.den * b.den);
+    }
+    function fraction_div(a, b) {
+        a = Fraction(a);
+        b = Fraction(b);
+        return Fraction.toFraction(a.num * b.den, a.den * b.num);
+    }
+    function fraction_mod(a, b) {
+        var a1 = Fraction(a);
+        var b1 = Fraction(b);
+        return a - Integer.ediv(a1.num * b1.den, a1.den * b1.num) * b;
+    }
+    function fraction_eq(a, b) {
+        a = Fraction(a);
+        b = Fraction(b);
+        /* we assume the fractions are normalized */
+        return (a.num == b.num && a.den == b.den);
+    }
+    function fraction_lt(a, b) {
+        a = Fraction(a);
+        b = Fraction(b);
+        return (a.num * b.den < b.num * a.den);
+    }
+
+    /* operators are needed for fractions */
+    function float_add(a, b) {
+        return Float(a) + Float(b);
+    }
+    function float_sub(a, b) {
+        return Float(a) - Float(b);
+    }
+    function float_mul(a, b) {
+        return Float(a) * Float(b);
+    }
+    function float_div(a, b) {
+        return Float(a) / Float(b);
+    }
+    function float_mod(a, b) {
+        return Float(a) % Float(b);
+    }
+    function float_pow(a, b) {
+        return Float(a) ** Float(b);
+    }
+    function float_eq(a, b) {
+        /* XXX: may be better to use infinite precision for the comparison */
+        return Float(a) === Float(b);
+    }
+    function float_lt(a, b) {
+        a = Float(a);
+        b = Float(b);
+        /* XXX: may be better to use infinite precision for the comparison */
+        if (Float.isNaN(a) || Float.isNaN(b))
+            return undefined;
+        else
+            return a < b;
+    }
+    
+    operators_set(Fraction.prototype,
+        {
+            "+": fraction_add,
+            "-": fraction_sub,
+            "*": fraction_mul,
+            "/": fraction_div,
+            "%": fraction_mod,
+            "**": generic_pow,
+            "==": fraction_eq,
+            "<": fraction_lt,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                return Fraction(-a.num, a.den);
+            },
+        },
+        {
+            left: [Number, BigInt],
+            right: [Number, BigInt],
+            "+": fraction_add,
+            "-": fraction_sub,
+            "*": fraction_mul,
+            "/": fraction_div,
+            "%": fraction_mod,
+            "**": generic_pow,
+            "==": fraction_eq,
+            "<": fraction_lt,
+        },
+        {
+            left: Float,
+            right: Float,
+            "+": float_add,
+            "-": float_sub,
+            "*": float_mul,
+            "/": float_div,
+            "%": float_mod,
+            "**": float_pow,
+            "==": float_eq,
+            "<": float_lt,
+        });
+    
     add_props(Fraction, {
-        [Symbol.operatorOrder]: OT_FRACTION,
         /* (internal use) simplify 'a' to an integer when possible */
         toFraction(a, b) {
             var r = Fraction(a, b);
@@ -383,71 +528,15 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             else
                 return r;
         },
-
-        [Symbol.operatorAdd](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            return Fraction.toFraction(a.num * b.den + a.den * b.num, a.den * b.den);
-        },
-        [Symbol.operatorSub](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            return Fraction.toFraction(a.num * b.den - a.den * b.num, a.den * b.den);
-        },
-        [Symbol.operatorMul](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            return Fraction.toFraction(a.num * b.num, a.den * b.den);
-        },
-        [Symbol.operatorDiv](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            return Fraction.toFraction(a.num * b.den, a.den * b.num);
-        },
-        [Symbol.operatorMathMod](a, b) {
-            var a1 = Fraction(a);
-            var b1 = Fraction(b);
-            return a - Integer.ediv(a1.num * b1.den, a1.den * b1.num) * b;
-        },
-        [Symbol.operatorMod](a, b) {
-            var a1 = Fraction(a);
-            var b1 = Fraction(b);
-            return a - Integer.tdiv(a1.num * b1.den, a1.den * b1.num) * b;
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorCmpEQ](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            /* we assume the fractions are normalized */
-            return (a.num == b.num && a.den == b.den);
-        },
-        [Symbol.operatorCmpLT](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            return (a.num * b.den < b.num * a.den);
-        },
-        [Symbol.operatorCmpLE](a, b) {
-            a = Fraction(a);
-            b = Fraction(b);
-            return (a.num * b.den <= b.num * a.den);
-        },
     });
 
     add_props(Fraction.prototype, {
         [Symbol.toPrimitive](hint) {
-            if (hint === "integer") {
-                return Integer.tdiv(this.num, this.den);
-            } else if (hint === "string") {
+            if (hint === "string") {
                 return this.toString();
             } else {
                 return Float(this.num) / this.den;
             }
-        },
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            return Fraction(-this.num, this.den);
         },
         inverse() {
             return Fraction(this.den, this.num);
@@ -460,7 +549,7 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         },
         abs() {
             if (this.num < 0)
-                return this[Symbol.operatorNeg]();
+                return -this;
             else
                 return this;
         },
@@ -483,29 +572,9 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
 
     /* Number (Float64) */
 
-    add_props(Number, {
-        [Symbol.operatorOrder]: OT_FLOAT64,
-        /* operators are needed for fractions */
-        [Symbol.operatorAdd](a, b) {
-            return Number(a) + Number(b);
-        },
-        [Symbol.operatorSub](a, b) {
-            return Number(a) - Number(b);
-        },
-        [Symbol.operatorMul](a, b) {
-            return Number(a) * Number(b);
-        },
-        [Symbol.operatorDiv](a, b) {
-            return Number(a) / Number(b);
-        },
-        [Symbol.operatorPow](a, b) {
-            return Number(a) ** Number(b);
-        },
-    });
-              
     add_props(Number.prototype, {
         inverse() {
-            return 1.0 / this;
+            return 1 / this;
         },
         norm2() {
             return this * this;
@@ -535,8 +604,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
     });
     
     /* Float */
-
-    global.Float = global.BigFloat;
 
     var const_tab = [];
     
@@ -603,26 +670,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         get SQRT2() { return get_const(7); },
     });
 
-    add_props(Float, {
-        [Symbol.operatorOrder]: OT_FLOAT,
-        /* operators are needed for fractions */
-        [Symbol.operatorAdd](a, b) {
-            return Float(a) + Float(b);
-        },
-        [Symbol.operatorSub](a, b) {
-            return Float(a) - Float(b);
-        },
-        [Symbol.operatorMul](a, b) {
-            return Float(a) * Float(b);
-        },
-        [Symbol.operatorDiv](a, b) {
-            return Float(a) / Float(b);
-        },
-        [Symbol.operatorPow](a, b) {
-            return Float(a) ** Float(b);
-        },
-    });
-              
     add_props(Float.prototype, {
         inverse() {
             return 1.0 / this;
@@ -631,7 +678,7 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             return this * this;
         },
         abs() {
-            return Math.abs(this);
+            return Float.abs(this);
         },
         conj() {
             return this;
@@ -672,8 +719,61 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         return obj;
     }
 
+        
+    function complex_add(a, b) {
+        a = Complex(a);
+        b = Complex(b);
+        return Complex.toComplex(a.re + b.re, a.im + b.im);
+    }
+    function complex_sub(a, b) {
+        a = Complex(a);
+        b = Complex(b);
+        return Complex.toComplex(a.re - b.re, a.im - b.im);
+    }
+    function complex_mul(a, b) {
+        a = Complex(a);
+        b = Complex(b);
+        return Complex.toComplex(a.re * b.re - a.im * b.im,
+                                 a.re * b.im + a.im * b.re);
+    }
+    function complex_div(a, b) {
+        a = Complex(a);
+        b = Complex(b);
+        return a * b.inverse();
+    }
+    function complex_eq(a, b) {
+        a = Complex(a);
+        b = Complex(b);
+        return a.re == b.re && a.im == b.im;
+    }
+    
+    operators_set(Complex.prototype,
+        {
+            "+": complex_add,
+            "-": complex_sub,
+            "*": complex_mul,
+            "/": complex_div,
+            "**": generic_pow,
+            "==": complex_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                return Complex(-a.re, -a.im);
+            }
+        },
+        {
+            left: [Number, BigInt, Float, Fraction],
+            right: [Number, BigInt, Float, Fraction],
+            "+": complex_add,
+            "-": complex_sub,
+            "*": complex_mul,
+            "/": complex_div,
+            "**": generic_pow,
+            "==": complex_eq,
+        });
+    
     add_props(Complex, {
-        [Symbol.operatorOrder]: OT_COMPLEX,
         /* simplify to real number when possible */
         toComplex(re, im) {
             if (algebraicMode && im == 0)
@@ -681,43 +781,9 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             else
                 return Complex(re, im);
         },
-        
-        [Symbol.operatorAdd](a, b) {
-            a = Complex(a);
-            b = Complex(b);
-            return Complex.toComplex(a.re + b.re, a.im + b.im);
-        },
-        [Symbol.operatorSub](a, b) {
-            a = Complex(a);
-            b = Complex(b);
-            return Complex.toComplex(a.re - b.re, a.im - b.im);
-        },
-        [Symbol.operatorMul](a, b) {
-            a = Complex(a);
-            b = Complex(b);
-            return Complex.toComplex(a.re * b.re - a.im * b.im,
-                                     a.re * b.im + a.im * b.re);
-        },
-        [Symbol.operatorDiv](a, b) {
-            a = Complex(a);
-            b = Complex(b);
-            return a * b.inverse();
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorCmpEQ](a, b) {
-            a = Complex(a);
-            b = Complex(b);
-            return a.re == b.re && a.im == b.im;
-        }
     });
 
     add_props(Complex.prototype, {
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            return Complex(-this.re, -this.im);
-        },
         inverse() {
             var c = this.norm2();
             return Complex(this.re / c, -this.im / c);
@@ -785,14 +851,75 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         obj.mod = m;
         return obj;
     };
+    
+    function mod_add(a, b) {
+        if (!(a instanceof Mod)) {
+            return Mod(a + b.res, b.mod);
+        } else if (!(b instanceof Mod)) {
+            return Mod(a.res + b, a.mod);
+        } else {
+            if (a.mod != b.mod)
+                throw TypeError("different modulo for binary operator");
+            return Mod(a.res + b.res, a.mod);
+        }
+    }
+    function mod_sub(a, b) {
+        if (!(a instanceof Mod)) {
+            return Mod(a - b.res, b.mod);
+        } else if (!(b instanceof Mod)) {
+            return Mod(a.res - b, a.mod);
+        } else {
+            if (a.mod != b.mod)
+                throw TypeError("different modulo for binary operator");
+            return Mod(a.res - b.res, a.mod);
+        }
+    }
+    function mod_mul(a, b) {
+        if (!(a instanceof Mod)) {
+            return Mod(a * b.res, b.mod);
+        } else if (!(b instanceof Mod)) {
+            return Mod(a.res * b, a.mod);
+        } else {
+            if (a.mod != b.mod)
+                throw TypeError("different modulo for binary operator");
+            return Mod(a.res * b.res, a.mod);
+        }
+    }
+    function mod_div(a, b) {
+        if (!(b instanceof Mod))
+            b = Mod(b, a.mod);
+        return mod_mul(a, b.inverse());
+    }
+    function mod_eq(a, b) {
+        return (a.mod == b.mod && a.res == b.res);
+    }
+
+    operators_set(Mod.prototype,
+        {
+            "+": mod_add,
+            "-": mod_sub,
+            "*": mod_mul,
+            "/": mod_div,
+            "**": generic_pow,
+            "==": mod_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                return Mod(-a.res, a.mod);
+            }
+        },
+        {
+            left: [Number, BigInt, Float, Fraction],
+            right: [Number, BigInt, Float, Fraction],
+            "+": mod_add,
+            "-": mod_sub,
+            "*": mod_mul,
+            "/": mod_div,
+            "**": generic_pow,
+        });
 
     add_props(Mod.prototype, {
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            return Mod(-this.res, this.mod);
-        },
         inverse() {
             var a = this, m = a.mod;
             if (Integer.isInteger(m)) {
@@ -806,57 +933,21 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         },
     });
 
-    add_props(Mod, {
-        [Symbol.operatorOrder]: OT_MOD,
-        [Symbol.operatorAdd](a, b) {
-            if (!(a instanceof Mod)) {
-                return Mod(a + b.res, b.mod);
-            } else if (!(b instanceof Mod)) {
-                return Mod(a.res + b, a.mod);
-            } else {
-                if (a.mod != b.mod)
-                    throw TypeError("different modulo for binary operator");
-                return Mod(a.res + b.res, a.mod);
-            }
-        },
-        [Symbol.operatorSub](a, b) {
-            if (!(a instanceof Mod)) {
-                return Mod(a - b.res, b.mod);
-            } else if (!(b instanceof Mod)) {
-                return Mod(a.res - b, a.mod);
-            } else {
-                if (a.mod != b.mod)
-                    throw TypeError("different modulo for binary operator");
-                return Mod(a.res - b.res, a.mod);
-            }
-        },
-        [Symbol.operatorMul](a, b) {
-            if (!(a instanceof Mod)) {
-                return Mod(a * b.res, b.mod);
-            } else if (!(b instanceof Mod)) {
-                return Mod(a.res * b, a.mod);
-            } else {
-                if (a.mod != b.mod)
-                    throw TypeError("different modulo for binary operator");
-                return Mod(a.res * b.res, a.mod);
-            }
-        },
-        [Symbol.operatorDiv](a, b) {
-            if (!(b instanceof Mod))
-                b = Mod(b, a.mod);
-            return Mod[Symbol.operatorMul](a, b.inverse());
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorCmpEQ](a, b) {
-            if (!(a instanceof Mod) ||
-                !(b instanceof Mod))
-                return false;
-            return (a.mod == b.mod && a.res == b.res);
-        }
-    });
-            
     /* Polynomial */
 
+    function polynomial_is_scalar(a)
+    {
+        if (typeof a === "number" ||
+            typeof a === "bigint" ||
+            typeof a === "bigfloat")
+            return true;
+        if (a instanceof Fraction ||
+            a instanceof Complex ||
+            a instanceof Mod)
+            return true;
+        return false;
+    }
+    
     Polynomial = function Polynomial(a)
     {
         if (new.target)
@@ -868,7 +959,7 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
                 a = [ 0 ];
             Object.setPrototypeOf(a, Polynomial.prototype);
             return a.trim();
-        } else if (a.constructor[Symbol.operatorOrder] <= OT_MOD) {
+        } else if (polynomial_is_scalar(a)) {
             a = [a];
             Object.setPrototypeOf(a, Polynomial.prototype);
             return a;
@@ -1004,18 +1095,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             a.length = i;
             return a;
         },
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            var r, i, n, a;
-            a = this;
-            n = a.length;
-            r = [];
-            for(i = 0; i < n; i++)
-                r[i] = -a[i];
-            return Polynomial(r);
-        },
         conj() {
             var r, i, n, a;
             a = this;
@@ -1097,74 +1176,106 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         },
     });
 
+
+    function polynomial_add(a, b) {
+        var tmp, r, i, n1, n2;
+        a = Polynomial(a);
+        b = Polynomial(b);
+        if (a.length < b.length) {
+            tmp = a;
+            a = b;
+            b = tmp;
+        }
+        n1 = b.length;
+        n2 = a.length;
+        r = [];
+        for(i = 0; i < n1; i++)
+            r[i] = a[i] + b[i];
+        for(i = n1; i < n2; i++)
+            r[i] = a[i];
+        return Polynomial(r);
+    }
+    function polynomial_sub(a, b) {
+        return polynomial_add(a, -b);
+    }
+    function polynomial_mul(a, b) {
+        var i, j, n1, n2, n, r;
+        a = Polynomial(a);
+        b = Polynomial(b);
+        n1 = a.length;
+        n2 = b.length;
+        n = n1 + n2 - 1;
+        r = [];
+        for(i = 0; i < n; i++)
+            r[i] = 0;
+        for(i = 0; i < n1; i++) {
+            for(j = 0; j < n2; j++) {
+                r[i + j] += a[i] * b[j];
+            }
+        }
+        return Polynomial(r);
+    }
+    function polynomial_div_scalar(a, b) {
+        return a * (1 / b);
+    }
+    function polynomial_div(a, b)
+    {
+        return RationalFunction(Polynomial(a),
+                                Polynomial(b));
+    }
+    function polynomial_mod(a, b) {
+        return Polynomial.divrem(a, b)[1];
+    }
+    function polynomial_eq(a, b) {
+        var n, i;
+        n = a.length;
+        if (n != b.length)
+            return false;
+        for(i = 0; i < n; i++) {
+            if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    operators_set(Polynomial.prototype,
+        {
+            "+": polynomial_add,
+            "-": polynomial_sub,
+            "*": polynomial_mul,
+            "/": polynomial_div,
+            "**": generic_pow,
+            "==": polynomial_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                var r, i, n, a;
+                n = a.length;
+                r = [];
+                for(i = 0; i < n; i++)
+                r[i] = -a[i];
+                return Polynomial(r);
+            },
+        },
+        {
+            left: [Number, BigInt, Float, Fraction, Complex, Mod],
+            "+": polynomial_add,
+            "-": polynomial_sub,
+            "*": polynomial_mul,
+            "/": polynomial_div,
+            "**": generic_pow, /* XXX: only for integer */
+        },
+        {
+            right: [Number, BigInt, Float, Fraction, Complex, Mod],
+            "+": polynomial_add,
+            "-": polynomial_sub,
+            "*": polynomial_mul,
+            "/": polynomial_div_scalar,
+            "**": generic_pow, /* XXX: only for integer */
+        });
+    
     add_props(Polynomial, {
-        [Symbol.operatorOrder]: OT_POLY,
-        [Symbol.operatorAdd](a, b) {
-            var tmp, r, i, n1, n2;
-            a = Polynomial(a);
-            b = Polynomial(b);
-            if (a.length < b.length) {
-                tmp = a;
-                a = b;
-                b = tmp;
-            }
-            n1 = b.length;
-            n2 = a.length;
-            r = [];
-            for(i = 0; i < n1; i++)
-                r[i] = a[i] + b[i];
-            for(i = n1; i < n2; i++)
-                r[i] = a[i];
-            return Polynomial(r);
-        },
-        [Symbol.operatorSub](a, b) {
-            return Polynomial[Symbol.operatorAdd](a, -b);
-        },
-        [Symbol.operatorMul](a, b) {
-            var i, j, n1, n2, n, r;
-            a = Polynomial(a);
-            b = Polynomial(b);
-            n1 = a.length;
-            n2 = b.length;
-            n = n1 + n2 - 1;
-            r = [];
-            for(i = 0; i < n; i++)
-                r[i] = 0;
-            for(i = 0; i < n1; i++) {
-                for(j = 0; j < n2; j++) {
-                    r[i + j] += a[i] * b[j];
-                }
-            }
-            return Polynomial(r);
-        },
-        [Symbol.operatorDiv](a, b) {
-            if (b.constructor[Symbol.operatorOrder] <= OT_COMPLEX)
-                return a * (1 / b);
-            else
-                return RationalFunction(Polynomial(a),
-                                        Polynomial(b));
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorMathMod](a, b) {
-            return Polynomial.divrem(a, b)[1];
-        },
-        [Symbol.operatorMod](a, b) {
-            return Polynomial.divrem(a, b)[1];
-        },
-        [Symbol.operatorCmpEQ](a, b) {
-            var n, i;
-            if (!(a instanceof Polynomial) ||
-                !(b instanceof Polynomial))
-                return false;
-            n = a.length;
-            if (n != b.length)
-                return false;
-            for(i = 0; i < n; i++) {
-                if (a[i] != b[i])
-                    return false;
-            }
-            return true;
-        },
         divrem(a, b) {
             var n1, n2, i, j, q, r, n, c;
             if (b.deg() < 0)
@@ -1252,13 +1363,66 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         return obj;
     };
 
+    function polymod_add(a, b) {
+        if (!(a instanceof PolyMod)) {
+            return PolyMod(a + b.res, b.mod);
+        } else if (!(b instanceof PolyMod)) {
+            return PolyMod(a.res + b, a.mod);
+        } else {
+            if (a.mod != b.mod)
+                throw TypeError("different modulo for binary operator");
+            return PolyMod(a.res + b.res, a.mod);
+        }
+    }
+    function polymod_sub(a, b) {
+        return polymod_add(a, -b);
+    }
+    function polymod_mul(a, b) {
+        if (!(a instanceof PolyMod)) {
+            return PolyMod(a * b.res, b.mod);
+        } else if (!(b instanceof PolyMod)) {
+            return PolyMod(a.res * b, a.mod);
+        } else {
+            if (a.mod != b.mod)
+                    throw TypeError("different modulo for binary operator");
+            return PolyMod(a.res * b.res, a.mod);
+        }
+    }
+    function polymod_div(a, b) {
+        if (!(b instanceof PolyMod))
+            b = PolyMod(b, a.mod);
+        return polymod_mul(a, b.inverse());
+    }
+    function polymod_eq(a, b) {
+        return (a.mod == b.mod && a.res == b.res);
+    }
+
+    operators_set(PolyMod.prototype,
+        {
+            "+": polymod_add,
+            "-": polymod_sub,
+            "*": polymod_mul,
+            "/": polymod_div,
+            "**": generic_pow,
+            "==": polymod_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                return PolyMod(-a.res, a.mod);
+            },
+        },
+        {
+            left: [Number, BigInt, Float, Fraction, Complex, Mod, Polynomial],
+            right: [Number, BigInt, Float, Fraction, Complex, Mod, Polynomial],
+            "+": polymod_add,
+            "-": polymod_sub,
+            "*": polymod_mul,
+            "/": polymod_div,
+            "**": generic_pow, /* XXX: only for integer */
+        });
+
     add_props(PolyMod.prototype, {
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            return PolyMod(-this.res, this.mod);
-        },
         inverse() {
             var a = this, m = a.mod;
             if (m instanceof Polynomial) {
@@ -1270,55 +1434,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         toString() {
             return "PolyMod(" + this.res + "," + this.mod + ")";
         },
-    });
-
-    add_props(PolyMod, {
-        [Symbol.operatorOrder]: OT_POLYMOD,
-        [Symbol.operatorAdd](a, b) {
-            if (!(a instanceof PolyMod)) {
-                return PolyMod(a + b.res, b.mod);
-            } else if (!(b instanceof PolyMod)) {
-                return PolyMod(a.res + b, a.mod);
-            } else {
-                if (a.mod != b.mod)
-                    throw TypeError("different modulo for binary operator");
-                return PolyMod(a.res + b.res, a.mod);
-            }
-        },
-        [Symbol.operatorSub](a, b) {
-            if (!(a instanceof PolyMod)) {
-                return PolyMod(a - b.res, b.mod);
-            } else if (!(b instanceof PolyMod)) {
-                return PolyMod(a.res - b, a.mod);
-            } else {
-                if (a.mod != b.mod)
-                    throw TypeError("different modulo for binary operator");
-                return PolyMod(a.res - b.res, a.mod);
-            }
-        },
-        [Symbol.operatorMul](a, b) {
-            if (!(a instanceof PolyMod)) {
-                return PolyMod(a * b.res, b.mod);
-            } else if (!(b instanceof PolyMod)) {
-                return PolyMod(a.res * b, a.mod);
-            } else {
-                if (a.mod != b.mod)
-                    throw TypeError("different modulo for binary operator");
-                return PolyMod(a.res * b.res, a.mod);
-            }
-        },
-        [Symbol.operatorDiv](a, b) {
-            if (!(b instanceof PolyMod))
-                b = PolyMod(b, a.mod);
-            return PolyMod[Symbol.operatorMul](a, b.inverse());
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorCmpEQ](a, b) {
-            if (!(a instanceof PolyMod) ||
-                !(b instanceof PolyMod))
-                return false;
-            return (a.mod == b.mod && a.res == b.res);
-        }
     });
 
     /* Rational function */
@@ -1347,12 +1462,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
     }
 
     add_props(RationalFunction.prototype, {
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            return RationalFunction(-this.num, this.den);
-        },
         inverse() {
             return RationalFunction(this.den, this.num);
         },
@@ -1378,8 +1487,59 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         },
     });
 
+    function ratfunc_add(a, b) {
+        a = RationalFunction.toRationalFunction(a);
+        b = RationalFunction.toRationalFunction(b);
+        return RationalFunction(a.num * b.den + a.den * b.num, a.den * b.den);
+    }
+    function ratfunc_sub(a, b) {
+        a = RationalFunction.toRationalFunction(a);
+        b = RationalFunction.toRationalFunction(b);
+        return RationalFunction(a.num * b.den - a.den * b.num, a.den * b.den);
+    }
+    function ratfunc_mul(a, b) {
+        a = RationalFunction.toRationalFunction(a);
+        b = RationalFunction.toRationalFunction(b);
+        return RationalFunction(a.num * b.num, a.den * b.den);
+    }
+    function ratfunc_div(a, b) {
+        a = RationalFunction.toRationalFunction(a);
+        b = RationalFunction.toRationalFunction(b);
+        return RationalFunction(a.num * b.den, a.den * b.num);
+    }
+    function ratfunc_eq(a, b) {
+        a = RationalFunction.toRationalFunction(a);
+        b = RationalFunction.toRationalFunction(b);
+        /* we assume the fractions are normalized */
+        return (a.num == b.num && a.den == b.den);
+    }
+
+    operators_set(RationalFunction.prototype,
+        {
+            "+": ratfunc_add,
+            "-": ratfunc_sub,
+            "*": ratfunc_mul,
+            "/": ratfunc_div,
+            "**": generic_pow,
+            "==": ratfunc_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                return RationalFunction(-this.num, this.den);
+            },
+        },
+        {
+            left: [Number, BigInt, Float, Fraction, Complex, Mod, Polynomial],
+            right: [Number, BigInt, Float, Fraction, Complex, Mod, Polynomial],
+            "+": ratfunc_add,
+            "-": ratfunc_sub,
+            "*": ratfunc_mul,
+            "/": ratfunc_div,
+            "**": generic_pow, /* should only be used with integers */
+        });
+    
     add_props(RationalFunction, {
-        [Symbol.operatorOrder]: OT_RFUNC,
         /* This function always return a RationalFunction object even
            if it could simplified to a polynomial, so it is not
            equivalent to RationalFunction(a) */
@@ -1393,33 +1553,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
                 obj.den = Polynomial(1);
                 return obj;
             }
-        },
-        [Symbol.operatorAdd](a, b) {
-            a = RationalFunction.toRationalFunction(a);
-            b = RationalFunction.toRationalFunction(b);
-            return RationalFunction(a.num * b.den + a.den * b.num, a.den * b.den);
-        },
-        [Symbol.operatorSub](a, b) {
-            a = RationalFunction.toRationalFunction(a);
-            b = RationalFunction.toRationalFunction(b);
-            return RationalFunction(a.num * b.den - a.den * b.num, a.den * b.den);
-        },
-        [Symbol.operatorMul](a, b) {
-            a = RationalFunction.toRationalFunction(a);
-            b = RationalFunction.toRationalFunction(b);
-            return RationalFunction(a.num * b.num, a.den * b.den);
-        },
-        [Symbol.operatorDiv](a, b) {
-            a = RationalFunction.toRationalFunction(a);
-            b = RationalFunction.toRationalFunction(b);
-            return RationalFunction(a.num * b.den, a.den * b.num);
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorCmpEQ](a, b) {
-            a = RationalFunction.toRationalFunction(a);
-            b = RationalFunction.toRationalFunction(b);
-            /* we assume the fractions are normalized */
-            return (a.num == b.num && a.den == b.den);
         },
     });
               
@@ -1435,6 +1568,12 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         }
         return n;
     };
+
+    function series_is_scalar_or_polynomial(a)
+    {
+        return polynomial_is_scalar(a) ||
+            (a instanceof Polynomial);
+    }
     
     /* n is the maximum number of terms if 'a' is not a serie */
     Series = function Series(a, n) {
@@ -1442,7 +1581,7 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         
         if (a instanceof Series) {
             return a;
-        } else if (a.constructor[Symbol.operatorOrder] <= OT_POLY) {
+        } else if (series_is_scalar_or_polynomial(a)) {
             if (n <= 0) {
                 /* XXX: should still use the polynomial degree */
                 return Series.zero(0, 0);
@@ -1462,19 +1601,132 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         }
     };
 
-    add_props(Series.prototype, {
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            var obj, n, i;
-            n = this.length;
-            obj = Series.zero(this.length, this.emin);
-            for(i = 0; i < n; i++) {
-                obj[i] = -this[i];
+    function series_add(v1, v2) {
+        var tmp, d, emin, n, r, i, j, v2_emin, c1, c2;
+        if (!(v1 instanceof Series)) {
+            tmp = v1;
+            v1 = v2;
+            v2 = tmp;
+        }
+        d = v1.emin + v1.length;
+        if (series_is_scalar_or_polynomial(v2)) {
+            v2 = Polynomial(v2);
+            if (d <= 0)
+                return v1;
+            v2_emin = 0;
+        } else if (v2 instanceof RationalFunction) {
+            /* compute the emin of the rational fonction */
+            i = get_emin(v2.num) - get_emin(v2.den);
+            if (d <= i)
+                return v1;
+            /* compute the serie with the required terms */
+            v2 = Series(v2, d - i);
+            v2_emin = v2.emin;
+        } else {
+            v2_emin = v2.emin;
+            d = Math.min(d, v2_emin + v2.length);
+        }
+        emin = Math.min(v1.emin, v2_emin);
+        n = d - emin;
+        r = Series.zero(n, emin);
+        /* XXX: slow */
+        for(i = emin; i < d; i++) {
+            j = i - v1.emin;
+            if (j >= 0 && j < v1.length)
+                c1 = v1[j];
+            else
+                c1 = 0;
+            j = i - v2_emin;
+            if (j >= 0 && j < v2.length)
+                c2 = v2[j];
+            else
+                c2 = 0;
+            r[i - emin] = c1 + c2;
+        }
+        return r.trim();
+    }
+    function series_sub(a, b) {
+        return series_add(a, -b);
+    }
+    function series_mul(v1, v2) {
+        var n, i, j, r, n, emin, n1, n2, k;
+        if (!(v1 instanceof Series))
+            v1 = Series(v1, v2.length);
+        else if (!(v2 instanceof Series))
+            v2 = Series(v2, v1.length);
+        emin = v1.emin + v2.emin;
+        n = Math.min(v1.length, v2.length);
+        n1 = v1.length;
+        n2 = v2.length;
+        r = Series.zero(n, emin);
+        for(i = 0; i < n1; i++) {
+            k = Math.min(n2, n - i);
+            for(j = 0; j < k; j++) {
+                r[i + j] += v1[i] * v2[j];
             }
-            return obj;
+        }
+        return r.trim();
+    }
+    function series_div(v1, v2) {
+        if (!(v2 instanceof Series))
+            v2 = Series(v2, v1.length);
+        return series_mul(v1, v2.inverse());
+    }
+    function series_pow(a, b) {
+        if (Integer.isInteger(b)) {
+            return generic_pow(a, b);
+        } else {
+            if (!(a instanceof Series))
+                a = Series(a, b.length);
+            return exp(log(a) * b);
+        }
+    }
+    function series_eq(a, b) {
+        var n, i;
+        if (a.emin != b.emin)
+            return false;
+        n = a.length;
+        if (n != b.length)
+            return false;
+        for(i = 0; i < n; i++) {
+            if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    operators_set(Series.prototype,
+        {
+            "+": series_add,
+            "-": series_sub,
+            "*": series_mul,
+            "/": series_div,
+            "**": series_pow,
+            "==": series_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                var obj, n, i;
+                n = a.length;
+                obj = Series.zero(a.length, a.emin);
+                for(i = 0; i < n; i++) {
+                    obj[i] = -a[i];
+                }
+                return obj;
+            },
         },
+        {
+            left: [Number, BigInt, Float, Fraction, Complex, Mod, Polynomial],
+            right: [Number, BigInt, Float, Fraction, Complex, Mod, Polynomial],
+            "+": series_add,
+            "-": series_sub,
+            "*": series_mul,
+            "/": series_div,
+            "**": series_pow,
+        });
+
+    add_props(Series.prototype, {
         conj() {
             var obj, n, i;
             n = this.length;
@@ -1610,7 +1862,6 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
     });
 
     add_props(Series, {
-        [Symbol.operatorOrder]: OT_SERIES,
         /* new series of length n and first exponent emin */
         zero(n, emin) {
             var r, i, obj;
@@ -1624,108 +1875,12 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
             Object.setPrototypeOf(r, obj);
             return r;
         },
-        [Symbol.operatorAdd](v1, v2) {
-            var tmp, d, emin, n, r, i, j, v2_emin, c1, c2;
-            if (!(v1 instanceof Series)) {
-                tmp = v1;
-                v1 = v2;
-                v2 = tmp;
-            }
-            d = v1.emin + v1.length;
-            if (v2.constructor[Symbol.operatorOrder] <= OT_POLY) {
-                v2 = Polynomial(v2);
-                if (d <= 0)
-                    return v1;
-                v2_emin = 0;
-            } else if (v2 instanceof RationalFunction) {
-                /* compute the emin of the rational fonction */
-                i = get_emin(v2.num) - get_emin(v2.den);
-                if (d <= i)
-                    return v1;
-                /* compute the serie with the required terms */
-                v2 = Series(v2, d - i);
-                v2_emin = v2.emin;
-            } else {
-                v2_emin = v2.emin;
-                d = Math.min(d, v2_emin + v2.length);
-            }
-            emin = Math.min(v1.emin, v2_emin);
-            n = d - emin;
-            r = Series.zero(n, emin);
-            /* XXX: slow */
-            for(i = emin; i < d; i++) {
-                j = i - v1.emin;
-                if (j >= 0 && j < v1.length)
-                    c1 = v1[j];
-                else
-                    c1 = 0;
-                j = i - v2_emin;
-                if (j >= 0 && j < v2.length)
-                    c2 = v2[j];
-                else
-                    c2 = 0;
-                r[i - emin] = c1 + c2;
-            }
-            return r.trim();
-        },
-        [Symbol.operatorSub](a, b) {
-            return Series[Symbol.operatorAdd](a, -b);
-        },
-        [Symbol.operatorMul](v1, v2) {
-            var n, i, j, r, n, emin, n1, n2, k;
-            if (!(v1 instanceof Series))
-                v1 = Series(v1, v2.length);
-            else if (!(v2 instanceof Series))
-                v2 = Series(v2, v1.length);
-            emin = v1.emin + v2.emin;
-            n = Math.min(v1.length, v2.length);
-            n1 = v1.length;
-            n2 = v2.length;
-            r = Series.zero(n, emin);
-            for(i = 0; i < n1; i++) {
-                k = Math.min(n2, n - i);
-                for(j = 0; j < k; j++) {
-                    r[i + j] += v1[i] * v2[j];
-                }
-            }
-            return r.trim();
-        },
-        [Symbol.operatorDiv](v1, v2) {
-            if (!(v2 instanceof Series))
-                v2 = Series(v2, v1.length);
-            return Series[Symbol.operatorMul](v1, v2.inverse());
-        },
-        [Symbol.operatorPow](a, b) {
-            if (Integer.isInteger(b)) {
-                return generic_pow(a, b);
-            } else {
-                if (!(a instanceof Series))
-                    a = Series(a, b.length);
-                return exp(log(a) * b);
-            }
-        },
-        [Symbol.operatorCmpEQ](a, b) {
-            var n, i;
-            if (!(a instanceof Series) ||
-                !(b instanceof Series))
-                return false;
-            if (a.emin != b.emin)
-                return false;
-            n = a.length;
-            if (n != b.length)
-                return false;
-            for(i = 0; i < n; i++) {
-                if (a[i] != b[i])
-                    return false;
-            }
-            return true;
-        },
         O(a) {
             function ErrorO() {
                 return TypeError("invalid O() argument");
             }
             var n;
-            if (a.constructor[Symbol.operatorOrder] <= OT_POLY) {
+            if (series_is_scalar_or_polynomial(a)) {
                 a = Polynomial(a);
                 n = a.deg();
                 if (n < 0)
@@ -2061,130 +2216,138 @@ var Integer, Float, Fraction, Complex, Mod, Polynomial, PolyMod, RationalFunctio
         },
     });
 
-    add_props(Array, {
-        [Symbol.operatorOrder]: OT_ARRAY,
-        [Symbol.operatorAdd](a, b) {
-            var r, i, n;
-            if (!Array.isArray(a) || !Array.isArray(b))
-                throw TypeError("array expected");
-            n = a.length;
-            if (n != b.length)
-                throw TypeError("incompatible array size");
-            r = [];
-            for(i = 0; i < n; i++)
-                r[i] = a[i] + b[i];
-            return r;
-        },
-        [Symbol.operatorSub](a, b) {
-            var r, i, n;
-            n = a.length;
-            if (!Array.isArray(a) || !Array.isArray(b))
-                throw TypeError("array expected");
-            if (n != b.length)
-                throw TypeError("incompatible array size");
-            r = [];
-            for(i = 0; i < n; i++)
-                r[i] = a[i] - b[i];
-            return r;
-        },
-        scalar_mul(a, b) {
-            var r, i, n;
-            n = a.length;
-            r = [];
-            for(i = 0; i < n; i++)
-                r[i] = a[i] * b;
-            return r;
-        },
-        [Symbol.operatorMul](a, b) {
-            var h, w, l, i, j, k, r, rl, sum, a_mat, b_mat, a_is_array, b_is_array;
-            a_is_array = Array.isArray(a);
-            b_is_array = Array.isArray(b);
-            if (!a_is_array && !b_is_array) {
-                throw TypeError("array expected");
-            } else if (!a_is_array && b_is_array) {
-                return Array.scalar_mul(b, a);
-            } else if (a_is_array && !b_is_array) {
-                return Array.scalar_mul(a, b);
-            }
-            h = a.length;
-            a_mat = Array.isArray(a[0]);
-            if (a_mat) {
-                l = a[0].length;
-            } else {
-                l = 1;
-            }
-            if (l != b.length)
-                throw RangeError("incompatible matrix size");
-            b_mat = Array.isArray(b[0]);
-            if (b_mat)
-                w = b[0].length;
-            else
-                w = 1;
-            r = [];
-            if (a_mat && b_mat) {
-                for(i = 0; i < h; i++) {
-                    rl = [];
-                    for(j = 0; j < w; j++) {
-                        sum = 0;
-                        for(k = 0; k < l; k++) {
-                            sum += a[i][k] * b[k][j];
-                        }
-                        rl[j] = sum;
-                    }
-                    r[i] = rl;
-                }
-            } else if (a_mat && !b_mat) {
-                for(i = 0; i < h; i++) {
+    function array_add(a, b) {
+        var r, i, n;
+        n = a.length;
+        if (n != b.length)
+            throw TypeError("incompatible array size");
+        r = [];
+        for(i = 0; i < n; i++)
+            r[i] = a[i] + b[i];
+        return r;
+    }
+    function array_sub(a, b) {
+        var r, i, n;
+        n = a.length;
+        if (n != b.length)
+            throw TypeError("incompatible array size");
+        r = [];
+        for(i = 0; i < n; i++)
+            r[i] = a[i] - b[i];
+        return r;
+    }
+    function array_scalar_mul(a, b) {
+        var r, i, n;
+        n = a.length;
+        r = [];
+        for(i = 0; i < n; i++)
+            r[i] = a[i] * b;
+        return r;
+    }
+    function array_mul(a, b) {
+        var h, w, l, i, j, k, r, rl, sum, a_mat, b_mat;
+        h = a.length;
+        a_mat = Array.isArray(a[0]);
+        if (a_mat) {
+            l = a[0].length;
+        } else {
+            l = 1;
+        }
+        if (l != b.length)
+            throw RangeError("incompatible matrix size");
+        b_mat = Array.isArray(b[0]);
+        if (b_mat)
+            w = b[0].length;
+        else
+            w = 1;
+        r = [];
+        if (a_mat && b_mat) {
+            for(i = 0; i < h; i++) {
+                rl = [];
+                for(j = 0; j < w; j++) {
                     sum = 0;
                     for(k = 0; k < l; k++) {
-                        sum += a[i][k] * b[k];
+                        sum += a[i][k] * b[k][j];
                     }
-                    r[i] = sum;
+                    rl[j] = sum;
                 }
-            } else if (!a_mat && b_mat) {
-                for(i = 0; i < h; i++) {
-                    rl = [];
-                    for(j = 0; j < w; j++) {
-                        rl[j] = a[i] * b[0][j];
-                    }
-                    r[i] = rl;
-                }
-            } else {
-                for(i = 0; i < h; i++) {
-                    r[i] = a[i] * b[0];
-                }
+                r[i] = rl;
             }
-            return r;
-        },
-        [Symbol.operatorDiv](a, b) {
-            return Array[Symbol.operatorMul](a, b.inverse());
-        },
-        [Symbol.operatorPow]: generic_pow,
-        [Symbol.operatorCmpEQ](a, b) {
-            var n, i;
-            n = a.length;
-            if (n != b.length)
+        } else if (a_mat && !b_mat) {
+            for(i = 0; i < h; i++) {
+                sum = 0;
+                for(k = 0; k < l; k++) {
+                    sum += a[i][k] * b[k];
+                }
+                r[i] = sum;
+            }
+        } else if (!a_mat && b_mat) {
+            for(i = 0; i < h; i++) {
+                rl = [];
+                for(j = 0; j < w; j++) {
+                    rl[j] = a[i] * b[0][j];
+                }
+                r[i] = rl;
+            }
+        } else {
+            for(i = 0; i < h; i++) {
+                r[i] = a[i] * b[0];
+            }
+        }
+        return r;
+    }
+    function array_div(a, b) {
+        return array_mul(a, b.inverse());
+    }
+    function array_scalar_div(a, b) {
+        return a * b.inverse();
+    }
+    function array_eq(a, b) {
+        var n, i;
+        n = a.length;
+        if (n != b.length)
+            return false;
+        for(i = 0; i < n; i++) {
+            if (a[i] != b[i])
                 return false;
-            for(i = 0; i < n; i++) {
-                if (a[i] != b[i])
-                    return false;
+        }
+        return true;
+    }
+
+    operators_set(Array.prototype,
+        {
+            "+": array_add,
+            "-": array_sub,
+            "*": array_mul,
+            "/": array_div,
+            "==": array_eq,
+            "pos"(a) {
+                return a;
+            },
+            "neg"(a) {
+                var i, n, r;
+                n = a.length;
+                r = [];
+                for(i = 0; i < n; i++)
+                    r[i] = -a[i];
+                return r;
             }
-            return true;
         },
-    });
+        {
+            right: [Number, BigInt, Float, Fraction, Complex, Mod,
+                    Polynomial, PolyMod, RationalFunction, Series],
+            "*": array_scalar_mul,
+            "/": array_scalar_div,
+            "**": generic_pow, /* XXX: only for integer */
+        },
+        {
+            left: [Number, BigInt, Float, Fraction, Complex, Mod,
+                   Polynomial, PolyMod, RationalFunction, Series],
+            "*"(a, b) { return array_scalar_mul(b, a); },
+            "/"(a, b) { return array_scalar_div(b, a); },
+        });
 
     add_props(Array.prototype, {
-        [Symbol.operatorPlus]() {
-            return this;
-        },
-        [Symbol.operatorNeg]() {
-            var i, n, r;
-            n = this.length;
-            r = [];
-            for(i = 0; i < n; i++)
-                r[i] = -this[i];
-            return r;
-        },
         conj() {
             var i, n, r;
             n = this.length;
@@ -2424,6 +2587,42 @@ function todeg(a)
 function fromdeg(a)
 {
     return a * Float.PI / 180;
+}
+
+function sinh(a)
+{
+    var e = Float.exp(Float(a));
+    return (e - 1/e) * 0.5;
+}
+
+function cosh(a)
+{
+    var e = Float.exp(Float(a));
+    return (e + 1/e) * 0.5;
+}
+
+function tanh(a)
+{
+    var e = Float.exp(Float(a) * 2);
+    return (e - 1) / (e + 1);
+}
+
+function asinh(a)
+{
+    var x = Float(a);
+    return log(sqrt(x * x + 1) + x);
+}
+
+function acosh(a)
+{
+    var x = Float(a);
+    return log(sqrt(x * x - 1) + x);
+}
+
+function atanh(a)
+{
+    var x = Float(a);
+    return 0.5 * log((1 + x) / (1 - x));
 }
 
 var idn = Matrix.idn;
