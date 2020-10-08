@@ -532,7 +532,7 @@ position @code{position} (wrapper to the libc @code{fread}).
 
 @item write(buffer, position, length)
 Write @code{length} bytes to the file from the ArrayBuffer @code{buffer} at byte
-position @code{position} (wrapper to the libc @code{fread}).
+position @code{position} (wrapper to the libc @code{fwrite}).
 
 @item getline()
 Return the next line from the file, assuming UTF-8 encoding, excluding
