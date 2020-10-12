@@ -27,14 +27,17 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
 #if !defined(_WIN32)
 #include <sys/wait.h>
+  #include <unistd.h>
+#else
+  #include "win/getopt.h"
 #endif
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#include "quickjs-version.h"
 
 typedef struct {
     char *name;
@@ -341,7 +344,7 @@ static const char main_c_template2[] =
 
 void help(void)
 {
-    printf("QuickJS Compiler version " CONFIG_VERSION "\n"
+    printf("QuickJS Compiler version " QUICKJS_VERSION "\n"
            "usage: " PROG_NAME " [options] [files]\n"
            "\n"
            "options are:\n"

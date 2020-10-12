@@ -465,7 +465,7 @@ static int parse_digits(const uint8_t **pp, BOOL allow_overflow)
         p++;
     }
     *pp = p;
-    return v;
+    return (int)v;
 }
 
 static int re_parse_expect(REParseState *s, const uint8_t **pp, int c)

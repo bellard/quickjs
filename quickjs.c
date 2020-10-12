@@ -28,14 +28,15 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
-#include <sys/time.h>
 #include <time.h>
 #include <fenv.h>
 #include <math.h>
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
+#include <sys/time.h>
 #elif defined(__linux__)
 #include <malloc.h>
+#include <sys/time.h>
 #endif
 
 #include "cutils.h"
@@ -48,7 +49,7 @@
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
-#if defined(EMSCRIPTEN)
+#if defined(EMSCRIPTEN) || defined(_MSC_VER)
 #define DIRECT_DISPATCH  0
 #else
 #define DIRECT_DISPATCH  1
@@ -67,11 +68,11 @@
 
 /* define to include Atomics.* operations which depend on the OS
    threads */
-#if !defined(EMSCRIPTEN)
+#if !defined(EMSCRIPTEN) && !defined(_MSC_VER)
 #define CONFIG_ATOMICS
 #endif
 
-#if !defined(EMSCRIPTEN)
+#if !defined(EMSCRIPTEN) && !defined(_MSC_VER)
 /* enable stack limitation */
 #define CONFIG_STACK_CHECK
 #endif
@@ -6157,7 +6158,7 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
 #ifdef CONFIG_BIGNUM
             "BigNum "
 #endif
-            CONFIG_VERSION " version, %d-bit, malloc limit: %"PRId64"\n\n",
+            QUICKJS_VERSION " version, %d-bit, malloc limit: %"PRId64"\n\n",
             (int)sizeof(void *) * 8, (int64_t)(ssize_t)s->malloc_limit);
 #if 1
     if (rt) {
@@ -10164,7 +10165,11 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
             } else
 #endif
             {
+#ifdef _MSC_VER
+                double d = INFINITY;
+#else
                 double d = 1.0 / 0.0;
+#endif 
                 if (is_neg)
                     d = -d;
                 val = JS_NewFloat64(ctx, d);
@@ -41345,7 +41350,7 @@ static JSValue js_math_min_max(JSContext *ctx, JSValueConst this_val,
     uint32_t tag;
 
     if (unlikely(argc == 0)) {
-        return __JS_NewFloat64(ctx, is_max ? -1.0 / 0.0 : 1.0 / 0.0);
+        return __JS_NewFloat64(ctx, is_max ? -INFINITY : INFINITY);
     }
 
     tag = JS_VALUE_GET_TAG(argv[0]);
