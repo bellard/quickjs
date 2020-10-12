@@ -27,6 +27,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 #include "quickjs-version.h"
 
 #ifdef __cplusplus
@@ -41,7 +42,7 @@ extern "C" {
 #else
 #define js_likely(x)     (x)
 #define js_unlikely(x)   (x)
-#define js_force_inline  inline
+#define js_force_inline  __forceinline
 #define __js_printf_like(a, b)
 #endif
 
@@ -65,6 +66,109 @@ typedef uint32_t JSAtom;
 #define JS_NAN_BOXING
 #endif
 
+typedef struct JSRefCountHeader {
+    int ref_count;
+} JSRefCountHeader;
+
+#define JS_FLOAT64_NAN NAN
+
+#if defined(JS_STRICT_NAN_BOXING) 
+
+  // This schema defines strict NAN boxing for both 32 and 64 versions 
+
+  // This is a method of storing values in the IEEE 754 double-precision
+  // floating-point number. double type is 64-bit, comprised of 1 sign bit, 11
+  // exponent bits and 52 mantissa bits:
+  //    7         6        5        4        3        2        1        0
+  // seeeeeee|eeeemmmm|mmmmmmmm|mmmmmmmm|mmmmmmmm|mmmmmmmm|mmmmmmmm|mmmmmmmm
+  //
+
+  // s0000000|0000tttt|vvvvvvvv|vvvvvvvv|vvvvvvvv|vvvvvvvv|vvvvvvvv|vvvvvvvv
+  // NaN marker   |tag|  48-bit placeholder for values: pointers, strings
+  // all bits 0   | 4 |  
+  // for non float|bit|  
+
+  // Doubles contain non-zero in NaN marker field and are stored with bits inversed 
+
+  // JS_UNINITIALIZED is strictly uint64_t(0)
+
+  enum {
+
+    JS_TAG_UNINITIALIZED = 0,
+    JS_TAG_INT = 1,
+    JS_TAG_BOOL = 2,
+    JS_TAG_NULL = 3,
+    JS_TAG_UNDEFINED = 4,
+    JS_TAG_CATCH_OFFSET = 5,
+    JS_TAG_EXCEPTION = 6,
+    JS_TAG_FLOAT64 = 7,
+
+    /* all tags with a reference count have 0b1000 bit */
+    JS_TAG_OBJECT = 8,
+    JS_TAG_FUNCTION_BYTECODE = 9, /* used internally */
+    JS_TAG_MODULE = 10, /* used internally */
+    JS_TAG_STRING = 11,
+    JS_TAG_SYMBOL = 12,
+    JS_TAG_BIG_FLOAT = 13,
+    JS_TAG_BIG_INT = 14,
+    JS_TAG_BIG_DECIMAL = 15,
+
+  };
+
+  typedef uint64_t JSValue;
+
+  #define JSValueConst JSValue
+
+  #define JS_VALUE_GET_TAG(v) (((v)>0xFFFFFFFFFFFFFull)? (unsigned)JS_TAG_FLOAT64 : (unsigned)((v) >> 48))
+
+  #define JS_VALUE_GET_INT(v)  (int)(v)
+  #define JS_VALUE_GET_BOOL(v) (int)(v)
+  #ifdef JS_PTR64
+  #define JS_VALUE_GET_PTR(v)  ((void *)((intptr_t)(v) & 0x0000FFFFFFFFFFFFull))
+  #else
+  #define JS_VALUE_GET_PTR(v)  ((void *)(intptr_t)(v))
+  #endif
+
+  #define JS_MKVAL(tag, val) (((uint64_t)(0xF & tag) << 48) | (uint32_t)(val))
+  #define JS_MKPTR(tag, ptr) (((uint64_t)(0xF & tag) << 48) | ((uint64_t)(ptr) & 0x0000FFFFFFFFFFFFull))
+
+  #define JS_NAN JS_MKVAL(JS_TAG_FLOAT64,1)
+
+  static inline double JS_VALUE_GET_FLOAT64(JSValue v)
+  {
+    union { JSValue v; double d; } u;
+    if (v == JS_NAN) 
+      return JS_FLOAT64_NAN;
+    u.v = ~v;
+    return u.d;
+  }
+
+  static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
+  {
+    union { double d; uint64_t u64; } u;
+    JSValue v;
+    u.d = d;
+    /* normalize NaN */
+    if (js_unlikely((u.u64 & 0x7ff0000000000000) == 0x7ff0000000000000))
+      v = JS_NAN;
+    else
+      v = ~u.u64;
+    return v;
+  }
+
+  //#define JS_TAG_IS_FLOAT64(tag) ((tag & 0x7ff0) != 0)
+  #define JS_TAG_IS_FLOAT64(tag) (tag == JS_TAG_FLOAT64)
+
+  /* same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing */
+  /* Note: JS_VALUE_GET_TAG already normalized in this packaging schema*/
+  #define JS_VALUE_GET_NORM_TAG(v) JS_VALUE_GET_TAG(v)
+
+  #define JS_VALUE_IS_NAN(v) (v == JS_NAN)
+
+  #define JS_VALUE_HAS_REF_COUNT(v) ((JS_VALUE_GET_TAG(v) & 0xFFF8) == 0x8)
+
+#else // !JS_STRICT_NAN_BOXING
+
 enum {
     /* all tags with a reference count are negative */
     JS_TAG_FIRST       = -11, /* first negative tag */
@@ -87,12 +191,6 @@ enum {
     JS_TAG_FLOAT64     = 7,
     /* any larger tag is FLOAT64 if JS_NAN_BOXING */
 };
-
-typedef struct JSRefCountHeader {
-    int ref_count;
-} JSRefCountHeader;
-
-#define JS_FLOAT64_NAN NAN
 
 #ifdef CONFIG_CHECK_JSVALUE
 /* JSValue consistency : it is not possible to run the code in this
@@ -245,12 +343,16 @@ static inline JS_BOOL JS_VALUE_IS_NAN(JSValue v)
 
 #endif /* !JS_NAN_BOXING */
 
+  #define JS_VALUE_HAS_REF_COUNT(v) ((unsigned)JS_VALUE_GET_TAG(v) >= (unsigned)JS_TAG_FIRST)
+
+#endif /* !JS_STRICT_NAN_BOXING */
+
 #define JS_VALUE_IS_BOTH_INT(v1, v2) ((JS_VALUE_GET_TAG(v1) | JS_VALUE_GET_TAG(v2)) == 0)
 #define JS_VALUE_IS_BOTH_FLOAT(v1, v2) (JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(v1)) && JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(v2)))
 
 #define JS_VALUE_GET_OBJ(v) ((JSObject *)JS_VALUE_GET_PTR(v))
 #define JS_VALUE_GET_STRING(v) ((JSString *)JS_VALUE_GET_PTR(v))
-#define JS_VALUE_HAS_REF_COUNT(v) ((unsigned)JS_VALUE_GET_TAG(v) >= (unsigned)JS_TAG_FIRST)
+
 
 /* special values */
 #define JS_NULL      JS_MKVAL(JS_TAG_NULL, 0)

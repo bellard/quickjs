@@ -8,7 +8,7 @@
   file:close()
   vars = vers:gsub("%s+", "")
   file = io.open("quickjs-version.h", "w+")
-  file:write("#define QUICKJS_VERSION \"" .. vers .. "\"\r\n")
+  file:write("#define QUICKJS_VERSION \"" .. vers .. "\"")
   file:close()
 end)()  
 
@@ -16,6 +16,8 @@ end)()
 workspace "quickjs-msvc"
 	-- Premake output folder
 	location(path.join(".build", _ACTION))
+
+  defines {"JS_STRICT_NAN_BOXING"} -- this option enables x64 build
 
 	platforms { "x86", "x64", "arm32", "arm64"  } 
 
