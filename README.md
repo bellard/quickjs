@@ -25,6 +25,6 @@ It will generate .build/vs2017/quickjs-msvc.sln and open it in Microsoft Visual 
 
 Press F5 to compile it and run qjs - interactive JS command line application.
 
-Check (wiki)[https://github.com/c-smile/quickjspp/wiki]
+Check [wiki](https://github.com/c-smile/quickjspp/wiki)
 
 
