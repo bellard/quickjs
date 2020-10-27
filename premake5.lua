@@ -17,7 +17,11 @@ workspace "quickjs-msvc"
 	-- Premake output folder
 	location(path.join(".build", _ACTION))
 
-  defines {"JS_STRICT_NAN_BOXING"} -- this option enables x64 build
+  defines {
+  	  "JS_STRICT_NAN_BOXING", -- this option enables x64 build on Windows/MSVC
+      "CONFIG_BIGNUM",
+      "CONFIG_JSX",           -- native JSX support - enables JSX literals
+    } 
 
 	platforms { "x86", "x64", "arm32", "arm64"  } 
 
@@ -71,6 +75,7 @@ project "quickjs"
 		"libunicode.c",
 		"quickjs.c",
 		"quickjs-libc.c",
+		"libbf.c",
 		"libregexp.h",
 		"libregexp-opcode.h",
 		"libunicode.h",
@@ -79,7 +84,8 @@ project "quickjs"
 		"quickjs.h",
 		"quickjs-atom.h",
 		"quickjs-libc.h",
-		"quickjs-opcode.h"
+		"quickjs-opcode.h",
+		"quickjs-jsx.h",
 	}
 
 -----------------------------------------------------------------------------------------------------------------------
@@ -102,8 +108,11 @@ project "qjs"
 	files {
 		"qjs.c",
 		"repl.js",
-		"repl.c"
+		"repl.c",
+		"qjscalc.js",
+		"qjscalc.c"
 	}
 
 -- Compile repl.js and save bytecode into repl.c
 prebuildcommands { "\"%{cfg.buildtarget.directory}/qjsc.exe\" -c -o \"../../repl.c\" -m \"../../repl.js\"" }
+prebuildcommands { "\"%{cfg.buildtarget.directory}/qjsc.exe\" -c -o \"../../qjscalc.c\" -m \"../../qjscalc.js\"" }

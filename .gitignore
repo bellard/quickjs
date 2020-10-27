@@ -4,8 +4,8 @@
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
 # Premake files
-.bin/*
-.build/*
+.bin/
+.build/
 
 # User-specific files
 *.suo

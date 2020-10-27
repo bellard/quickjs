@@ -520,6 +520,8 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt);
 JSAtom JS_NewAtomLen(JSContext *ctx, const char *str, size_t len);
 JSAtom JS_NewAtom(JSContext *ctx, const char *str);
 JSAtom JS_NewAtomUInt32(JSContext *ctx, uint32_t n);
+JSAtom JS_NewAtomLenRT(JSRuntime *rt, const char *str, int len);
+const char *JS_AtomGetStrRT(JSRuntime *rt, char *buf, int buf_size, JSAtom atom);
 JSAtom JS_DupAtom(JSContext *ctx, JSAtom v);
 void JS_FreeAtom(JSContext *ctx, JSAtom v);
 void JS_FreeAtomRT(JSRuntime *rt, JSAtom v);
@@ -534,6 +536,8 @@ typedef struct JSPropertyEnum {
     JS_BOOL is_enumerable;
     JSAtom atom;
 } JSPropertyEnum;
+
+void js_free_prop_enum(JSContext *ctx, JSPropertyEnum *tab, uint32_t len);
 
 typedef struct JSPropertyDescriptor {
     int flags;
@@ -897,6 +901,7 @@ int JS_DefinePropertyGetSet(JSContext *ctx, JSValueConst this_obj,
 void JS_SetOpaque(JSValue obj, void *opaque);
 void *JS_GetOpaque(JSValueConst obj, JSClassID class_id);
 void *JS_GetOpaque2(JSContext *ctx, JSValueConst obj, JSClassID class_id);
+JSClassID JS_GetClassID(JSValueConst obj, void** ppopaque);
 
 /* 'buf' must be zero terminated i.e. buf[buf_len] = '\0'. */
 JSValue JS_ParseJSON(JSContext *ctx, const char *buf, size_t buf_len,
@@ -998,6 +1003,9 @@ JSAtom JS_GetScriptOrModuleName(JSContext *ctx, int n_stack_levels);
 /* only exported for os.Worker() */
 JSModuleDef *JS_RunModule(JSContext *ctx, const char *basename,
                           const char *filename);
+
+JSValue JS_GetModuleExportItemStr(JSContext *ctx, JSModuleDef *m, const char *name);
+JSValue JS_GetModuleExportItem(JSContext *ctx, JSModuleDef *m, JSAtom atom);
 
 /* C function definition */
 typedef enum JSCFunctionEnum {  /* XXX: should rename for namespace isolation */
