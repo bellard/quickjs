@@ -58,6 +58,6 @@ assert(t3,t3a);
 var t4  = <div id="foo" class="bar"><h1>header</h1><button>clicks</button></div>; 
 var t4a = ["div",{id:"foo",class:"bar"},[["h1",{},["header"]],["button",{},["clicks"]]]];
 
-assert(t3,t3a);
+assert(t4,t4a);
 
 console.log("JSX test passed!");
