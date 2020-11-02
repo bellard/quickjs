@@ -132,15 +132,23 @@ typedef struct JSRefCountHeader {
   #define JS_MKVAL(tag, val) (((uint64_t)(0xF & tag) << 48) | (uint32_t)(val))
   #define JS_MKPTR(tag, ptr) (((uint64_t)(0xF & tag) << 48) | ((uint64_t)(ptr) & 0x0000FFFFFFFFFFFFull))
 
-  #define JS_NAN JS_MKVAL(JS_TAG_FLOAT64,1)
+  #define JS_NAN JS_MKVAL(JS_TAG_FLOAT64,0)
+  #define JS_INFINITY_NEGATIVE JS_MKVAL(JS_TAG_FLOAT64,1)
+  #define JS_INFINITY_POSITIVE JS_MKVAL(JS_TAG_FLOAT64,2)
 
   static inline double JS_VALUE_GET_FLOAT64(JSValue v)
   {
+    if (v > 0xFFFFFFFFFFFFFull) {
     union { JSValue v; double d; } u;
-    if (v == JS_NAN) 
-      return JS_FLOAT64_NAN;
     u.v = ~v;
     return u.d;
+  }
+    else if (v == JS_NAN)
+      return JS_FLOAT64_NAN;
+    else if (v == JS_INFINITY_POSITIVE)
+      return INFINITY;
+    else 
+      return -INFINITY;
   }
 
   static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
@@ -149,8 +157,14 @@ typedef struct JSRefCountHeader {
     JSValue v;
     u.d = d;
     /* normalize NaN */
-    if (js_unlikely((u.u64 & 0x7ff0000000000000) == 0x7ff0000000000000))
+    if (js_unlikely((u.u64 & 0x7ff0000000000000) == 0x7ff0000000000000)) {
+      if( isnan(d))
       v = JS_NAN;
+      else if (d < 0.0)
+        v = JS_INFINITY_NEGATIVE;
+      else
+        v = JS_INFINITY_POSITIVE;
+    }
     else
       v = ~u.u64;
     return v;
