@@ -223,6 +223,9 @@ DEF(BigDecimal, "BigDecimal")
 DEF(OperatorSet, "OperatorSet")
 DEF(Operators, "Operators")
 #endif
+#ifdef CONFIG_JSX
+DEF(JSX, "JSX")
+#endif
 DEF(Map, "Map")
 DEF(Set, "Set") /* Map + 1 */
 DEF(WeakMap, "WeakMap") /* Map + 2 */

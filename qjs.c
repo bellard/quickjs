@@ -28,18 +28,20 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
+#include <unistd.h>
 #elif defined(__linux__)
 #include <malloc.h>
+#include <unistd.h>
 #endif
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#include "quickjs-version.h"
 
 extern const uint8_t qjsc_repl[];
 extern const uint32_t qjsc_repl_size;
@@ -276,7 +278,7 @@ static const JSMallocFunctions trace_mf = {
 
 void help(void)
 {
-    printf("QuickJS version " CONFIG_VERSION "\n"
+    printf("QuickJS version " QUICKJS_VERSION "\n"
            "usage: " PROG_NAME " [options] [file [args]]\n"
            "-h  --help         list options\n"
            "-e  --eval EXPR    evaluate EXPR\n"
@@ -448,8 +450,10 @@ int main(int argc, char **argv)
         }
     }
 
+#ifdef CONFIG_BIGNUM
     if (load_jscalc)
         bignum_ext = 1;
+#endif
 
     if (trace_memory) {
         js_trace_malloc_init(&trace_data);
