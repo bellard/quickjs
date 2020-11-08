@@ -24576,6 +24576,7 @@ static __exception int js_parse_postfix_expr(JSParseState *s, BOOL accept_lparen
     for(;;) {
         JSFunctionDef *fd = s->cur_func;
         BOOL has_optional_chain = FALSE;
+        BOOL object_literal_call = FALSE;
 
         if (s->token.val == TOK_QUESTION_MARK_DOT) {
             /* optional chaining */
@@ -24596,9 +24597,13 @@ static __exception int js_parse_postfix_expr(JSParseState *s, BOOL accept_lparen
             }
             call_type = FUNC_CALL_TEMPLATE;
             goto parse_func_call2;
-        } else if (s->token.val == '(' && accept_lparen) {
+        }
+        else if (s->token.val == '{' && accept_lparen) {
+          object_literal_call = TRUE;
+          goto parse_func_call2;
+        }
+        else if (s->token.val == '(' && accept_lparen) {
             int opcode, arg_count, drop_count;
-
             /* function call */
         parse_func_call:
             if (next_token(s))
@@ -24697,7 +24702,9 @@ static __exception int js_parse_postfix_expr(JSParseState *s, BOOL accept_lparen
                     return -1;
                 arg_count++;
                 if (s->token.val == ')')
-                    break;
+                  break;
+                if (object_literal_call)
+                  break; /* foo {bar:1} - "object literal call" */
                 /* accept a trailing comma before the ')' */
                 if (js_parse_expect(s, ','))
                     return -1;

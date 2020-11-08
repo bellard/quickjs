@@ -46,7 +46,7 @@
   #define __maybe_unused
   #define __attribute__(x)
   #define __attribute(x)
-  typedef size_t ssize_t;
+  typedef intptr_t ssize_t;
 #else
   #define likely(x)       __builtin_expect(!!(x), 1)
   #define unlikely(x)     __builtin_expect(!!(x), 0)
