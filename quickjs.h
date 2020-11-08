@@ -897,6 +897,9 @@ JS_BOOL JS_DetectModule(const char *input, size_t input_len);
 /* 'input' must be zero terminated i.e. input[input_len] = '\0'. */
 JSValue JS_Eval(JSContext *ctx, const char *input, size_t input_len,
                 const char *filename, int eval_flags);
+JSValue JS_Eval2(JSContext *ctx, const char *input, size_t input_len,
+                const char *filename, int eval_flags, int line_no);
+
 JSValue JS_EvalFunction(JSContext *ctx, JSValue fun_obj);
 JSValue JS_GetGlobalObject(JSContext *ctx);
 int JS_IsInstanceOf(JSContext *ctx, JSValueConst val, JSValueConst obj);
