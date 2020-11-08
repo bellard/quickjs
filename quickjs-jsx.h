@@ -50,7 +50,22 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
   //  - atts - object {...}, can be empty
   //  - kids - array [...], can be empty
 
+  char buf[ATOM_GET_STR_BUF_SIZE];
+  const char* tag_chars = JS_AtomGetStr(s->ctx, buf, countof(buf), tag_atom);
+  
+  // check for tag name starting from capital letter 
+  uint32_t res[3] = {0};
+  lre_case_conv(res, tag_chars[0], 1);
+
+  if (res[0] != tag_chars[0]) { // tag name starts from upper case.
+    // ReactJS convention, if tag started from capital letter - it is either class or function
+    // Fetch it here, so the tag in JSX call can be reference to class(constructor) or a function
+    emit_op(s, OP_scope_get_var);
+    emit_atom(s, tag_atom);
+    emit_u16(s, s->cur_func->scope_level);
+  } else 
   emit_push_const(s, tag, 0);
+  
   JS_FreeValue(s->ctx, tag);
 
   // parse attributes
