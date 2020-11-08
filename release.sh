@@ -6,30 +6,23 @@ set -e
 version=`cat VERSION`
 
 if [ "$1" = "-h" ] ; then
-    echo "release.sh [all]"
+    echo "release.sh [release_list]"
     echo ""
-    echo "all: build all the archives. Otherwise only build the quickjs source archive."
+    echo "release_list: extras binary win_binary quickjs"
+    
     exit 1
 fi
 
-extras="no"
-binary="no"
-quickjs="no"
+release_list="extras binary win_binary quickjs"
 
-if [ "$1" = "all" ] ; then
-    extras="yes"
-    binary="yes"
-    quickjs="yes"
-elif [ "$1" = "binary" ] ; then
-    binary="yes"
-else
-    quickjs="yes"
+if [ "$1" != "" ] ; then
+    release_list="$1"
 fi
 
 #################################################"
 # extras
 
-if [ "$extras" = "yes" ] ; then
+if echo $release_list | grep -w -q extras ; then
 
 d="quickjs-${version}"
 name="quickjs-extras-${version}"
@@ -46,10 +39,58 @@ cp -a tests/bench-v8 $outdir/tests
 fi
 
 #################################################"
-# binary release
+# Windows binary release
 
-if [ "$binary" = "yes" ] ; then
+if echo $release_list | grep -w -q win_binary ; then
 
+# win64
+
+dlldir=/usr/x86_64-w64-mingw32/sys-root/mingw/bin
+cross_prefix="x86_64-w64-mingw32-"
+d="quickjs-win-x86_64-${version}"
+outdir="/tmp/${d}"
+
+rm -rf $outdir
+mkdir -p $outdir
+
+make CONFIG_WIN32=y qjs.exe
+cp qjs.exe $outdir
+${cross_prefix}strip $outdir/qjs.exe
+cp $dlldir/libwinpthread-1.dll $outdir
+
+( cd /tmp/$d && rm -f ../${d}.zip && zip -r ../${d}.zip . )
+
+make CONFIG_WIN32=y clean
+
+# win32
+
+dlldir=/usr/i686-w64-mingw32/sys-root/mingw/bin
+cross_prefix="i686-w64-mingw32-"
+d="quickjs-win-i686-${version}"
+outdir="/tmp/${d}"
+
+rm -rf $outdir
+mkdir -p $outdir
+
+make clean
+make CONFIG_WIN32=y clean
+
+make CONFIG_WIN32=y CONFIG_M32=y qjs.exe
+cp qjs.exe $outdir
+${cross_prefix}strip $outdir/qjs.exe
+cp $dlldir/libwinpthread-1.dll $outdir
+
+( cd /tmp/$d && rm -f ../${d}.zip && zip -r ../${d}.zip . )
+
+fi
+    
+#################################################"
+# Linux binary release
+
+if echo $release_list | grep -w -q binary ; then
+
+make clean
+make CONFIG_WIN32=y clean
 make -j4 qjs run-test262
 make -j4 CONFIG_M32=y qjs32 run-test262-32
 strip qjs run-test262 qjs32 run-test262-32
@@ -80,7 +121,7 @@ fi
 #################################################"
 # quickjs
 
-if [ "$quickjs" = "yes" ] ; then
+if echo $release_list | grep -w -q quickjs ; then
 
 make build_doc
 
@@ -98,7 +139,7 @@ cp Makefile VERSION TODO Changelog readme.txt release.sh unicode_download.sh \
    libregexp.c libregexp.h libregexp-opcode.h \
    libunicode.c libunicode.h libunicode-table.h \
    libbf.c libbf.h \
-   jscompress.c unicode_gen.c unicode_gen_def.h \
+   unicode_gen.c unicode_gen_def.h \
    run-test262.c test262o.conf test262.conf \
    test262o_errors.txt test262_errors.txt \
    $outdir

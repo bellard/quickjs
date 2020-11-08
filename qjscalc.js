@@ -2625,6 +2625,17 @@ function atanh(a)
     return 0.5 * log((1 + x) / (1 - x));
 }
 
+function sigmoid(x)
+{
+    x = Float(x);
+    return 1 / (1 + exp(-x));
+}
+
+function lerp(a, b, t)
+{
+    return a + (b - a) * t;
+}
+
 var idn = Matrix.idn;
 var diag = Matrix.diag;
 var trans = Matrix.trans;

@@ -114,7 +114,7 @@ DEF(    check_brand, 1, 2, 2, none) /* this_obj func -> this_obj func */
 DEF(      add_brand, 1, 2, 0, none) /* this_obj home_obj -> */
 DEF(   return_async, 1, 1, 0, none)
 DEF(          throw, 1, 1, 0, none)
-DEF(      throw_var, 6, 0, 0, atom_u8)
+DEF(    throw_error, 6, 0, 0, atom_u8)
 DEF(           eval, 5, 1, 1, npop_u16) /* func args... -> ret_val */
 DEF(     apply_eval, 3, 2, 1, u16) /* func array -> ret_eval */
 DEF(         regexp, 1, 2, 1, none) /* create a RegExp object from the pattern and a
@@ -205,16 +205,15 @@ DEF(   for_of_start, 1, 1, 3, none)
 DEF(for_await_of_start, 1, 1, 3, none)
 DEF(    for_in_next, 1, 1, 3, none)
 DEF(    for_of_next, 2, 3, 5, u8)
-DEF(for_await_of_next, 1, 3, 4, none)
+DEF(iterator_check_object, 1, 1, 1, none)
 DEF(iterator_get_value_done, 1, 1, 2, none)
 DEF( iterator_close, 1, 3, 0, none)
 DEF(iterator_close_return, 1, 4, 4, none)
-DEF(async_iterator_close, 1, 3, 2, none)
-DEF(async_iterator_next, 1, 4, 4, none)
-DEF(async_iterator_get, 2, 4, 5, u8)
+DEF(  iterator_next, 1, 4, 4, none)
+DEF(  iterator_call, 2, 4, 5, u8)
 DEF(  initial_yield, 1, 0, 0, none)
 DEF(          yield, 1, 1, 2, none)
-DEF(     yield_star, 1, 2, 2, none)
+DEF(     yield_star, 1, 1, 2, none)
 DEF(async_yield_star, 1, 1, 2, none)
 DEF(          await, 1, 1, 1, none)
 
@@ -265,8 +264,6 @@ DEF(       math_mod, 1, 2, 1, none)
 DEF(            nop, 1, 0, 0, none) 
 
 /* temporary opcodes: never emitted in the final bytecode */
-
-def(set_arg_valid_upto, 3, 0, 0, arg) /* emitted in phase 1, removed in phase 2 */
 
 def(    enter_scope, 3, 0, 0, u16)  /* emitted in phase 1, removed in phase 2 */
 def(    leave_scope, 3, 0, 0, u16)  /* emitted in phase 1, removed in phase 2 */
