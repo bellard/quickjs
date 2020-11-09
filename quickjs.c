@@ -1170,7 +1170,7 @@ static void js_async_function_resolve_mark(JSRuntime *rt, JSValueConst val,
                                            JS_MarkFunc *mark_func);
 static JSValue JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
                                const char *input, size_t input_len,
-                               const char *filename, int flags, int scope_idx);
+                               const char *filename, int flags, int scope_idx, int line_no);
 static void js_free_module_def(JSContext *ctx, JSModuleDef *m);
 static void js_mark_module_def(JSRuntime *rt, JSModuleDef *m,
                                JS_MarkFunc *mark_func);
@@ -24576,7 +24576,6 @@ static __exception int js_parse_postfix_expr(JSParseState *s, BOOL accept_lparen
     for(;;) {
         JSFunctionDef *fd = s->cur_func;
         BOOL has_optional_chain = FALSE;
-        BOOL object_literal_call = FALSE;
 
         if (s->token.val == TOK_QUESTION_MARK_DOT) {
             /* optional chaining */
@@ -24598,12 +24597,9 @@ static __exception int js_parse_postfix_expr(JSParseState *s, BOOL accept_lparen
             call_type = FUNC_CALL_TEMPLATE;
             goto parse_func_call2;
         }
-        else if (s->token.val == '{' && accept_lparen) {
-          object_literal_call = TRUE;
-          goto parse_func_call2;
-        }
         else if (s->token.val == '(' && accept_lparen) {
             int opcode, arg_count, drop_count;
+
             /* function call */
         parse_func_call:
             if (next_token(s))
@@ -24703,8 +24699,6 @@ static __exception int js_parse_postfix_expr(JSParseState *s, BOOL accept_lparen
                 arg_count++;
                 if (s->token.val == ')')
                   break;
-                if (object_literal_call)
-                  break; /* foo {bar:1} - "object literal call" */
                 /* accept a trailing comma before the ')' */
                 if (js_parse_expect(s, ','))
                     return -1;
