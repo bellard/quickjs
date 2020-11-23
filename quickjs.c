@@ -27030,7 +27030,7 @@ static int add_req_module_entry(JSContext *ctx, JSModuleDef *m,
     return i;
 }
 
-static JSExportEntry *find_export_entry(JSContext *ctx, JSModuleDef *m,
+static JSExportEntry *find_export_entry(JSContext *ctx, const JSModuleDef *m,
                                         JSAtom export_name)
 {
     JSExportEntry *me;
@@ -27144,6 +27144,37 @@ int JS_SetModuleExport(JSContext *ctx, JSModuleDef *m, const char *export_name,
  fail:
     JS_FreeValue(ctx, val);
     return -1;
+}
+
+JSValueConst JS_GetModuleExport(JSContext *ctx, const JSModuleDef *m, const char *export_name) {
+    JSExportEntry *me;
+    JSAtom name;
+    name = JS_NewAtom(ctx, export_name);
+    if (name == JS_ATOM_NULL)
+        goto fail;
+    me = find_export_entry(ctx, m, name);
+    JS_FreeAtom(ctx, name);
+    if (!me)
+        goto fail;
+    return JS_DupValue(ctx, me->u.local.var_ref->value);
+ fail:
+    return JS_UNDEFINED;
+}
+
+int JS_CountModuleExport(JSContext *ctx, const JSModuleDef *m) {
+    return m->export_entries_count;
+}
+
+JSAtom JS_GetModuleExportName(JSContext *ctx, const JSModuleDef *m, int idx) {
+    if (idx >= m->export_entries_count || idx < 0)
+        return JS_ATOM_NULL;
+    return JS_DupAtom(ctx, m->export_entries[idx].export_name);
+}
+
+JSValueConst JS_GetModuleExportValue(JSContext *ctx, const JSModuleDef *m, int idx) {
+    if (idx >= m->export_entries_count || idx < 0)
+        return JS_UNDEFINED;
+    return JS_DupValue(ctx, m->export_entries[idx].u.local.var_ref->value);
 }
 
 void JS_SetModuleLoaderFunc(JSRuntime *rt,
