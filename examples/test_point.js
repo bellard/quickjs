@@ -1,5 +1,5 @@
 /* example of JS module importing a C module */
-import { Point } from "./point.so";
+import { Point } from "./point.module";
 
 function assert(b, str)
 {

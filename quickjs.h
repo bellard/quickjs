@@ -28,6 +28,12 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#ifdef _WIN32
+  #define JS_EXPORT __declspec(dllexport)
+#else
+  #define JS_EXPORT /* nothing */
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -330,6 +336,10 @@ typedef struct JSMallocFunctions {
 } JSMallocFunctions;
 
 typedef struct JSGCObjectHeader JSGCObjectHeader;
+
+/* These pair of function should be called at the very beginning and the very end */
+void JS_Initialize(void);
+void JS_Finalize(void);
 
 JSRuntime *JS_NewRuntime(void);
 /* info lifetime must exceed that of rt */

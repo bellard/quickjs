@@ -33,6 +33,8 @@
 
 #include "cutils.h"
 
+#define BOOL int
+
 /* define it to be able to test unicode.c */
 //#define USE_TEST
 /* profile tests */

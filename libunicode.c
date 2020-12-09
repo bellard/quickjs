@@ -31,6 +31,8 @@
 #include "libunicode.h"
 #include "libunicode-table.h"
 
+#define BOOL int
+
 enum {
     RUN_TYPE_U,
     RUN_TYPE_L,

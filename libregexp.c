@@ -31,6 +31,8 @@
 #include "cutils.h"
 #include "libregexp.h"
 
+#define BOOL int
+
 /*
   TODO:
 

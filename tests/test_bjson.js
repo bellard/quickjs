@@ -1,4 +1,4 @@
-import * as bjson from "./bjson.so";
+import * as bjson from "./bjson.module";
 
 function assert(actual, expected, message) {
     if (arguments.length == 1)

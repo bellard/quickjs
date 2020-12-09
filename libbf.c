@@ -35,6 +35,8 @@
 #include "cutils.h"
 #include "libbf.h"
 
+#define BOOL int
+
 /* enable it to check the multiplication result */
 //#define USE_MUL_CHECK
 /* enable it to use FFT/NTT multiplication */
