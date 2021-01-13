@@ -1,13 +1,11 @@
-Misc:
-- use realpath in module name normalizer and put it in quickjs-libc
-- use custom printf to avoid C library compatibility issues
-- rename CONFIG_ALL_UNICODE, CONFIG_BIGNUM, CONFIG_ATOMICS, CONFIG_CHECK_JSVALUE ?
+Bugs:
+- modules: better error handling with cyclic module references
+
+Misc ideas:
+- use custom printf to avoid compatibility issues with floating point numbers
+- consistent naming for preprocessor defines
 - unify coding style and naming conventions
 - use names from the ECMA spec in library implementation
-- modules: if no ".", use a well known module loading path ?
-- use JSHoistedDef only for global variables (JSHoistedDef.var_name != JS_ATOM_NULL)
-- add index in JSVarDef and is_arg flag to merge args and vars in JSFunctionDef
-- replace most JSVarDef flags with var_type enumeration
 - use byte code emitters with typed arguments (for clarity)
 - use 2 bytecode DynBufs in JSFunctionDef, one for reading, one for writing
   and use the same wrappers in all phases
@@ -15,48 +13,18 @@ Misc:
 - use custom timezone support to avoid C library compatibility issues
 
 Memory:
+- use memory pools for objects, etc?
 - test border cases for max number of atoms, object properties, string length
 - add emergency malloc mode for out of memory exceptions.
 - test all DynBuf memory errors
 - test all js_realloc memory errors
-- bignum: handle memory errors
-- use memory pools for objects, etc?
 - improve JS_ComputeMemoryUsage() with more info
 
-Optimizations:
-- 64-bit atoms in 64-bit mode ?
-- use auto-init properties for more global objects
-- reuse stack slots for disjoint scopes, if strip
-- optimize `for of` iterator for built-in array objects
-- add heuristic to avoid some cycles in closures
-- small String (0-2 charcodes) with immediate storage
-- perform static string concatenation at compile time
-- optimize string concatenation with ropes or miniropes?
-- add implicit numeric strings for Uint32 numbers?
-- optimize `s += a + b`, `s += a.b` and similar simple expressions
-- ensure string canonical representation and optimise comparisons and hashes?
-- remove JSObject.first_weak_ref, use bit+context based hashed array for weak references
-- optimize function storage with length and name accessors?
-- property access optimization on the global object, functions,
-  prototypes and special non extensible objects.
-- create object literals with the correct length by backpatching length argument
-- remove redundant set_loc_uninitialized/check_uninitialized opcodes
-- peephole optim: push_atom_value, to_propkey -> push_atom_value
-- peephole optim: put_loc x, get_loc_check x -> set_loc x
-- comparative performance benchmark
-- use variable name when throwing uninitialized exception if available
-- convert slow array to fast array when all properties != length are numeric
-- optimize destructuring assignments for global and local variables
-- implement some form of tail-call-optimization
-- optimize OP_apply
-- optimize f(...b)
-
-Extensions:
-- support more features in [features] section
-- add built-in preprocessor in compiler, get rid of jscompress
-  handle #if, #ifdef, #line, limited support for #define
-- get rid of __loadScript, use more common name
+Built-in standard library:
 - BSD sockets
+- modules: use realpath in module name normalizer and put it in quickjs-libc
+- modules: if no ".", use a well known module loading path ?
+- get rid of __loadScript, use more common name
 
 REPL:
 - debugger
@@ -71,8 +39,32 @@ REPL:
 - save history
 - close all predefined methods in repl.js and jscalc.js
 
+Optimization ideas:
+- 64-bit atoms in 64-bit mode ?
+- 64-bit small bigint in 64-bit mode ?
+- reuse stack slots for disjoint scopes, if strip
+- add heuristic to avoid some cycles in closures
+- small String (0-2 charcodes) with immediate storage
+- perform static string concatenation at compile time
+- optimize string concatenation with ropes or miniropes?
+- add implicit numeric strings for Uint32 numbers?
+- optimize `s += a + b`, `s += a.b` and similar simple expressions
+- ensure string canonical representation and optimise comparisons and hashes?
+- remove JSObject.first_weak_ref, use bit+context based hashed array for weak references
+- property access optimization on the global object, functions,
+  prototypes and special non extensible objects.
+- create object literals with the correct length by backpatching length argument
+- remove redundant set_loc_uninitialized/check_uninitialized opcodes
+- peephole optim: push_atom_value, to_propkey -> push_atom_value
+- peephole optim: put_loc x, get_loc_check x -> set_loc x
+- convert slow array to fast array when all properties != length are numeric
+- optimize destructuring assignments for global and local variables
+- implement some form of tail-call-optimization
+- optimize OP_apply
+- optimize f(...b)
+
 Test262o:   0/11262 errors, 463 excluded
 Test262o commit: 7da91bceb9ce7613f87db47ddd1292a2dda58b42 (es5-tests branch)
 
-Test262: 30/71748 errors, 868 excluded, 474 skipped
-Test262 commit: 24c67328062383079ada85f4d253eb0526fd209b
+Result: 51/75119 errors, 899 excluded, 570 skipped
+Test262 commit: 1c33fdb0ca60fb9d7392403be769ed0d26209132

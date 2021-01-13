@@ -17,6 +17,22 @@ function assert(actual, expected, message) {
                 (message ? " (" + message + ")" : ""));
 }
 
+function assert_throws(expected_error, func)
+{
+    var err = false;
+    try {
+        func();
+    } catch(e) {
+        err = true;
+        if (!(e instanceof expected_error)) {
+            throw Error("unexpected exception type");
+        }
+    }
+    if (!err) {
+        throw Error("expected exception");
+    }
+}
+
 // load more elaborate version of assert if available
 try { __loadScript("test_assert.js"); } catch(e) {}
 
@@ -48,6 +64,13 @@ function test_function()
     r = my_func.apply(null, [1, 2]);
     assert(r, 3, "apply");
 
+    r = (function () { return 1; }).apply(null, undefined);
+    assert(r, 1);
+
+    assert_throws(TypeError, (function() {
+        Reflect.apply((function () { return 1; }), null, undefined);
+    }));
+    
     r = new Function("a", "b", "return a + b;");
     assert(r(2,3), 5, "function");
     

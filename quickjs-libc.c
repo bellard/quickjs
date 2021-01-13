@@ -633,6 +633,97 @@ static JSValue js_std_getenv(JSContext *ctx, JSValueConst this_val,
         return JS_NewString(ctx, str);
 }
 
+#if defined(_WIN32)
+static void setenv(const char *name, const char *value, int overwrite)
+{
+    char *str;
+    size_t name_len, value_len;
+    name_len = strlen(name);
+    value_len = strlen(value);
+    str = malloc(name_len + 1 + value_len + 1);
+    memcpy(str, name, name_len);
+    str[name_len] = '=';
+    memcpy(str + name_len + 1, value, value_len);
+    str[name_len + 1 + value_len] = '\0';
+    _putenv(str);
+    free(str);
+}
+
+static void unsetenv(const char *name)
+{
+    setenv(name, "", TRUE);
+}
+#endif /* _WIN32 */
+
+static JSValue js_std_setenv(JSContext *ctx, JSValueConst this_val,
+                           int argc, JSValueConst *argv)
+{
+    const char *name, *value;
+    name = JS_ToCString(ctx, argv[0]);
+    if (!name)
+        return JS_EXCEPTION;
+    value = JS_ToCString(ctx, argv[1]);
+    if (!value) {
+        JS_FreeCString(ctx, name);
+        return JS_EXCEPTION;
+    }
+    setenv(name, value, TRUE);
+    JS_FreeCString(ctx, name);
+    JS_FreeCString(ctx, value);
+    return JS_UNDEFINED;
+}
+
+static JSValue js_std_unsetenv(JSContext *ctx, JSValueConst this_val,
+                               int argc, JSValueConst *argv)
+{
+    const char *name;
+    name = JS_ToCString(ctx, argv[0]);
+    if (!name)
+        return JS_EXCEPTION;
+    unsetenv(name);
+    JS_FreeCString(ctx, name);
+    return JS_UNDEFINED;
+}
+
+/* return an object containing the list of the available environment
+   variables. */
+static JSValue js_std_getenviron(JSContext *ctx, JSValueConst this_val,
+                                 int argc, JSValueConst *argv)
+{
+    char **envp;
+    const char *name, *p, *value;
+    JSValue obj;
+    uint32_t idx;
+    size_t name_len;
+    JSAtom atom;
+    int ret;
+
+    obj = JS_NewObject(ctx);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    envp = environ;
+    for(idx = 0; envp[idx] != NULL; idx++) {
+        name = envp[idx];
+        p = strchr(name, '=');
+        name_len = p - name;
+        if (!p)
+            continue;
+        value = p + 1;
+        atom = JS_NewAtomLen(ctx, name, name_len);
+        if (atom == JS_ATOM_NULL)
+            goto fail;
+        ret = JS_DefinePropertyValue(ctx, obj, atom, JS_NewString(ctx, value),
+                                     JS_PROP_C_W_E);
+        JS_FreeAtom(ctx, atom);
+        if (ret < 0)
+            goto fail;
+    }
+    return obj;
+ fail:
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+}
+
 static JSValue js_std_gc(JSContext *ctx, JSValueConst this_val,
                          int argc, JSValueConst *argv)
 {
@@ -1405,6 +1496,9 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_CFUNC_DEF("evalScript", 1, js_evalScript ),
     JS_CFUNC_DEF("loadScript", 1, js_loadScript ),
     JS_CFUNC_DEF("getenv", 1, js_std_getenv ),
+    JS_CFUNC_DEF("setenv", 1, js_std_setenv ),
+    JS_CFUNC_DEF("unsetenv", 1, js_std_unsetenv ),
+    JS_CFUNC_DEF("getenviron", 1, js_std_getenviron ),
     JS_CFUNC_DEF("urlGet", 1, js_std_urlGet ),
     JS_CFUNC_DEF("loadFile", 1, js_std_loadFile ),
     JS_CFUNC_DEF("strerror", 1, js_std_strerror ),
@@ -1422,7 +1516,6 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_PROP_INT32_DEF("SEEK_CUR", SEEK_CUR, JS_PROP_CONFIGURABLE ),
     JS_PROP_INT32_DEF("SEEK_END", SEEK_END, JS_PROP_CONFIGURABLE ),
     JS_OBJECT_DEF("Error", js_std_error_props, countof(js_std_error_props), JS_PROP_CONFIGURABLE),
-    /* setenv, ... */
 };
     
 static const JSCFunctionListEntry js_std_file_proto_funcs[] = {

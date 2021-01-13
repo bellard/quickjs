@@ -321,7 +321,7 @@ int unicode_from_utf8(const uint8_t *p, int max_len, const uint8_t **pp)
             return -1;
         c = (c << 6) | (b & 0x3f);
     }
-    if (c < (int)utf8_min_code[l - 1])
+    if (c < utf8_min_code[l - 1])
         return -1;
     *pp = p;
     return c;

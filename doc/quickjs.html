@@ -611,6 +611,19 @@ useful in case of specific memory constraints or for testing.
 <code>undefined</code> if it is not defined.
 </p>
 </dd>
+<dt><code>setenv(name, value)</code></dt>
+<dd><p>Set the value of the environment variable <code>name</code> to the string
+<code>value</code>.
+</p>
+</dd>
+<dt><code>unsetenv(name)</code></dt>
+<dd><p>Delete the environment variable <code>name</code>.
+</p>
+</dd>
+<dt><code>getenviron()</code></dt>
+<dd><p>Return an object containing the environment variables as key-value pairs.
+</p>
+</dd>
 <dt><code>urlGet(url, options = undefined)</code></dt>
 <dd>
 <p>Download <code>url</code> using the <samp>curl</samp> command line
@@ -707,7 +720,7 @@ position <code>position</code> (wrapper to the libc <code>fread</code>).
 </dd>
 <dt><code>write(buffer, position, length)</code></dt>
 <dd><p>Write <code>length</code> bytes to the file from the ArrayBuffer <code>buffer</code> at byte
-position <code>position</code> (wrapper to the libc <code>fread</code>).
+position <code>position</code> (wrapper to the libc <code>fwrite</code>).
 </p>
 </dd>
 <dt><code>getline()</code></dt>

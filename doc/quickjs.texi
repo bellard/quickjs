@@ -452,6 +452,16 @@ useful in case of specific memory constraints or for testing.
 Return the value of the environment variable @code{name} or
 @code{undefined} if it is not defined.
 
+@item setenv(name, value)
+Set the value of the environment variable @code{name} to the string
+@code{value}.
+
+@item unsetenv(name)
+Delete the environment variable @code{name}.
+
+@item getenviron()
+Return an object containing the environment variables as key-value pairs.
+
 @item urlGet(url, options = undefined)
 
 Download @code{url} using the @file{curl} command line
@@ -532,7 +542,7 @@ position @code{position} (wrapper to the libc @code{fread}).
 
 @item write(buffer, position, length)
 Write @code{length} bytes to the file from the ArrayBuffer @code{buffer} at byte
-position @code{position} (wrapper to the libc @code{fread}).
+position @code{position} (wrapper to the libc @code{fwrite}).
 
 @item getline()
 Return the next line from the file, assuming UTF-8 encoding, excluding
