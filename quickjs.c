@@ -2477,25 +2477,25 @@ static __maybe_unused void JS_DumpString(JSRuntime *rt,
     }
     printf("%d", p->header.ref_count);
     sep = (p->header.ref_count == 1) ? '\"' : '\'';
-    putchar(sep);
+    printf("%c",sep);
     for(i = 0; i < p->len; i++) {
         if (p->is_wide_char)
             c = p->u.str16[i];
         else
             c = p->u.str8[i];
         if (c == sep || c == '\\') {
-            putchar('\\');
-            putchar(c);
+          printf("%c", '\\');
+          printf("%c",c);
         } else if (c >= ' ' && c <= 126) {
-            putchar(c);
+          printf("%c", c);
         } else if (c == '\n') {
-            putchar('\\');
-            putchar('n');
+          printf("%c", '\\');
+          printf("%c", 'n');
         } else {
             printf("\\u%04x", c);
         }
     }
-    putchar(sep);
+    printf("%c", sep);
 }
 
 static __maybe_unused void JS_DumpAtoms(JSRuntime *rt)
@@ -14961,6 +14961,50 @@ static JSValue js_build_arguments(JSContext *ctx, int argc, JSValueConst *argv)
     return val;
 }
 
+/**/
+JSValue JS_NewFastArray(JSContext *ctx, int argc, JSValueConst *argv)
+{
+  JSValue val, *tab;
+  JSProperty *pr;
+  JSObject *p;
+  int i;
+
+  val = JS_NewObjectProtoClass(ctx, ctx->class_proto[JS_CLASS_OBJECT], JS_CLASS_ARRAY);
+  if (JS_IsException(val))
+    return val;
+  p = JS_VALUE_GET_OBJ(val);
+
+  /* add the length field (cannot fail) */
+  pr = add_property(ctx, p, JS_ATOM_length,
+    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+  pr->u.value = JS_NewInt32(ctx, argc);
+
+  /* initialize the fast array part */
+  tab = NULL;
+  if (argc > 0) {
+    tab = js_malloc(ctx, sizeof(tab[0]) * argc);
+    if (!tab) {
+      JS_FreeValue(ctx, val);
+      return JS_EXCEPTION;
+    }
+    for (i = 0; i < argc; i++) {
+      tab[i] = JS_DupValue(ctx, argv[i]);
+    }
+  }
+  p->u.array.u.values = tab;
+  p->u.array.count = argc;
+
+  JS_DefinePropertyValue(ctx, val, JS_ATOM_Symbol_iterator,
+    JS_DupValue(ctx, ctx->array_proto_values),
+    JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
+  return val;
+}
+
+BOOL JS_GetFastArray(JSContext *ctx, JSValueConst obj, JSValue **arrpp, uint32_t *countp) {
+  return js_get_fast_array(ctx, obj, arrpp, countp);
+}
+
+
 #define GLOBAL_VAR_OFFSET 0x40000000
 #define ARGUMENT_VAR_OFFSET 0x20000000
 
@@ -20300,6 +20344,10 @@ static __exception int js_parse_string(JSParseState *s, int sep,
                         p++;
                     c = '\n';
                 }
+#ifdef CONFIG_JSX
+                if(sep == '<')
+                  s->line_num++;
+#endif
                 /* do not update s->line_num */
             } else if (c == '\n' || c == '\r')
                 goto invalid_char;
