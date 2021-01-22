@@ -618,12 +618,19 @@ int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val,
     return 0;
 }
 
+#if defined(_WIN32)
+  #define NATIVE_LIBRARY_SUFFIX ".dll"
+#elif defined(__APPLE__)
+  #define NATIVE_LIBRARY_SUFFIX ".dylib"
+#elif defined(__linux__)
+  #define NATIVE_LIBRARY_SUFFIX ".so"
+#endif
 JSModuleDef *js_module_loader(JSContext *ctx,
                               const char *module_name, void *opaque)
 {
     JSModuleDef *m;
 
-    if (has_suffix(module_name, ".so")) {
+    if (has_suffix(module_name, NATIVE_LIBRARY_SUFFIX) || has_suffix(module_name, ".module")) {
         m = js_module_loader_so(ctx, module_name);
     } else {
         size_t buf_len;
