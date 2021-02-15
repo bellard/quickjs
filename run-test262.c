@@ -210,6 +210,13 @@ char *compose_path(const char *path, const char *name)
             memcpy(q, name, name_len + 1);
         }
     }
+#if defined(_WIN32)
+    for (char *x =d; *x; x++) {
+        if (*x == '\\') {
+            *x = '/';
+        }
+    }
+#endif
     return d;
 }
 
