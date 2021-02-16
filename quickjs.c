@@ -23820,6 +23820,8 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
     JSAtom prop_name, var_name;
     int opcode, scope, tok1, skip_bits;
     BOOL has_initializer;
+
+    label_lvalue = -1;
     
     if (has_ellipsis < 0) {
         /* pre-parse destructuration target for spread detection */
