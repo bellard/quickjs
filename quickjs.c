@@ -11497,7 +11497,7 @@ static void js_dtoa1(char *buf, double d, int radix, int n_digits, int flags)
                 p = n - 1;
                 if (p >= 0)
                     *q++ = '+';
-                sprintf(q, "%d", p);
+                snprintf(q, JS_DTOA_BUF_SIZE - (q - buf), "%d", p);
             }
         }
     }
