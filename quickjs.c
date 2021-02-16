@@ -102,6 +102,22 @@
 //#define DUMP_PROMISE
 //#define DUMP_READ_OBJECT
 
+#if defined(DUMP_FREE) \
+    || defined(DUMP_CLOSURE) \
+    || defined(DUMP_BYTECODE) \
+    || defined(DUMP_GC) \
+    || defined(DUMP_GC_FREE) \
+    || defined(DUMP_LEAKS) \
+    || defined(DUMP_MEM) \
+    || defined(DUMP_OBJECTS) \
+    || defined(DUMP_ATOMS) \
+    || defined(DUMP_SHAPES) \
+    || defined(DUMP_MODULE_RESOLVE) \
+    || defined(DUMP_PROMISE) \
+    || defined(DUMP_READ_OBJECT)
+#define DUMP_ENABLED
+#endif
+
 /* test the GC by forcing it before each object allocation */
 //#define FORCE_GC_AT_MALLOC
 
@@ -1017,6 +1033,7 @@ static __exception int JS_ToArrayLengthFree(JSContext *ctx, uint32_t *plen,
 static JSValue JS_EvalObject(JSContext *ctx, JSValueConst this_obj,
                              JSValueConst val, int flags, int scope_idx);
 JSValue __js_printf_like(2, 3) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);
+#if defined(DUMP_ENABLED)
 static __maybe_unused void JS_DumpAtoms(JSRuntime *rt);
 static __maybe_unused void JS_DumpString(JSRuntime *rt,
                                                   const JSString *p);
@@ -1030,6 +1047,7 @@ static __maybe_unused void JS_PrintValue(JSContext *ctx,
                                                   const char *str,
                                                   JSValueConst val);
 static __maybe_unused void JS_DumpShapes(JSRuntime *rt);
+#endif
 static JSValue js_function_apply(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv, int magic);
 static void js_array_finalizer(JSRuntime *rt, JSValue val);
@@ -2463,6 +2481,7 @@ static uint32_t hash_string(const JSString *str, uint32_t h)
     return h;
 }
 
+#if defined(DUMP_ENABLED)
 static __maybe_unused void JS_DumpString(JSRuntime *rt,
                                                   const JSString *p)
 {
@@ -2529,6 +2548,7 @@ static __maybe_unused void JS_DumpAtoms(JSRuntime *rt)
     }
     printf("}\n");
 }
+#endif
 
 static int JS_ResizeAtomHash(JSRuntime *rt, int new_hash_size)
 {
@@ -11658,6 +11678,7 @@ static __maybe_unused void JS_DumpObjectHeader(JSRuntime *rt)
            "ADDRESS", "REFS", "SHRF", "PROTO", "CLASS", "PROPS");
 }
 
+#if defined(DUMP_ENABLED)
 /* for debug only: dump an object without side effect */
 static __maybe_unused void JS_DumpObject(JSRuntime *rt, JSObject *p)
 {
@@ -11916,6 +11937,7 @@ static __maybe_unused void JS_PrintValue(JSContext *ctx,
     JS_DumpValueShort(ctx->rt, val);
     printf("\n");
 }
+#endif
 
 /* return -1 if exception (proxy case) or TRUE/FALSE */
 int JS_IsArray(JSContext *ctx, JSValueConst val)
@@ -20073,6 +20095,7 @@ static void free_token(JSParseState *s, JSToken *token)
     }
 }
 
+#if defined(DUMP_ENABLED)
 static void __attribute((unused)) dump_token(JSParseState *s,
                                              const JSToken *token)
 {
@@ -20133,6 +20156,7 @@ static void __attribute((unused)) dump_token(JSParseState *s,
         break;
     }
 }
+#endif
 
 int __js_printf_like(2, 3) js_parse_error(JSParseState *s, const char *fmt, ...)
 {
