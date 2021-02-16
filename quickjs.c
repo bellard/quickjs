@@ -41770,6 +41770,22 @@ static double js_ceil(double a)
     return ceil(a);
 }
 
+static double js_asinh(double a)
+{
+    if (a == 0) {
+        return a;
+    }
+    return asinh(a);
+}
+
+static double js_atanh(double a)
+{
+    if (a == 0) {
+        return a;
+    }
+    return atanh(a);
+}
+
 static const JSCFunctionListEntry js_math_funcs[] = {
     JS_CFUNC_MAGIC_DEF("min", 2, js_math_min_max, 0 ),
     JS_CFUNC_MAGIC_DEF("max", 2, js_math_min_max, 1 ),
@@ -41796,8 +41812,8 @@ static const JSCFunctionListEntry js_math_funcs[] = {
     JS_CFUNC_SPECIAL_DEF("sinh", 1, f_f, sinh ),
     JS_CFUNC_SPECIAL_DEF("tanh", 1, f_f, tanh ),
     JS_CFUNC_SPECIAL_DEF("acosh", 1, f_f, acosh ),
-    JS_CFUNC_SPECIAL_DEF("asinh", 1, f_f, asinh ),
-    JS_CFUNC_SPECIAL_DEF("atanh", 1, f_f, atanh ),
+    JS_CFUNC_SPECIAL_DEF("asinh", 1, f_f, js_asinh ),
+    JS_CFUNC_SPECIAL_DEF("atanh", 1, f_f, js_atanh ),
     JS_CFUNC_SPECIAL_DEF("expm1", 1, f_f, expm1 ),
     JS_CFUNC_SPECIAL_DEF("log1p", 1, f_f, log1p ),
     JS_CFUNC_SPECIAL_DEF("log2", 1, f_f, log2 ),
