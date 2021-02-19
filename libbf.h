@@ -36,27 +36,39 @@
 #define LIMB_BITS (1 << LIMB_LOG2_BITS)
 
 #if LIMB_BITS == 64
-typedef __int128 int128_t;
-typedef unsigned __int128 uint128_t;
-typedef int64_t slimb_t;
-typedef uint64_t limb_t;
-typedef uint128_t dlimb_t;
-#define BF_RAW_EXP_MIN INT64_MIN
-#define BF_RAW_EXP_MAX INT64_MAX
 
-#define LIMB_DIGITS 19
-#define BF_DEC_BASE UINT64_C(10000000000000000000)
+#ifdef _MSC_VER
+
+typedef int64_t             int128_t;
+typedef uint64_t            uint128_t;
 
 #else
 
-typedef int32_t slimb_t;
-typedef uint32_t limb_t;
-typedef uint64_t dlimb_t;
-#define BF_RAW_EXP_MIN INT32_MIN
-#define BF_RAW_EXP_MAX INT32_MAX
+typedef __int128            int128_t;
+typedef unsigned __int128   uint128_t;
 
-#define LIMB_DIGITS 9
-#define BF_DEC_BASE 1000000000U
+#endif
+
+typedef int64_t             slimb_t;
+typedef uint64_t            limb_t;
+typedef uint128_t           dlimb_t;
+
+#define BF_RAW_EXP_MIN      INT64_MIN
+#define BF_RAW_EXP_MAX      INT64_MAX
+
+#define LIMB_DIGITS         19
+#define BF_DEC_BASE         UINT64_C(10000000000000000000)
+
+#else
+
+typedef int32_t            slimb_t;
+typedef uint32_t           limb_t;
+typedef uint64_t           dlimb_t;
+#define BF_RAW_EXP_MIN     INT32_MIN
+#define BF_RAW_EXP_MAX     INT32_MAX
+
+#define LIMB_DIGITS        9
+#define BF_DEC_BASE        1000000000U
 
 #endif
 

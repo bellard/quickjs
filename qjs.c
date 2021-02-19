@@ -28,11 +28,15 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_WIN32)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
-#if defined(__APPLE__)
+#if defined(_WIN32)
+#include <io.h>
+#elif defined(__APPLE__)
 #include <malloc/malloc.h>
 #elif defined(__linux__)
 #include <malloc.h>
@@ -97,7 +101,7 @@ static int eval_file(JSContext *ctx, const char *filename, int module)
         eval_flags = JS_EVAL_TYPE_MODULE;
     else
         eval_flags = JS_EVAL_TYPE_GLOBAL;
-    ret = eval_buf(ctx, buf, buf_len, filename, eval_flags);
+    ret = eval_buf(ctx, buf, (int)buf_len, filename, eval_flags);
     js_free(ctx, buf);
     return ret;
 }
@@ -156,7 +160,7 @@ static inline size_t js_trace_malloc_usable_size(void *ptr)
 #endif
 }
 
-static void __attribute__((format(printf, 2, 3)))
+static void util_format(printf, 2, 3)
     js_trace_malloc_printf(JSMallocState *s, const char *fmt, ...)
 {
     va_list ap;

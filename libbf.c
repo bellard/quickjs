@@ -342,7 +342,7 @@ static inline limb_t get_bit(const limb_t *tab, limb_t len, slimb_t pos)
 {
     slimb_t i;
     i = pos >> LIMB_LOG2_BITS;
-    if (i < 0 || i >= len)
+    if (i < 0 || i >= (slimb_t)len)
         return 0;
     return (tab[i] >> (pos & (LIMB_BITS - 1))) & 1;
 }
@@ -395,7 +395,7 @@ static inline limb_t scan_bit_nz(const bf_t *r, slimb_t bit_pos)
 static int bf_get_rnd_add(int *pret, const bf_t *r, limb_t l,
                           slimb_t prec, int rnd_mode)
 {
-    int add_one, inexact;
+    limb_t add_one, inexact;
     limb_t bit1, bit0;
     
     if (rnd_mode == BF_RNDF) {
@@ -420,7 +420,7 @@ static int bf_get_rnd_add(int *pret, const bf_t *r, limb_t l,
             } else {
                 /* round to even */
                 add_one =
-                    get_bit(r->tab, l, l * LIMB_BITS - 1 - (prec - 1));
+                    get_bit(r->tab, l, (slimb_t)(l * LIMB_BITS - 1 - (prec - 1)));
             }
         }
         break;
@@ -442,7 +442,7 @@ static int bf_get_rnd_add(int *pret, const bf_t *r, limb_t l,
     
     if (inexact)
         *pret |= BF_ST_INEXACT;
-    return add_one;
+    return (int)add_one;
 }
 
 static int bf_set_overflow(bf_t *r, int sign, limb_t prec, bf_flags_t flags)
@@ -5356,17 +5356,17 @@ int bf_acos(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags)
 /* Note: we assume __int128 is available */
 #define muldq(r1, r0, a, b)                     \
     do {                                        \
-        unsigned __int128 __t;                          \
-        __t = (unsigned __int128)(a) * (unsigned __int128)(b);  \
+        dlimb_t __t;                          \
+        __t = (dlimb_t)(a) * (dlimb_t)(b);  \
         r0 = __t;                               \
         r1 = __t >> 64;                         \
     } while (0)
 
 #define divdq(q, r, a1, a0, b)                  \
     do {                                        \
-        unsigned __int128 __t;                  \
+        dlimb_t __t;                  \
         limb_t __b = (b);                       \
-        __t = ((unsigned __int128)(a1) << 64) | (a0);   \
+        __t = ((dlimb_t)(a1) << 64) | (a0);   \
         q = __t / __b;                                  \
         r = __t % __b;                                  \
     } while (0)

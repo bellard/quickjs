@@ -50,7 +50,7 @@ void pstrcpy(char *buf, int buf_size, const char *str)
 char *pstrcat(char *buf, int buf_size, const char *s)
 {
     int len;
-    len = strlen(buf);
+    len = (int)strlen(buf);
     if (len < buf_size)
         pstrcpy(buf + len, buf_size - len, s);
     return buf;
@@ -166,7 +166,7 @@ int dbuf_putstr(DynBuf *s, const char *str)
     return dbuf_put(s, (const uint8_t *)str, strlen(str));
 }
 
-int __attribute__((format(printf, 2, 3))) dbuf_printf(DynBuf *s,
+int util_format(printf, 2, 3) dbuf_printf(DynBuf *s,
                                                       const char *fmt, ...)
 {
     va_list ap;
@@ -235,7 +235,7 @@ int unicode_to_utf8(uint8_t *buf, unsigned int c)
         }
         *q++ = (c & 0x3f) | 0x80;
     }
-    return q - buf;
+    return (int)(q - buf);
 }
 
 static const unsigned int utf8_min_code[5] = {
@@ -250,7 +250,8 @@ static const unsigned char utf8_first_code_mask[5] = {
    be >= 1. The maximum length for a UTF8 byte sequence is 6 bytes. */
 int unicode_from_utf8(const uint8_t *p, int max_len, const uint8_t **pp)
 {
-    int l, c, b, i;
+    int l, b, i;
+    uint8_t c;
 
     c = *p++;
     if (c < 0x80) {

@@ -28,24 +28,31 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/time.h>
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
 #include <sys/stat.h>
-#include <dirent.h>
+
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
-#include <utime.h>
+#include <io.h>
+#include <sys/utime.h>
+
+#define js_path_max _MAX_PATH
 #else
+#include <dirent.h>
 #include <dlfcn.h>
 #include <termios.h>
+#include <unistd.h>
+#include <utime.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+
+#define js_path_max PATH_MAX
 
 #if defined(__APPLE__)
 typedef sig_t sighandler_t;
@@ -515,7 +522,7 @@ int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val,
                               JS_BOOL use_realpath, JS_BOOL is_main)
 {
     JSModuleDef *m;
-    char buf[PATH_MAX + 16];
+    char buf[js_path_max + 16];
     JSValue meta_obj;
     JSAtom module_name_atom;
     const char *module_name;
@@ -798,7 +805,7 @@ static void js_std_file_finalizer(JSRuntime *rt, JSValue val)
     if (s) {
         if (s->f && s->close_in_finalizer) {
             if (s->is_popen)
-                pclose(s->f);
+                js_pclose(s->f);
             else
                 fclose(s->f);
         }
@@ -919,7 +926,7 @@ static JSValue js_std_popen(JSContext *ctx, JSValueConst this_val,
         goto fail;
     }
 
-    f = popen(filename, mode);
+    f = js_popen(filename, mode);
     if (!f)
         err = errno;
     else
@@ -1042,7 +1049,7 @@ static JSValue js_std_file_close(JSContext *ctx, JSValueConst this_val,
     if (!s->f)
         return JS_ThrowTypeError(ctx, "invalid file handle");
     if (s->is_popen)
-        err = js_get_errno(pclose(s->f));
+        err = js_get_errno(js_pclose(s->f));
     else
         err = js_get_errno(fclose(s->f));
     s->f = NULL;
@@ -1363,7 +1370,7 @@ static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     }
     //    printf("%s\n", (char *)cmd_buf.buf);
-    f = popen((char *)cmd_buf.buf, "r");
+    f = js_popen((char *)cmd_buf.buf, "r");
     dbuf_free(&cmd_buf);
     if (!f) {
         return JS_ThrowTypeError(ctx, "could not start curl");
@@ -1420,7 +1427,7 @@ static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
  done:
     js_free(ctx, buf);
     buf = NULL;
-    pclose(f);
+    js_pclose(f);
     f = NULL;
     dbuf_free(data_buf);
     data_buf = NULL;
@@ -1448,7 +1455,7 @@ static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
     return ret_obj;
  fail:
     if (f)
-        pclose(f);
+        js_pclose(f);
     js_free(ctx, buf);
     if (data_buf)
         dbuf_free(data_buf);
@@ -1947,7 +1954,7 @@ static JSValue js_os_signal(JSContext *ctx, JSValueConst this_val,
 static int64_t get_time_ms(void)
 {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    js_clock_getmonotonic(&ts);
     return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
 }
 #else
@@ -1955,7 +1962,7 @@ static int64_t get_time_ms(void)
 static int64_t get_time_ms(void)
 {
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    js_gettimeofday(&tv, NULL);
     return (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
 }
 #endif
@@ -2352,7 +2359,7 @@ static JSValue make_string_error(JSContext *ctx,
 static JSValue js_os_getcwd(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv)
 {
-    char buf[PATH_MAX];
+    char buf[js_path_max];
     int err;
     
     if (!getcwd(buf, sizeof(buf))) {
@@ -2408,7 +2415,13 @@ static JSValue js_os_readdir(JSContext *ctx, JSValueConst this_val,
                              int argc, JSValueConst *argv)
 {
     const char *path;
+#if defined(_WIN32)
+    HANDLE hFind;
+    WIN32_FIND_DATA hData;
+    int f = 0;
+#else
     DIR *f;
+#endif
     struct dirent *d;
     JSValue obj;
     int err;
@@ -2422,7 +2435,12 @@ static JSValue js_os_readdir(JSContext *ctx, JSValueConst this_val,
         JS_FreeCString(ctx, path);
         return JS_EXCEPTION;
     }
+#if defined(_WIN32)
+    hFind = FindFirstFileA(path, &hData);
+    f = hFind != INVALID_HANDLE_VALUE;
+#else
     f = opendir(path);
+#endif
     if (!f)
         err = errno;
     else
@@ -2431,6 +2449,16 @@ static JSValue js_os_readdir(JSContext *ctx, JSValueConst this_val,
     if (!f)
         goto done;
     len = 0;
+#if defined(_WIN32)
+    do
+    {
+        JS_DefinePropertyValueUint32(ctx, obj, len++,
+                                     JS_NewString(ctx, hData.cFileName),
+                                     JS_PROP_C_W_E);
+
+    } while (FindNextFileA(hFind, &hData));
+    FindClose(hFind);
+#else
     for(;;) {
         errno = 0;
         d = readdir(f);
@@ -2443,6 +2471,7 @@ static JSValue js_os_readdir(JSContext *ctx, JSValueConst this_val,
                                      JS_PROP_C_W_E);
     }
     closedir(f);
+#endif
  done:
     return make_obj_error(ctx, obj, err);
 }
@@ -2595,7 +2624,7 @@ static JSValue js_os_realpath(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
 {
     const char *path;
-    char buf[PATH_MAX], *res;
+    char buf[js_path_max], *res;
     int err;
 
     path = JS_ToCString(ctx, argv[0]);
@@ -2637,7 +2666,7 @@ static JSValue js_os_readlink(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
 {
     const char *path;
-    char buf[PATH_MAX];
+    char buf[js_path_max];
     int err;
     ssize_t res;
     
@@ -2719,7 +2748,7 @@ static char **build_envp(JSContext *ctx, JSValueConst obj)
 static int my_execvpe(const char *filename, char **argv, char **envp)
 {
     char *path, *p, *p_next, *p1;
-    char buf[PATH_MAX];
+    char buf[js_path_max];
     size_t filename_len, path_len;
     BOOL eacces_error;
     
@@ -2746,7 +2775,7 @@ static int my_execvpe(const char *filename, char **argv, char **envp)
             path_len = p1 - p;
         }
         /* path too long */
-        if ((path_len + 1 + filename_len + 1) > PATH_MAX)
+        if ((path_len + 1 + filename_len + 1) > js_path_max)
             continue;
         memcpy(buf, p, path_len);
         buf[path_len] = '/';
@@ -3585,12 +3614,12 @@ static const JSCFunctionListEntry js_os_funcs[] = {
     JS_CFUNC_DEF("readdir", 1, js_os_readdir ),
     /* st_mode constants */
     OS_FLAG(S_IFMT),
-    OS_FLAG(S_IFIFO),
     OS_FLAG(S_IFCHR),
     OS_FLAG(S_IFDIR),
-    OS_FLAG(S_IFBLK),
     OS_FLAG(S_IFREG),
 #if !defined(_WIN32)
+    OS_FLAG(S_IFIFO),
+    OS_FLAG(S_IFBLK),
     OS_FLAG(S_IFSOCK),
     OS_FLAG(S_IFLNK),
     OS_FLAG(S_ISGID),

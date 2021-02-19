@@ -401,7 +401,7 @@ static int re_emit_op_u32(REParseState *s, int op, uint32_t val)
 {
     int pos;
     dbuf_putc(&s->byte_code, op);
-    pos = s->byte_code.size;
+    pos = (int)s->byte_code.size;
     dbuf_put_u32(&s->byte_code, val);
     return pos;
 }
@@ -410,7 +410,7 @@ static int re_emit_goto(REParseState *s, int op, uint32_t val)
 {
     int pos;
     dbuf_putc(&s->byte_code, op);
-    pos = s->byte_code.size;
+    pos = (int)s->byte_code.size;
     dbuf_put_u32(&s->byte_code, val - (pos + 4));
     return pos;
 }
@@ -427,7 +427,7 @@ static void re_emit_op_u16(REParseState *s, int op, uint32_t val)
     dbuf_put_u16(&s->byte_code, val);
 }
 
-static int __attribute__((format(printf, 2, 3))) re_parse_error(REParseState *s, const char *fmt, ...)
+static int util_format(printf, 2, 3) re_parse_error(REParseState *s, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -465,7 +465,7 @@ static int parse_digits(const uint8_t **pp, BOOL allow_overflow)
         p++;
     }
     *pp = p;
-    return v;
+    return (int)v;
 }
 
 static int re_parse_expect(REParseState *s, const uint8_t **pp, int c)
@@ -1234,7 +1234,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
         break;
     case '.':
         p++;
-        last_atom_start = s->byte_code.size;
+        last_atom_start = (int)s->byte_code.size;
         last_capture_count = s->capture_count;
         if (is_backward_dir)
             re_emit_op(s, REOP_prev);
@@ -1272,7 +1272,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
         if (p[1] == '?') {
             if (p[2] == ':') {
                 p += 3;
-                last_atom_start = s->byte_code.size;
+                last_atom_start = (int)s->byte_code.size;
                 last_capture_count = s->capture_count;
                 s->buf_ptr = p;
                 if (re_parse_disjunction(s, is_backward_dir))
@@ -1296,7 +1296,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                 /* Annex B allows lookahead to be used as an atom for
                    the quantifiers */
                 if (!s->is_utf16 && !is_backward_lookahead)  {
-                    last_atom_start = s->byte_code.size;
+                    last_atom_start = (int)s->byte_code.size;
                     last_capture_count = s->capture_count;
                 }
                 pos = re_emit_op_u32(s, REOP_lookahead + is_neg, 0);
@@ -1336,7 +1336,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
         parse_capture:
             if (s->capture_count >= CAPTURE_COUNT_MAX)
                 return re_parse_error(s, "too many captures");
-            last_atom_start = s->byte_code.size;
+            last_atom_start = (int)s->byte_code.size;
             last_capture_count = s->capture_count;
             capture_index = s->capture_count++;
             re_emit_op_u8(s, REOP_save_start + is_backward_dir,
@@ -1445,7 +1445,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     return re_parse_error(s, "back reference out of range in regular expression");
                 }
             emit_back_reference:
-                last_atom_start = s->byte_code.size;
+                last_atom_start = (int)s->byte_code.size;
                 last_capture_count = s->capture_count;
                 re_emit_op_u8(s, REOP_back_reference + is_backward_dir, c);
             }
@@ -1455,7 +1455,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
         }
         break;
     case '[':
-        last_atom_start = s->byte_code.size;
+        last_atom_start = (int)s->byte_code.size;
         last_capture_count = s->capture_count;
         if (is_backward_dir)
             re_emit_op(s, REOP_prev);
@@ -1475,7 +1475,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
         if ((int)c < 0)
             return -1;
     normal_char:
-        last_atom_start = s->byte_code.size;
+        last_atom_start = (int)s->byte_code.size;
         last_capture_count = s->capture_count;
         if (is_backward_dir)
             re_emit_op(s, REOP_prev);

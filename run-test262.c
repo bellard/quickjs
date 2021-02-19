@@ -29,11 +29,14 @@
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <errno.h>
 #include <time.h>
+
+#if !defined(_WIN32)
 #include <dirent.h>
 #include <ftw.h>
+#include <unistd.h>
+#endif
 
 #include "cutils.h"
 #include "list.h"
@@ -85,8 +88,8 @@ int test_count, test_failed, test_index, test_skipped, test_excluded;
 int new_errors, changed_errors, fixed_errors;
 int async_done;
 
-void warning(const char *, ...) __attribute__((__format__(__printf__, 1, 2)));
-void fatal(int, const char *, ...) __attribute__((__format__(__printf__, 2, 3)));
+void warning(const char *, ...) util_format(printf, 1, 2);
+void fatal(int, const char *, ...) util_format(printf, 2, 3);
 
 void warning(const char *fmt, ...)
 {
@@ -365,7 +368,34 @@ static void enumerate_tests(const char *path)
 {
     namelist_t *lp = &test_list;
     int start = lp->count;
+#if defined(_WIN32)
+    HANDLE hFind;
+    WIN32_FIND_DATA hData;
+    char searchPath[_MAX_PATH];
+
+    memset(searchPath, 0, _MAX_PATH);
+    strncpy_s(searchPath, _MAX_PATH, path, strlen(path));
+    strncat_s(searchPath, _MAX_PATH, "\\*", strlen("\\*"));
+
+    hFind = FindFirstFileA(searchPath, &hData);
+    if (hFind != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            char fullPath[_MAX_PATH];
+            memset(fullPath, 0, _MAX_PATH);
+            strncpy_s(fullPath, _MAX_PATH, path, strlen(path));
+            strncat_s(fullPath, _MAX_PATH, "\\", strlen("\\"));
+            strncat_s(fullPath, _MAX_PATH, hData.cFileName, strlen(hData.cFileName));
+
+            add_test_file(fullPath, NULL, 0);
+
+        } while (FindNextFileA(hFind, &hData));
+        FindClose(hFind);
+    }
+#else
     ftw(path, add_test_file, 100);
+#endif
     qsort(lp->array + start, lp->count - start, sizeof(*lp->array),
           namelist_cmp_indirect);
 }
@@ -638,20 +668,32 @@ static JSValue js_agent_receiveBroadcast(JSContext *ctx, JSValue this_val,
     return JS_UNDEFINED;
 }
 
+#if defined(WIN32)
+void js_usleep(uint32_t us)
+{
+    Sleep(us / 1000);
+}
+#else
+void js_usleep(uint32_t us)
+{
+    usleep(us);
+}
+#endif
+
 static JSValue js_agent_sleep(JSContext *ctx, JSValue this_val,
                               int argc, JSValue *argv)
 {
     uint32_t duration;
     if (JS_ToUint32(ctx, &duration, argv[0]))
         return JS_EXCEPTION;
-    usleep(duration * 1000);
+    js_usleep(duration * 1000);
     return JS_UNDEFINED;
 }
 
 static int64_t get_clock_ms(void)
 {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    js_clock_getmonotonic(&ts);
     return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
 }
 

@@ -1827,7 +1827,7 @@ void check_case_conv(void)
 static int64_t get_time_ns(void)
 {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    js_clock_getmonotonic(&ts);
     return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 }
 #endif
