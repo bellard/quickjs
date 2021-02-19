@@ -35,7 +35,7 @@ extern "C" {
 #if defined(__GNUC__) || defined(__clang__)
 #define js_likely(x)             __builtin_expect(!!(x), 1)
 #define js_unlikely(x)           __builtin_expect(!!(x), 0)
-#define js_force_inline         inline __attribute__((always_inline))
+#define js_force_inline          inline __attribute__((always_inline))
 #define __js_printf_like(f, a)   __attribute__((format(printf, f, a)))
 #define js_unused                __attribute((unused))
 #else

@@ -37,7 +37,9 @@
 
 #if LIMB_BITS == 64
 
-#ifdef _MSC_VER
+#ifdef _WIN32
+
+/* NOTE: 128-bit integer types are not available on MSVC! */
 
 typedef int64_t             int128_t;
 typedef uint64_t            uint128_t;

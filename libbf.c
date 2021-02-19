@@ -5356,38 +5356,38 @@ int bf_acos(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags)
 /* Note: we assume __int128 is available */
 #define muldq(r1, r0, a, b)                     \
     do {                                        \
-        dlimb_t __t;                          \
-        __t = (dlimb_t)(a) * (dlimb_t)(b);  \
+        dlimb_t __t;                            \
+        __t = (dlimb_t)(a) * (dlimb_t)(b);      \
         r0 = __t;                               \
         r1 = __t >> 64;                         \
     } while (0)
 
 #define divdq(q, r, a1, a0, b)                  \
     do {                                        \
-        dlimb_t __t;                  \
+        dlimb_t __t;                            \
         limb_t __b = (b);                       \
-        __t = ((dlimb_t)(a1) << 64) | (a0);   \
-        q = __t / __b;                                  \
-        r = __t % __b;                                  \
+        __t = ((dlimb_t)(a1) << 64) | (a0);     \
+        q = __t / __b;                          \
+        r = __t % __b;                          \
     } while (0)
 
 #else
 
 #define muldq(r1, r0, a, b)                     \
     do {                                        \
-        uint64_t __t;                          \
-        __t = (uint64_t)(a) * (uint64_t)(b);  \
+        uint64_t __t;                           \
+        __t = (uint64_t)(a) * (uint64_t)(b);    \
         r0 = __t;                               \
         r1 = __t >> 32;                         \
     } while (0)
 
 #define divdq(q, r, a1, a0, b)                  \
     do {                                        \
-        uint64_t __t;                  \
+        uint64_t __t;                           \
         limb_t __b = (b);                       \
-        __t = ((uint64_t)(a1) << 32) | (a0);   \
-        q = __t / __b;                                  \
-        r = __t % __b;                                  \
+        __t = ((uint64_t)(a1) << 32) | (a0);    \
+        q = __t / __b;                          \
+        r = __t % __b;                          \
     } while (0)
 
 #endif /* LIMB_BITS != 64 */
