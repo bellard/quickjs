@@ -19819,6 +19819,8 @@ enum {
     TOK_FUNCTION,
     TOK_DEBUGGER,
     TOK_WITH,
+    TOK___FILE__,
+    TOK___DIR__,
     /* FutureReservedWord */
     TOK_CLASS,
     TOK_CONST,
@@ -24474,6 +24476,30 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
             return -1;
         emit_op(s, OP_push_true);
         break;
+    case TOK___FILE__:
+      if (next_token(s))
+        return -1;
+      {
+        JSValue filename = JS_NewString(s->ctx, s->filename);
+        emit_push_const(s, filename, 0);
+        JS_FreeValue(s->ctx, filename);
+      }
+      break;
+    case TOK___DIR__:
+      if (next_token(s))
+        return -1;
+      {
+        int n = 0;
+        const char* pc = s->filename;
+        for (int i = 0; *pc; ++i, ++pc) {
+          if (*pc == '/') { n = i; }
+          if (*pc == '?' || *pc == '#') break;
+        }
+        JSValue dir = JS_NewStringLen(s->ctx, s->filename, n + 1);
+        emit_push_const(s, dir, 0);
+        JS_FreeValue(s->ctx, dir);
+      }
+      break;
     case TOK_IDENT:
         {
             JSAtom name;

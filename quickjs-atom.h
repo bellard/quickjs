@@ -55,6 +55,8 @@ DEF(finally, "finally")
 DEF(function, "function")
 DEF(debugger, "debugger")
 DEF(with, "with")
+DEF(__file__, "__FILE__")
+DEF(__dir__, "__DIR__")
 /* FutureReservedWord */
 DEF(class, "class")
 DEF(const, "const")
