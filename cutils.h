@@ -31,6 +31,9 @@
 #ifdef _MSC_VER
   #include <windows.h>
   #include <intrin.h>
+  #ifndef alloca
+    #define alloca(s) _alloca(s)
+  #endif
 #else 
   #include <sys/time.h>
 #endif
@@ -47,12 +50,15 @@
   #define __attribute__(x)
   #define __attribute(x)
   typedef intptr_t ssize_t;
+  #define printf_like(A, B) /*__attribute__((format(printf, (A), (B))))*/
 #else
   #define likely(x)       __builtin_expect(!!(x), 1)
   #define unlikely(x)     __builtin_expect(!!(x), 0)
   #define force_inline inline __attribute__((always_inline))
   #define no_inline __attribute__((noinline))
   #define __maybe_unused __attribute__((unused))
+  //#define printf_like(A, B) __attribute__((format(printf, (A), (B))))
+  #define printf_like(A, B) 
 #endif
 
 #define xglue(x, y) x ## y
@@ -345,8 +351,7 @@ static inline int dbuf_put_u64(DynBuf *s, uint64_t val)
 {
     return dbuf_put(s, (uint8_t *)&val, 8);
 }
-int __attribute__((format(printf, 2, 3))) dbuf_printf(DynBuf *s,
-                                                      const char *fmt, ...);
+int printf_like(2, 3) dbuf_printf(DynBuf *s, const char *fmt, ...);
 void dbuf_free(DynBuf *s);
 static inline BOOL dbuf_error(DynBuf *s) {
     return s->error;

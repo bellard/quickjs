@@ -35,15 +35,16 @@ extern "C" {
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
-#define js_likely(x)          __builtin_expect(!!(x), 1)
-#define js_unlikely(x)        __builtin_expect(!!(x), 0)
-#define js_force_inline       inline __attribute__((always_inline))
-#define __js_printf_like(f, a)   __attribute__((format(printf, f, a)))
+  #define js_likely(x)          __builtin_expect(!!(x), 1)
+  #define js_unlikely(x)        __builtin_expect(!!(x), 0)
+  #define js_force_inline       inline __attribute__((always_inline))
+  //#define __js_printf_like(A, B)   __attribute__((format(printf, (A), (B))))
+  #define __js_printf_like(A, B) /*doesn't work, why?*/
 #else
-#define js_likely(x)     (x)
-#define js_unlikely(x)   (x)
-#define js_force_inline  __forceinline
-#define __js_printf_like(a, b)
+  #define js_likely(x)     (x)
+  #define js_unlikely(x)   (x)
+  #define js_force_inline  __forceinline
+  #define __js_printf_like(A, B) /* */
 #endif
 
 #define JS_BOOL int
@@ -555,14 +556,7 @@ JSValue JS_AtomToValue(JSContext *ctx, JSAtom atom);
 JSValue JS_AtomToString(JSContext *ctx, JSAtom atom);
 const char *JS_AtomToCString(JSContext *ctx, JSAtom atom);
 JSAtom JS_ValueToAtom(JSContext *ctx, JSValueConst val);
-
-typedef enum {
-  JS_ATOM_KIND_STRING,
-  JS_ATOM_KIND_SYMBOL,
-  JS_ATOM_KIND_PRIVATE,
-} JSAtomKindEnum;
-
-JSAtomKindEnum JS_AtomGetKind(JSContext *ctx, JSAtom v);
+int    JS_AtomIsArrayIndex(JSContext *ctx, uint32_t *pval, JSAtom atom);
 
 /* object class support */
 
@@ -865,6 +859,10 @@ JS_BOOL JS_IsDate(JSContext *ctx, JSValueConst obj, double* ms_since_1970);
 JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);
 
+JSValue JS_NewFastArray(JSContext *ctx, int argc, JSValueConst *argv);
+/* Access an Array's internal JSValue array if available */
+int     JS_GetFastArray(JSContext *ctx, JSValueConst obj, JSValue **arrpp, uint32_t *countp);
+
 JSValue JS_GetPropertyInternal(JSContext *ctx, JSValueConst obj,
                                JSAtom prop, JSValueConst receiver,
                                JS_BOOL throw_ref_error);
@@ -901,6 +899,9 @@ int JS_PreventExtensions(JSContext *ctx, JSValueConst obj);
 int JS_DeleteProperty(JSContext *ctx, JSValueConst obj, JSAtom prop, int flags);
 int JS_SetPrototype(JSContext *ctx, JSValueConst obj, JSValueConst proto_val);
 JSValue JS_GetPrototype(JSContext *ctx, JSValueConst val);
+JSValue JS_GetPrototypeOfDate(JSContext *ctx);
+
+int JS_CopyDataProperties(JSContext *ctx, JSValueConst target, JSValueConst source, JSValueConst excluded, int setprop);
 
 #define JS_GPN_STRING_MASK  (1 << 0)
 #define JS_GPN_SYMBOL_MASK  (1 << 1)
@@ -1043,11 +1044,9 @@ uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst obj,
 #define JS_READ_OBJ_ROM_DATA  (1 << 1) /* avoid duplicating 'buf' data */
 #define JS_READ_OBJ_SAB       (1 << 2) /* allow SharedArrayBuffer */
 #define JS_READ_OBJ_REFERENCE (1 << 3) /* allow object references */
-JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len,
-                      int flags);
-/* instantiate and evaluate a bytecode function. Only used when
-   reading a script or module with JS_ReadObject() */
-JSValue JS_EvalFunction(JSContext *ctx, JSValue fun_obj);
+JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len, int flags);
+JSValue JS_ReadObject2(JSContext *ctx, const uint8_t *buf, size_t buf_len, int flags, size_t* remnants_len);
+
 /* load the dependencies of the module 'obj'. Useful when JS_ReadObject()
    returns a module. */
 int JS_ResolveModule(JSContext *ctx, JSValueConst obj);
@@ -1194,6 +1193,22 @@ int JS_SetModuleExport(JSContext *ctx, JSModuleDef *m, const char *export_name,
                        JSValue val);
 int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
                            const JSCFunctionListEntry *tab, int len);
+
+#ifdef CONFIG_DEBUGGER
+
+typedef JS_BOOL JSDebuggerCheckLineNoF(JSContext *ctx, JSAtom file_name, uint32_t line_no, const uint8_t *pc);
+
+void JS_SetBreakpointHandler(JSContext *ctx, JSDebuggerCheckLineNoF* line_hit_handler);
+void JS_SetDebuggerMode(JSContext *ctx, int onoff);
+
+uint32_t js_debugger_stack_depth(JSContext *ctx);
+JSValue  js_debugger_build_backtrace(JSContext *ctx, const uint8_t *cur_pc);
+JSValue  js_debugger_closure_variables(JSContext *ctx, int stack_index);
+JSValue  js_debugger_local_variables(JSContext *ctx, int stack_index);
+
+#endif
+
+void*    js_debugger_get_object_id(JSValue val);
 
 #undef js_unlikely
 #undef js_force_inline

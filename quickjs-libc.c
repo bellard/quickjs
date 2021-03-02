@@ -2593,6 +2593,16 @@ static JSValue js_os_stat(JSContext *ctx, JSValueConst this_val,
         JS_DefinePropertyValueStr(ctx, obj, "ctime",
                                   JS_NewInt64(ctx, timespec_to_ms(&st.st_ctimespec)),
                                   JS_PROP_C_W_E);
+#elif defined(ANDROID)
+        JS_DefinePropertyValueStr(ctx, obj, "atime",
+          JS_NewInt64(ctx, timespec_to_ms(&st.st_atime)),
+          JS_PROP_C_W_E);
+        JS_DefinePropertyValueStr(ctx, obj, "mtime",
+          JS_NewInt64(ctx, timespec_to_ms(&st.st_mtime)),
+          JS_PROP_C_W_E);
+        JS_DefinePropertyValueStr(ctx, obj, "ctime",
+          JS_NewInt64(ctx, timespec_to_ms(&st.st_ctime)),
+          JS_PROP_C_W_E);
 #else
         JS_DefinePropertyValueStr(ctx, obj, "atime",
                                   JS_NewInt64(ctx, timespec_to_ms(&st.st_atim)),

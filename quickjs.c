@@ -333,6 +333,10 @@ typedef struct JSStackFrame {
     /* only used in generators. Current stack pointer value. NULL if
        the function is running. */
     JSValue *cur_sp;
+#ifdef CONFIG_DEBUGGER
+    JSValue* pthis;   /* reference to this value, needed by debugger to report 'this' */
+#endif // CONFIG_DEBUGGER
+
 } JSStackFrame;
 
 typedef enum {
@@ -454,6 +458,11 @@ struct JSContext {
     JSValue (*eval_internal)(JSContext *ctx, JSValueConst this_obj,
                              const char *input, size_t input_len,
                              const char *filename, int flags, int scope_idx, int line_no);
+#ifdef CONFIG_DEBUGGER
+    JSDebuggerCheckLineNoF* debugger_check_line_no;
+    BOOL                    debugger_enabled;
+#endif
+
     void *user_opaque;
 };
 
@@ -474,6 +483,12 @@ enum {
     JS_ATOM_HASH_SYMBOL,
     JS_ATOM_HASH_PRIVATE,
 };
+
+typedef enum {
+    JS_ATOM_KIND_STRING,
+    JS_ATOM_KIND_SYMBOL,
+    JS_ATOM_KIND_PRIVATE,
+} JSAtomKindEnum;
 
 #define JS_ATOM_HASH_MASK  ((1 << 30) - 1)
 
@@ -1028,7 +1043,7 @@ static __exception int JS_ToArrayLengthFree(JSContext *ctx, uint32_t *plen,
                                             JSValue val, BOOL is_array_ctor);
 static JSValue JS_EvalObject(JSContext *ctx, JSValueConst this_obj,
                              JSValueConst val, int flags, int scope_idx);
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);
+JSValue  __js_printf_like(2, 3) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);
 static __maybe_unused void JS_DumpAtoms(JSRuntime *rt);
 static __maybe_unused void JS_DumpString(JSRuntime *rt,
                                                   const JSString *p);
@@ -2211,6 +2226,13 @@ JSValue JS_GetClassProto(JSContext *ctx, JSClassID class_id)
     return JS_DupValue(ctx, ctx->class_proto[class_id]);
 }
 
+JSValue JS_GetClassName(JSContext *ctx, JSClassID class_id)
+{
+  JSRuntime *rt = ctx->rt;
+  assert(class_id < rt->class_count);
+  return JS_AtomToString(ctx,rt->class_array[class_id].class_name);
+}
+
 typedef enum JSFreeModuleEnum {
     JS_FREE_MODULE_ALL,
     JS_FREE_MODULE_NOT_RESOLVED,
@@ -2601,7 +2623,7 @@ static int JS_InitAtoms(JSRuntime *rt)
     return 0;
 }
 
-static JSAtom JS_DupAtomRT(JSRuntime *rt, JSAtom v)
+JSAtom JS_DupAtomRT(JSRuntime *rt, JSAtom v)
 {
     JSAtomStruct *p;
 
@@ -2849,6 +2871,13 @@ JSAtom JS_NewAtomLenRT(JSRuntime *rt, const char *str, int len)
 {
     return __JS_NewAtomInit(rt, str, len, JS_ATOM_TYPE_STRING);
 }
+
+JSAtom JS_NewAtomSymbolLenRT(JSRuntime *rt, const char *str, int len)
+{
+  return __JS_NewAtomInit(rt, str, len, JS_ATOM_TYPE_SYMBOL);
+}
+
+
 
 static JSAtom __JS_FindAtom(JSRuntime *rt, const char *str, size_t len,
                             int atom_type)
@@ -3117,7 +3146,7 @@ JSValue JS_AtomToString(JSContext *ctx, JSAtom atom)
 
 /* return TRUE if the atom is an array index (i.e. 0 <= index <=
    2^32-2 and return its value */
-static JS_BOOL JS_AtomIsArrayIndex(JSContext *ctx, uint32_t *pval, JSAtom atom)
+JS_BOOL JS_AtomIsArrayIndex(JSContext *ctx, uint32_t *pval, JSAtom atom)
 {
     if (__JS_AtomIsTaggedInt(atom)) {
         *pval = __JS_AtomToUInt32(atom);
@@ -6633,7 +6662,7 @@ static JSValue JS_ThrowError(JSContext *ctx, JSErrorEnum error_num,
     return JS_ThrowError2(ctx, error_num, fmt, ap, add_backtrace);
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowSyntaxError(JSContext *ctx, const char *fmt, ...)
+JSValue __js_printf_like(2,3) JS_ThrowSyntaxError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -6644,7 +6673,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowSyntaxError(JSContext *ctx
     return val;
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowTypeError(JSContext *ctx, const char *fmt, ...)
+JSValue __js_printf_like(2,3) JS_ThrowTypeError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -6655,7 +6684,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowTypeError(JSContext *ctx, 
     return val;
 }
 
-static int __attribute__((format(printf, 3, 4))) JS_ThrowTypeErrorOrFalse(JSContext *ctx, int flags, const char *fmt, ...)
+static int __js_printf_like(3,4) JS_ThrowTypeErrorOrFalse(JSContext *ctx, int flags, const char *fmt, ...)
 {
     va_list ap;
 
@@ -6671,7 +6700,7 @@ static int __attribute__((format(printf, 3, 4))) JS_ThrowTypeErrorOrFalse(JSCont
 }
 
 /* never use it directly */
-static JSValue __attribute__((format(printf, 3, 4))) __JS_ThrowTypeErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
+static JSValue __js_printf_like(3,4) __JS_ThrowTypeErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
 {
     char buf[ATOM_GET_STR_BUF_SIZE];
     return JS_ThrowTypeError(ctx, fmt,
@@ -6679,7 +6708,7 @@ static JSValue __attribute__((format(printf, 3, 4))) __JS_ThrowTypeErrorAtom(JSC
 }
 
 /* never use it directly */
-static JSValue __attribute__((format(printf, 3, 4))) __JS_ThrowSyntaxErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
+static JSValue __js_printf_like(3,4) __JS_ThrowSyntaxErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
 {
     char buf[ATOM_GET_STR_BUF_SIZE];
     return JS_ThrowSyntaxError(ctx, fmt,
@@ -6702,7 +6731,7 @@ static int JS_ThrowTypeErrorReadOnly(JSContext *ctx, int flags, JSAtom atom)
     }
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowReferenceError(JSContext *ctx, const char *fmt, ...)
+JSValue __js_printf_like(2,3) JS_ThrowReferenceError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -6713,7 +6742,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowReferenceError(JSContext *
     return val;
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowRangeError(JSContext *ctx, const char *fmt, ...)
+JSValue __js_printf_like(2,3) JS_ThrowRangeError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -6724,7 +6753,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowRangeError(JSContext *ctx,
     return val;
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...)
+JSValue __js_printf_like(2,3) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -6936,6 +6965,10 @@ static JSValueConst JS_GetPrototypePrimitive(JSContext *ctx, JSValueConst val)
         break;
     }
     return val;
+}
+
+JSValue JS_GetPrototypeOfDate(JSContext *ctx) {
+  return JS_DupValue(ctx, ctx->class_proto[JS_CLASS_DATE]);
 }
 
 /* Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object. */
@@ -7823,9 +7856,7 @@ int JS_HasProperty(JSContext *ctx, JSValueConst obj, JSAtom prop)
 
     if (unlikely(JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT))
         return FALSE;
-
     p = JS_VALUE_GET_OBJ(obj);
-
     for(;;) {
         if (p->is_exotic) {
             const JSClassExoticMethods *em = ctx->rt->class_array[p->class_id].exotic;
@@ -15708,7 +15739,7 @@ exception:
     return -1;
 }
 
-static __exception int JS_CopyDataProperties(JSContext *ctx,
+__exception int JS_CopyDataProperties(JSContext *ctx,
                                              JSValueConst target,
                                              JSValueConst source,
                                              JSValueConst excluded,
@@ -16261,6 +16292,10 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     JSValue *local_buf, *stack_buf, *var_buf, *arg_buf, *sp, ret_val, *pval;
     JSVarRef **var_refs;
     size_t alloca_size;
+
+#ifdef CONFIG_DEBUGGER
+    sf->pthis = &this_obj;
+#endif
 
 #if !DIRECT_DISPATCH
 #define SWITCH(pc)      switch (opcode = *pc++)
@@ -18660,6 +18695,17 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 
         CASE(OP_nop):
             BREAK;
+
+#ifdef CONFIG_DEBUGGER
+        CASE(OP_line_num) : {
+              uint32_t line_num = get_u32(pc);
+              pc += 4;
+              if (caller_ctx == ctx && caller_ctx->debugger_check_line_no && b->has_debug && b->debug.filename) {
+                caller_ctx->debugger_check_line_no(caller_ctx, b->debug.filename, line_num, pc);
+              }
+            }
+            BREAK;
+#endif
         CASE(OP_is_undefined_or_null):
             if (JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_UNDEFINED ||
                 JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_NULL) {
@@ -20288,7 +20334,7 @@ static void __attribute((unused)) dump_token(JSParseState *s,
     }
 }
 
-int __attribute__((format(printf, 2, 3))) js_parse_error(JSParseState *s, const char *fmt, ...)
+int __js_printf_like(2,3) js_parse_error(JSParseState *s, const char *fmt, ...)
 {
     JSContext *ctx = s->ctx;
     va_list ap;
@@ -20405,7 +20451,7 @@ static __exception int js_parse_string(JSParseState *s, int sep,
 
     int multiline_str =
 #ifdef CONFIG_JSX
-      sep == '`' || '<';
+      sep == '`' || sep == '<';
 #else
       sep == '`';
 #endif
@@ -24297,6 +24343,8 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                         goto var_error;
                     opcode = OP_scope_get_var;
                     scope = s->cur_func->scope_level;
+                    label_lvalue = -1;
+                    depth_lvalue = 0;
                 } else {
                     if (js_parse_left_hand_side_expr(s))
                         return -1;
@@ -31589,11 +31637,19 @@ static __exception int resolve_labels(JSContext *ctx, JSFunctionDef *s)
         pos_next = pos + len;
         switch(op) {
         case OP_line_num:
+
+            line_num = get_u32(bc_buf + pos + 1);
+#ifdef CONFIG_DEBUGGER
+            if (ctx->debugger_enabled) /* under the debugger */
+              goto no_change; /* emit OP_line_num BC for the debugger's "break on line functionality" */
+            else
+              break; /* remove OP_line_num from BCs */
+#else 
             /* line number info (for debug). We put it in a separate
                compressed table to reduce memory usage and get better
                performance */
-            line_num = get_u32(bc_buf + pos + 1);
             break;
+#endif
 
         case OP_label:
             {
@@ -33872,9 +33928,29 @@ JSValue JS_EvalThis(JSContext *ctx, JSValueConst this_obj,
 JSValue JS_Eval(JSContext *ctx, const char *input, size_t input_len,
                 const char *filename, int eval_flags)
 {
-    return JS_EvalThis(ctx, ctx->global_obj, input, input_len, filename,
-                       eval_flags);
+    int eval_type = eval_flags & JS_EVAL_TYPE_MASK;
+    JSValue ret;
+
+    assert(eval_type == JS_EVAL_TYPE_GLOBAL ||
+           eval_type == JS_EVAL_TYPE_MODULE);
+    ret = JS_EvalInternal(ctx, ctx->global_obj, input, input_len, filename,
+                          eval_flags, -1, 1);
+    return ret;
 }
+
+JSValue JS_Eval2(JSContext *ctx, const char *input, size_t input_len,
+  const char *filename, int eval_flags, int line_no)
+{
+  int eval_type = eval_flags & JS_EVAL_TYPE_MASK;
+  JSValue ret;
+
+  assert(eval_type == JS_EVAL_TYPE_GLOBAL ||
+    eval_type == JS_EVAL_TYPE_MODULE);
+  ret = JS_EvalInternal(ctx, ctx->global_obj, input, input_len, filename,
+    eval_flags, -1, line_no);
+  return ret;
+}
+
 
 int JS_ResolveModule(JSContext *ctx, JSValueConst obj)
 {
@@ -34941,7 +35017,7 @@ typedef struct BCReaderState {
 } BCReaderState;
 
 #ifdef DUMP_READ_OBJECT
-static void __attribute__((format(printf, 2, 3))) bc_read_trace(BCReaderState *s, const char *fmt, ...) {
+static void __js_printf_like(2,3) bc_read_trace(BCReaderState *s, const char *fmt, ...) {
     va_list ap;
     int i, n, n0;
 
@@ -36047,8 +36123,8 @@ static void bc_reader_free(BCReaderState *s)
     js_free(s->ctx, s->objects);
 }
 
-JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len,
-                       int flags)
+JSValue JS_ReadObject2(JSContext *ctx, const uint8_t *buf, size_t buf_len,
+                       int flags, size_t* premnants_len)
 {
     BCReaderState ss, *s = &ss;
     JSValue obj;
@@ -36074,9 +36150,18 @@ JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len,
     } else {
         obj = JS_ReadObjectRec(s);
     }
+    *premnants_len = s->buf_end - s->ptr;
     bc_reader_free(s);
     return obj;
 }
+
+JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len,
+  int flags)
+{
+  size_t dummy;
+  return JS_ReadObject2(ctx, buf, buf_len, flags, &dummy);
+}
+
 
 /*******************************************************************/
 /* runtime functions & objects */
@@ -47651,7 +47736,7 @@ static int isURIReserved(int c) {
     return c < 0x100 && memchr(";/?:@&=+$,#", c, sizeof(";/?:@&=+$,#") - 1) != NULL;
 }
 
-static int __attribute__((format(printf, 2, 3))) js_throw_URIError(JSContext *ctx, const char *fmt, ...)
+static int __js_printf_like(2,3) js_throw_URIError(JSContext *ctx, const char *fmt, ...)
 {
     va_list ap;
 
@@ -47952,7 +48037,7 @@ static int64_t floor_div(int64_t a, int64_t b) {
 static JSValue js_Date_parse(JSContext *ctx, JSValueConst this_val,
                              int argc, JSValueConst *argv);
 
-static __exception int JS_ThisTimeValue(JSContext *ctx, double *valp, JSValueConst this_val)
+__exception int JS_ThisTimeValue(JSContext *ctx, double *valp, JSValueConst this_val)
 {
     if (JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT) {
         JSObject *p = JS_VALUE_GET_OBJ(this_val);
@@ -54051,6 +54136,168 @@ void JS_AddIntrinsicTypedArrays(JSContext *ctx)
     JS_AddIntrinsicAtomics(ctx);
 #endif
 }
+
+#ifdef CONFIG_DEBUGGER
+
+void* js_debugger_get_object_id(JSValue val) {
+  JSObject *p = JS_VALUE_GET_OBJ(val);
+  return p;
+}
+
+JSValue js_debugger_local_variables(JSContext *ctx, int stack_index) 
+{
+  JSValue ret = JS_NewObject(ctx);
+
+  // put exceptions on the top stack frame
+  if (stack_index == 0 && !JS_IsNull(ctx->rt->current_exception) && !JS_IsUndefined(ctx->rt->current_exception))
+    JS_SetPropertyStr(ctx, ret, "<exception>", JS_DupValue(ctx, ctx->rt->current_exception));
+
+  JSStackFrame *sf;
+  int cur_index = 0;
+
+  for (sf = ctx->rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
+    // this val is one frame up
+
+    if (cur_index < stack_index) {
+      cur_index++;
+      continue;
+    }
+
+    JSObject *f = JS_VALUE_GET_OBJ(sf->cur_func);
+    if (!f || !js_class_has_bytecode(f->class_id))
+      goto done;
+
+    if (JS_VALUE_GET_OBJ(*sf->pthis) != JS_VALUE_GET_OBJ(ctx->global_obj))
+      JS_SetPropertyStr(ctx, ret, "this", JS_DupValue(ctx, *sf->pthis));
+
+    JSFunctionBytecode *b = f->u.func.function_bytecode;
+
+    for (uint32_t i = 0; i < b->arg_count + b->var_count; i++) {
+      JSValue var_val;
+      if (i < b->arg_count)
+        var_val = sf->arg_buf[i];
+      else
+        var_val = sf->var_buf[i - b->arg_count];
+
+      if (JS_IsUninitialized(var_val))
+        continue;
+
+      JSVarDef *vd = b->vardefs + i;
+      JS_SetProperty(ctx, ret, vd->var_name, JS_DupValue(ctx, var_val));
+    }
+
+    break;
+  }
+
+done:
+  return ret;
+}
+
+JSValue js_debugger_closure_variables(JSContext *ctx, int stack_index) {
+  JSValue ret = JS_NewObject(ctx);
+
+  JSStackFrame *sf;
+  int cur_index = 0;
+  for (sf = ctx->rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
+    if (cur_index < stack_index) {
+      cur_index++;
+      continue;
+    }
+
+    JSObject *f = JS_VALUE_GET_OBJ(sf->cur_func);
+    if (!f || !js_class_has_bytecode(f->class_id))
+      goto done;
+
+    JSFunctionBytecode *b = f->u.func.function_bytecode;
+
+    for (uint32_t i = 0; i < b->closure_var_count; i++) {
+      JSClosureVar *cvar = b->closure_var + i;
+      JSValue var_val;
+      JSVarRef *var_ref = NULL;
+      if (f->u.func.var_refs)
+        var_ref = f->u.func.var_refs[i];
+      if (!var_ref || !var_ref->pvalue)
+        continue;
+      var_val = *var_ref->pvalue;
+
+      if (JS_IsUninitialized(var_val))
+        continue;
+
+      JS_SetProperty(ctx, ret, cvar->var_name, JS_DupValue(ctx, var_val));
+    }
+
+    break;
+  }
+
+done:
+  return ret;
+}
+
+JSValue js_debugger_build_backtrace(JSContext *ctx, const uint8_t *cur_pc)
+{
+  JSStackFrame *sf;
+  const char *func_name_str;
+  JSObject *p;
+  JSValue ret = JS_NewArray(ctx);
+  uint32_t stack_index = 0;
+
+  for (sf = ctx->rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
+    JSValue current_frame = JS_NewObject(ctx);
+
+    uint32_t id = stack_index++;
+    JS_SetPropertyStr(ctx, current_frame, "id", JS_NewUint32(ctx, id));
+
+    func_name_str = get_func_name(ctx, sf->cur_func);
+    if (!func_name_str || func_name_str[0] == '\0')
+      JS_SetPropertyStr(ctx, current_frame, "name", JS_NewString(ctx, "<anonymous>"));
+    else
+      JS_SetPropertyStr(ctx, current_frame, "name", JS_NewString(ctx, func_name_str));
+    JS_FreeCString(ctx, func_name_str);
+
+    p = JS_VALUE_GET_OBJ(sf->cur_func);
+    if (p && js_class_has_bytecode(p->class_id)) {
+      JSFunctionBytecode *b;
+      int line_num1;
+
+      b = p->u.func.function_bytecode;
+      if (b->has_debug) {
+        const uint8_t *pc = sf != ctx->rt->current_stack_frame || !cur_pc ? sf->cur_pc : cur_pc;
+        line_num1 = find_line_num(ctx, b, pc - b->byte_code_buf - 1);
+        JS_SetPropertyStr(ctx, current_frame, "filename", JS_AtomToString(ctx, b->debug.filename));
+        if (line_num1 != -1)
+          JS_SetPropertyStr(ctx, current_frame, "lineno", JS_NewUint32(ctx, line_num1));
+      }
+    }
+    else {
+      JS_SetPropertyStr(ctx, current_frame, "name", JS_NewString(ctx, "(native)"));
+    }
+    JS_SetPropertyUint32(ctx, ret, id, current_frame);
+  }
+  return ret;
+}
+
+uint32_t js_debugger_stack_depth(JSContext *ctx) {
+  uint32_t stack_index = 0;
+  JSStackFrame *sf = ctx->rt->current_stack_frame;
+  while (sf != NULL) {
+    sf = sf->prev_frame;
+    stack_index++;
+  }
+  return stack_index;
+}
+
+
+void JS_SetBreakpointHandler(JSContext *ctx, JSDebuggerCheckLineNoF* debugger_check_line_no)
+{
+  ctx->debugger_check_line_no = debugger_check_line_no;
+}
+
+void JS_SetDebuggerMode(JSContext *ctx, int onoff)
+{
+  ctx->debugger_enabled = onoff;
+}
+
+#endif // CONFIG_DEBUGGER
 
 #ifdef CONFIG_STORAGE
 
