@@ -1,6 +1,6 @@
 # Architecture of Storage Module
 
-The module uses modified [DyLib DB engine of Konstantin Knizhnik](http://www.garret.ru/dybase.html) and
+The module uses modified [DyBase Engine of Konstantin Knizhnik](http://www.garret.ru/dybase.html) and
 minimal changes in QuickJS core to support persistence in JS.
 
 With enabled CONFIG_STORAGE flag existing ```struct JSObject``` gets additional pointer field:
