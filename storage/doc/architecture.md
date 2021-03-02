@@ -71,5 +71,5 @@ The answer is “no”. At some point, when runtime will detect that heap is ful
 
 Therefore data commits (saving data to physical storage) are managed by script runtime automatically: at GC time and when storage gets closed. Script cannot prevent GC to happen nor it cannot force actual GC so data will be auto-commited. But if needed (e.g. after critical data changes), we can call synchronous ```storage.commit()``` method to force changed data to be saved at particular moment of time.
 
-Such mechanism allows script to handle potentially large data sets: maximum number of persistent entities is 2**32 and each persistent item can be a string or a byte array (a.k.a. blob, ArrayBuffer) of size 2**32 bytes.
+Such mechanism allows script to handle potentially large data sets: maximum number of persistent entities is 2^32 and each persistent item can be a string or a byte array (a.k.a. blob, ArrayBuffer) of size 2^32 bytes.
 
