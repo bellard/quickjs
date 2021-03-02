@@ -1,0 +1,77 @@
+\--- Release version 0.01 20.03.2003 -------------------------------------
+Initial release
+
+--- Release version 0.02 24.03.2003 -------------------------------------
+1. Add Index.set method which replace object in case of existed key
+2. Fix memory leak in Ruby API
+3. Add setup.py module to Python API
+4. Fix bug in PHP API
+
+--- Release version 0.03 27.03.2003 -------------------------------------
+1. Clear OID attribute in Persistent.deallcoate method (to make it possible to call
+deallocate method multiple times)
+2. Fix bugs in PHP API
+3. Correct declaration of storage_insertinindex function in Ruby API
+
+--- Release version 0.04 04.04.2003 -------------------------------------
+1. Add optional garbage collection
+2. Fix bug in class descriptors caching which cause creation of class descriptor for each instance of the object.
+
+--- Release version 0.05 08.04.2003 -------------------------------------
+1. Add multithreaded support at language API level
+2. Add methods for objects shared and exclusive locking
+
+--- Release version 0.06 18.04.2003 -------------------------------------
+1. Add Persistent.modify method
+2. Add index iterator
+3. Fix bug with recursive mutex locking in B-Tree
+
+--- Release version 0.07 22.04.2003 -------------------------------------
+1. Implement more sophisticated iterators for index search
+
+--- Release version 0.08 25.04.2003 -------------------------------------
+1. Add makefile for MinGW environment
+2. Fix the problem with LONG_LONG in python API
+
+--- Release version 0.09 28.05.2003 -------------------------------------
+1. Use delegators in Ruby API
+
+--- Release version 0.10 29.05.2003 -------------------------------------
+1. Use delegators in Python API
+
+--- Release version 0.11 15.07.2003 -------------------------------------
+1. Fix bug with maintaining  modifiedList in DyBASE and Ruby APIs.
+
+--- Release version 0.12 23.07.2003 -------------------------------------
+1. Fix bug in B-Tree index iterator (handling case of empty tree)
+
+--- Release version 0.13 19.11.2003 -------------------------------------
+1. Add support of map type. In PHP Api all arrays are now stored as maps,
+so new version will be incompatible with databases created by previous versions.
+
+--- Release version 0.14 14.12.2003 -------------------------------------
+1. Fix critical bug in object index relocation algorithm
+2. Fix bugs in index iterator
+3. Beta version of Rebol API
+
+--- Release version 0.15 19.12.2003 -------------------------------------
+1. Optimized version of Rebol API
+
+--- Release version 0.16 21.12.2003 -------------------------------------
+1. New version of Rebol API
+2. Fix bug in PHP API
+3. Update comparison results
+
+--- Release version 0.17 21.12.2003 -------------------------------------
+1. New implementation of object cache in Rebol API
+2. Fix bug in storage close method in Rebol API
+
+--- Release version 0.18 28.12.2003 -------------------------------------
+1. New implementation of fetching objects in Rebol API. Now it is not necessary to 
+specify prototype object.
+
+--- Release version 0.19 26.03.2004 -------------------------------------
+1. Fix bug in testlink.php
+2. Change rule of creating object delegators in Python API to me able to automatically
+handle object modification in all cases.
+3. Fix bug in B-Tree search method with open boundaries and remove from empty tree.

@@ -41,6 +41,9 @@
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#ifdef CONFIG_STORAGE
+#include "storage/quickjs-storage.h"
+#endif
 #include "quickjs-version.h"
 
 extern const uint8_t qjsc_repl[];
@@ -122,6 +125,9 @@ static JSContext *JS_NewCustomContext(JSRuntime *rt)
     /* system modules */
     js_init_module_std(ctx, "std");
     js_init_module_os(ctx, "os");
+#ifdef CONFIG_STORAGE
+    js_init_module_storage(ctx, "storage");
+#endif
     return ctx;
 }
 

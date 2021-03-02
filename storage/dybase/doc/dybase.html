@@ -1,0 +1,1484 @@
+<HTML>
+<HEAD>
+<TITLE>DyBASE - Object Oriented Database for languages with Dynamic Type Checking</TITLE>
+<UL>
+<LI> <A HREF = "#introduction">Introduction</A>
+
+<LI> <A HREF = "#features">Features</A>
+  <UL>
+  <LI> <A HREF = "#pbs">Persistency by reachability</A>
+  <LI> <A HREF = "#load">Semitransparent object loading</A>
+  <LI> <A HREF = "#delegators">Delegators</A>
+  <LI> <A HREF = "#indices">Indices</A>
+  <LI> <A HREF = "#transaction">Transaction model</A>
+  </UL>
+<LI> <A HREF = "#api">API for programming languages</A>
+  <UL>
+  <LI> <A HREF = "#Persistent">Persistent class</A>
+     <UL>
+     <LI><A HREF="#Persistent.load">Persistent.load()</A>
+     <LI><A HREF="#Persistent.isLoaded">Persistent.isLoaded()</A>
+     <LI><A HREF="#Persistent.isPersistent">Persistent.isPersistent()</A>
+     <LI><A HREF="#Persistent.isModified">Persistent.isModified()</A>
+     <LI><A HREF="#Persistent.store">Persistent.store()</A>
+     <LI><A HREF="#Persistent.modify">Persistent.modify()</A>
+     <LI><A HREF="#Persistent.getStorage">Persistent.getStorage()</A>
+     <LI><A HREF="#Persistent.deallocate">Persistent.deallocate()</A>
+     <LI><A HREF="#Persistent.sharedLock">Persistent.sharedLock(nowait)</A>
+     <LI><A HREF="#Persistent.exclusiveLock">Persistent.exclusiveLock(nowait)</A>
+     <LI><A HREF="#Persistent.unlock">Persistent.unlock()</A>
+     </UL>
+  <LI> <A HREF = "#Index">Index class</A>
+     <UL>
+     <LI><A HREF="#Index.drop">Index.drop()</A>
+     <LI><A HREF="#Index.clear">Index.clear()</A>
+     <LI><A HREF="#Index.insert">Index.insert(key, value)</A>
+     <LI><A HREF="#Index.set">Index.set(key, value)</A>
+     <LI><A HREF="#Index.remove">Index.remove(key, value)</A>
+     <LI><A HREF="#Index.get">Index.get(key)</A>
+     <LI><A HREF="#Index.find">Index.find(low, lowInclusive, high, highInclusive)</A>
+     <LI><A HREF="#Index.iterator">Index.iterator(low, lowInclusive, high, highInclusive, ascent)</A>
+     </UL>
+  <LI> <A HREF = "#Storage">Storage class</A>
+     <UL>
+     <LI><A HREF="#Storage.constructor">Constructor</A>  
+     <LI><A HREF="#Storage.open">Storage.open(path)</A>  
+     <LI><A HREF="#Storage.close">Storage.close()</A>  
+     <LI><A HREF="#Storage.commit">Storage.commit()</A>  
+     <LI><A HREF="#Storage.rollback">Storage.rollback()</A>  
+     <LI><A HREF="#Storage.getRootObject">Storage.getRootObject()</A>  
+     <LI><A HREF="#Storage.setRootObject">Storage.setRootObject(root)</A>  
+     <LI><A HREF="#Storage.deallocateObject">Storage.deallocateObject(obj)</A>  
+     <LI><A HREF="#Storage.makeObjectPersistent">Storage.makeObjectPersistent(obj)</A>  
+     <LI><A HREF="#Storage.storeObject">Storage.storeObject(obj)</A>  
+     <LI><A HREF="#Storage.modifyObject">Storage.storeObject(obj)</A>  
+     <LI><A HREF="#Storage.loadObject">Storage.loadObject(obj)</A>  
+     <LI><A HREF="#Storage.createStrIndex">Storage.createStrIndex(unique)</A>  
+     <LI><A HREF="#Storage.createIntIndex">Storage.createIntIndex(unique)</A>  
+     <LI><A HREF="#Storage.createLongIndex">Storage.createLongIndex(unique)</A>  
+     <LI><A HREF="#Storage.createBoolIndex">Storage.createBoolIndex(unique)</A>  
+     <LI><A HREF="#Storage.createRealIndex">Storage.createRealIndex(unique)</A>  
+     <LI><A HREF="#Storage.resetHash">Storage.resetHash()</A>  
+     <LI><A HREF="#Storage.gc">Storage.gc()</A>  
+     <LI><A HREF="#Storage.setGcThreshold">Storage.setGcThreshold()</A>  
+     <LI><A HREF="#Storage.sharedLock">Persistent.sharedLock(obj, nowait)</A>
+     <LI><A HREF="#Storage.exclusiveLock">Persistent.exclusiveLock(obj, nowait)</A>
+     <LI><A HREF="#Storage.unlock">Persistent.unlock(obj)</A>
+      </UL>
+  </UL>
+<LI> <A HREF = "#specific">Language specific issues</A>
+  <UL>
+  <LI> <A HREF = "#Python">Python</A>
+  <LI> <A HREF = "#Ruby">Ruby</A>
+  <LI> <A HREF = "#PHP">PHP</A>
+  <LI> <A HREF = "#Rebol">Rebol</A>
+  </UL>
+<LI> <A HREF = "#comparison">Comparison of performance of different languages</A>
+<LI> <A HREF = "#implementation">DyBASE implementation issues</A>
+  <UL>
+  <LI> <A HREF = "#memory">Memory allocation</A>
+  <LI> <A HREF = "#logless">Logless transactions</A>
+  </UL>
+<LI> <A HREF = "#where">Where to use</A>
+<LI> <A HREF = "#quick">Quick start</A>
+<LI> <A HREF = "#tuning">Tuning</A>
+<LI> <A HREF = "#distribution">Distribution terms</A>
+</UL>
+</UL>
+
+<BODY>
+<HR>
+<H2><A NAME = "introduction">Introduction</A></H2>
+
+DyBASE is very simple object oriented embedded database for languages with dynamic type checking.  In a dynamic type checking language the type of a class instance variable is not known at compile time. 
+Moreover the same instance variable can be used to store integers and string and later be assigned reference
+to some other object. So it means that database could not keep information about object format in
+class descriptor and should store type for each instance variable. DyBASE provides APIs to the most popular scripting languages
+with OO extensions: PHP, Ruby, Python and Rebol.<P>
+
+DyBASE is easy to use and provide high performance. It is intended to be used in applications which needs to deal with persistent 
+data in more sophisticated way than load/store object tree provided by standard serialization mechanism.
+Although DyBASE is very simple, it provides fault tolerant support (ACID transactions) 
+and concurrent access to the database.<P> 
+
+The main advantage of DyBASE is tight integration with programming language.
+There is no gap between database and application data models - DyBASE directly stores language objects.
+So there is no need in packing/unpacking code, which has to be written for traditional relational databases. 
+Also DyBASE (unlike many other OODBMS) requires no special compiler or preprocessor. And still it is able to 
+provide a high level of transparency.<P>
+
+<H2> <A NAME = "features">Features</A></H2>
+Lets now describe key features of DyBASE architecture. 
+
+<H3> <A NAME = "pbs">Persistency by reachability</A></H3>
+
+DyBASE is implementing <I>persistency by reachability</I> approach. Object of any class derived from 
+<code>Persistent</code> base class is considered as persistent capable.  It is automatically made
+persistent and stored in the storage when it is referenced from some other persistent object and
+<code>store</code> method of that object was invoked. So there is no need (but it is possible) to explicitly 
+assign object to the storage.<P>
+
+
+
+The storage has one special <I>root</I> object. Root object is the only persistent object accessed in the special
+way (using <code>getRootObject</code> method). All other persistent objects are accessed in normal way:
+either by traversing by references from another persistent objects or using indices.
+Unlike many other OODBMS, there can be only one root in the storage. If you need to have several named roots, 
+you should create <code>Index</code> object and use it as root object.<P>
+
+Which classes are persistent capable depends on the particular language API.
+In most of them they must be derived it from <code>Persistent</code> class.
+This makes impossible to store "foreign" classes in the storage. This is the cost of easy use of DyBASE and lack of any specialized preprocessors or compilers. In Python it is possible to make persistent arbitrary class, 
+but it is still more convenient to derive it from <code>Persistent</code>.<P>
+
+DyBASE supports the following basic types:<P>
+
+<TABLE BORDER>
+<TR><TH>Type</TH><TH>Description</TH><TH>Size</TH><TH>Related C++ type</TH></TR>
+<TR><TD>Boolean</TD><TD>boolean type</TD><TD>1</TD><TD>bool</TD></TR>
+<TR><TD>Integer</TD><TD>32-bit integer type</TD><TD>4</TD><TD>int</TD></TR>
+<TR><TD>Long integer</TD><TD>64-bit integer type</TD><TD>8</TD><TD>long long</TD></TR>
+<TR><TD>Real</TD><TD>64-bit floating point type</TD><TD>8</TD><TD>double</TD></TR>
+<TR><TD>String</TD><TD>String with counter</TD><TD>N</TD><TD>char*</TD></TR>
+<TR><TD>Array</TD><TD>One dimensional array with components of any of the described type</TD><TD>-</TD><TD>-</TD></TR>
+</TABLE><P>
+
+
+Unfortunately it is not possible to detect if object is changed or not without saving old state of the object and performing field-by-field comparison with new state of the object. But overhead of such solution (both space and CPU) is very high. In DyBASE it is responsibility of programmer to save object in the storage. It can be done by <code>Persistent.store</code> or <code>Persistent.modify</code> methods.<P>
+
+<code>Persistent.store</code> method writes object in the storage as well
+as all objects referenced from this object which are not yet persistent. So if you create a tree of objects and assign reference to the root of this tree to some persistent object <B>X</B>, it is only necessary to 
+invoke <code>store()</code> method in this object <B>X</B>. But then if you update one of the elements in this tree, 
+you should invoke <code>store()</code> individually for each such element (<code>X.store()</code> will
+NOT now automatically save referenced objects).<P>
+
+<code>Persistent.modify</code> method mark object is modified but doesn't immediately write it to the storage.
+All objects marked as modified will be stored to the storage during transaction commit (<code>store</code> method
+will be invoked for each modified object). So using <code>modify</code> method is preferable if object
+is updated multiple times within transaction. In this case instead of storing it several times, it will
+be stored only once at the end.<P>
+
+
+<H3> <A NAME = "load">Semitransparent object loading</A></H3>
+
+DyBASE is not using any special compiler or preprocessor. And only very few languages provide runtime behavior reflection (changing behavior of object at runtime), it is not possible to implement completely
+transparent persistence (when there are no differences between access to transient and persistent objects). Instead DyBASE supports transparent behavior in most cases with some exceptions.<P>
+
+When object is loaded from the storage, DyBASE will also try to recursively load all objects referenced
+from this object. So as a result all cluster of referenced object will be loaded, references between then will
+be correctly set and so programmer can access these object and traverse from one object to another
+without explicit checks whether object is loaded or not.<P>
+
+What is bad with this approach? If all objects in the storage are accessible from the rot by references (no indices are used), 
+then loading root object will cause loading of all objects from the database to the memory.
+If the number of object is very large, it can take a significant amount of time and cause exhaustion of memory in application. 
+In DyBASE it is possible to stop recursive loading for particular objects. 
+This is done either by redefinition of <code>recursiveLoading</code> method and returning <code>false</code>, 
+either (in Python API) by setting <code>__nonrecursive__</code> attribute). Objects referenced from the objects
+with disables recursive loading should be explicitly loaded using <code>Persistent.load</code> method.
+Before object is loaded, you should not access any of its components.<P>
+
+Also it is important to notice that indices always load member objects on demand 
+(i.e. Dybase does not perform automatic loading of all objects in the containers). Since access to the container members is always 
+performed through methods of the container class, programmer will never notice it - container methods will always
+return loaded object(s).<P>
+
+Sometimes not all fields of persistent object need to be saved in the storage. Some of them are
+transient. DyBASE use the following convention to distinguish persistent and transient fields:
+all fields which name ends with "_" are considered to be transient and are not saved in the storage.
+You can initialize such fields when object is loaded from the storage in <code>onLoad()</code> method
+which is invoked for any persistent object after loading it from the storage (i.e. after restoring values of all persistent
+fields).<P>
+
+So summarizing all above, proposed mechanism is convenient and easy to use because it doesn't require programmer
+to explicitly load any referenced object and from another point of view it is flexible above by providing programmer control
+on object loading. Only those classes (usually containers) which explicitly control loading of their
+members (by overloading <code>recursiveLoading</code> to return <code>false</code> value) should be aware
+calling <code>Persistent.load</code> method.<P> 
+
+
+<H3> <A NAME = "delegators">Delegators</A></H3>
+Some programming languages are providing delegation mechanism: possibility to redirect method
+to other object. Such mechanism can be used to build convenient object database API. 
+Instead of recursive loading of all objects cluster we can create delegators which will
+load objects on demand. No explicit invocations of <code>load</code> method and
+overloading <code>recursiveLoading</code> to stop recursion are needed.<P>
+
+Unfortunately it is still not possible to detect modification of the object. 
+Although some languages make it possible to redefine object attribute setter method, 
+it will not help to detect modification of self components inside instance method. 
+So explicit invocation of <code>modify</code> or <code>store</code> methods is needed.<P>
+
+Although delegator mechanism provides more convenient and transparent API, it has its own drawbacks:
+<OL>
+<LI>It is not possible to check object class: it will return class of delegator and not 
+class of target object itself
+<LI>As delegator and target objects are two different objects, comparison of objects
+references should be done with special care. 
+<LI>Delegators adds extra space and processor overhead: instead of one object we have two and
+each method invocation of field access requires extra delegator method call. 
+</OL><P>
+This is why by default delegators support is switch off in all APIs.<P> 
+
+
+<H3> <A NAME = "indices">Indices</A></H3>
+
+Usually objects are accessed by traversing from one object to another using references or links.
+But it is frequently needed to locate object by key. Almost all languages provides classes like hashtable or associative array.
+In databases usually more sophisticated search is required. 
+I do not want to implement in DyBASE complete SQL language, because it immediately makes DBMS huge and slow.
+But, in most cases, an application is performing only very simple queries using exact match or key range.
+This is done in DyBASE by <code>Index</code> class which make it possible to associate persistent object with
+key of any supported scalar or string type.<P>
+
+Indices are created in DyBASE using <code>Storage.createXXXIndex</code> method, 
+where <code>XXX</code> specifies type of the key. You can place in the index only keys with the same type as specified 
+at index creation time (so it is not possible to create index of strings and place integer key in it).
+Index is implemented using  B+Tree algorithm,  because B+Tree is the most efficient structure
+for disk based databases. Methods of <code>Index</code> class allows to add, remove and 
+locate objects by key. It is possible to perform search either specifying exact key value either specifying range of key values
+(high or low boundary or both of them can be skipped or can be declared as been exclusive or inclusive).
+So it is possible to perform the following types of search:<P>
+
+<OL>
+<LI>key is equals to VAL
+<LI>key belongs to [MIN_VAL, MAX_VAL]
+<LI>key belongs to [MIN_VAL, MAX_VAL)
+<LI>key belongs to (MIN_VAL, MAX_VAL]
+<LI>key belongs to (MIN_VAL, MAX_VAL)
+<LI>key is greater than MIN_VAL
+<LI>key is greater or equals to MIN_VAL
+<LI>key is less than than MAX_VAL
+<LI>key is less than or equals to MAX_VAL
+</OL><P>
+
+<H3> <A NAME = "transaction">Transaction model</A></H3>
+
+DyBASE preserve consistency of the data in case of system or application failure. 
+Transaction mechanism is used to implement all-or-nothing database update. 
+Transaction in DyBASE are started implicitly when update operation is first time performed 
+and finished explicitly by <code>commit, rollback</code> or <code>close</code> methods.<P>
+
+Commit of transaction cause synchronous write of changed pages to the disk.
+Synchronous write (application is blocked until data is really flushed to the disk) is very expensive operation.
+Average positioning time for modern disks is about 10ms, so them are usually not able to perform in one second
+more than 100 writes in random places. As far as transaction usually consists of several updated pages, 
+it leads to average performance about 10 transaction commits per second.<P>
+
+Performance can be greatly increased if you minimize number of commits (larger transactions).
+DyBASE is using shadow mechanism for transaction implementation. When object is changed first time
+during transaction, shadow of the object is created and original object is kept unchanged. If 
+object is updated multiple times during transaction, shadow is create only once. 
+Because of using shadows, DyBASE does not need a transaction log file. So in DyBASE
+long transaction can not cause transaction log overflow as in most of other DBMSes.
+Quite the contrary, if you do not call commit at all, DyBASE works as DBMS without transaction
+support, adding almost no overhead of supporting transactions.<P>
+
+The only drawback of long transactions is possibility to loose a lot of changes in case of fault.
+DyBASE will preserve consistency of the database, but all changes made since list commit will be lost.<P> 
+
+
+
+<H2> <A NAME = "api">Application Program Interface</A></H2>
+
+DyBASE core is implemented in C++ (actually GigaBASE implementation is mostly reused).
+Interaction with database core is performed using C functions defined in <code>dybase.h</code> file.
+API of particular programming language consists of two parts:
+
+<OL>
+<LI>C interface with database (language extension module)
+<LI>Database wrapper classes implemented in language itself.
+</OL>
+
+I try to made part 1 (extension module implemented in C) as small as possible and used mostly as
+wrapper for functions defined in <code>dybase.h</code>. And most of the interface is implemented in language itself.
+So all such things as object caching, recursive loading, investigating object fields are implemented in 
+target language and not in C. The main advantages of such decision is flexibility (it is easier to implement different 
+strategies at this level) and convenience (using language extension API is usually not convenient an error prone).
+The only disadvantage is worse performance because interpreted languages are usually not as fast as C and certainly
+implementation of the whole API in C will lead to better performance because no interpretation overhead is present here). 
+But I think that pro in this case is more significant than its contra.<P>
+
+Below is the description of classes and method present in API of all languages. The next section describes
+specific of implementation for particular language.<P>
+
+
+<H3> <A NAME = "persistent">Persistent class</A></H3>
+
+Persistent class is common root for all persistent capable objects. It provides method for loading and storing object.
+
+<HR>
+<A NAME = "Persistent.load">
+<B>load()</B>
+<DL><DD>
+Explicitly load object. This method will check if objects needs to be loaded, and, if so, load it from the storage.
+</DL></A>
+
+<HR>
+<A NAME = "Persistent.isLoaded">
+<B>isLoaded()</B>
+<DL><DD>
+Check if object is already loaded or explicit invocation of load() method is required.
+<DL>
+<DT><B>Returns</B>
+<DD>True if object is loaded, False otherwise
+</DL></DL></A>
+
+<HR>
+<A NAME = "Persistent.isPersistent">
+<B>isPersistent()</B>
+<DL><DD>
+Check if object is persistent (was assigned persistent OID).
+<DL>
+<DT><B>Returns</B>
+<DD>True if object is persistent, False otherwise
+</DL></DL></A>
+
+<HR>
+<A NAME = "Persistent.isModified">
+<B>isModified()</B>
+<DL><DD>
+Check if object was modified during current transaction
+<DL>
+<DT><B>Returns</B>
+<DD>True if <code>modify</code> method was invoked for the object within current transaction, False otherwise
+</DL></DL></A>
+
+<HR>
+<A NAME = "Persistent.store">
+<B>store()</B>
+<DL><DD>
+Store the object in the storage. If object is not yet persistent it is first made persistent by assigning persistent OID. If object references some other non-persistent object then they recursively made persistent and
+also stored in the storage. But referenced persistent objects are not recursively stored. You should invoke store method explicitly for each changed persistent object. 
+</DL></A>
+
+<HR>
+<A NAME = "Persistent.modify">
+<B>modify()</B>
+<DL><DD>
+Mark object as modified. This object will be automatically stored to the database during transaction commit.
+</DL></A>
+
+
+<HR>
+<A NAME = "Persistent.getStorage">
+<B>getStorage()</B>
+<DL><DD>
+Get storage in which object is stored. 
+<DL>
+<DT><B>Returns</B>
+<DD>Storage in which object is stored or <code>Null</code> if object is not persistent.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Persistent.deallocate">
+<B>deallocate()</B>
+<DL><DD>
+Deallocate object in the storage. This method doesn't affect instance of the object in application memory - 
+it is deallocated in normal way by language runtime. If you are using garbage collector, there is no need to invoke this method.
+</DL></A>
+<HR>
+
+<A NAME = "Persistent.sharedLock">
+<B>sharedLock(nowait=false)</B>
+<DL><DD>
+Lock persistent object in shared mode. Other threads will be able to set their
+shared locks on this objects, but no exclusive locks can be set on this object until this lock is released.<BR> 
+Upgrading of the lock is not possible (thread holding a read lock can not upgrade it to exclusive lock).
+This is done to prevent possible deadlocks caused by lock updates. 
+But locks are reentrant - so thread can request the same lock many times (and correspondent number of unlocks is needed to release the lock).<BR> 
+Locking the object doesn't prevent other threads from accessing the object - 
+it only has influence on <code>sharedLock</code> and <code>exclusiveLock</code> methods.
+So programmer should set proper lock before accessing the object in multi-threaded application.<BR> 
+If object is concurrently accessed by several threads in read-only mode, then explicit locking of this object is not needed, because language API provides consistent retrieving of objects itself.<BR> 
+Only persistent object (object which were assigned to the the storage either implicitly by saving some other persistent object referencing this object, either explicitly by <code>Storage.makeObjectPersistent</code> method.  
+<DL>
+<DT><B>Parameters</B>
+<DD><code>nowait</code> - optional parameter specifying whether request should
+wait until lock is available or fail if lock can not be granted immediately.
+<DT><B>Returns</B>
+<DL>
+<DT><code>true</code> if lock is successfully granted<br>
+<DT><code>false</code> if lock can not be granted within specified time 
+</DL></DL></DL></A>
+
+<HR>
+<A NAME = "Persistent.exclusiveLock">
+<B>exclusiveLock(nowait=false)</B>
+<DL><DD>
+Lock persistent object in exclusive mode. Only one thread can lock object in exclusive mode at each moment of time. Shared or exclusive lock requests of other threads will be blocked until this lock is released.
+
+Shared locks, but not exclusive locks, can be set on this object until this lock is released.<BR> 
+This lock is reentrant so thread owning the lock can successfully retrieve the lock many times (and correspondent number of unlocks is needed to release the lock).<BR> 
+Locking the object doesn't prevent other threads from accessing the object - 
+it only has influence on <code>sharedLock</code> and <code>exclusiveLock</code> methods.
+So programmer should set proper lock before accessing the object in multi-threaded application.<BR> 
+Only persistent object (object which were assigned to the the storage either implicitly by saving some other persistent object referencing this object, either explicitly by 
+<code>Storage.makeObjectPersistent</code> method.   
+<DL>
+<DT><B>Parameters</B>
+<DD><code>nowait</code> - optional parameter specifying whether request should
+wait until lock is available or fail if lock can not be granted immediately.
+<DT><B>Returns</B>
+<DL>
+<DT><code>true</code> if lock is successfully granted<br>
+<DT><code>false</code> if lock can not be granted within specified time 
+</DL></DL></DL></A>
+
+<HR>
+<A NAME = "Persistent.unlock">
+<B>unlock()</B>
+<DL><DD>
+Remove granted lock. If lock was requested several times by one thread, then correspondent number of unlocks is needed to release the lock.
+</DL></A>
+
+<HR>
+
+<H3><A NAME = "Index">Index class</A></H3>
+
+The index class provides access to the objects by key.
+Keys of any scalar or string type are supported. But in one index can contains keys only of one type. Index class extends Persistent class and so it is normal Persistent object. Index can be unique (duplicated keys are prohibited) or not unique.<P>
+
+<HR>
+<A NAME = "Index.drop">
+<B>drop()</B>
+<DL><DD>
+Delete index. This method removes all entries from index and deallocate index object.
+</DL></A>
+
+<HR>
+<A NAME = "Index.clear">
+<B>clear()</B>
+<DL><DD>
+Remove all entries from the index. This method doesn't deallocate indexed objects.
+</DL></A>
+
+<HR>
+<A NAME = "Index.insert">
+<B>insert(key, value)</B>
+<DL><DD>
+Insert object in index. 
+<DL>
+<DT><B>Parameters</B>
+<DD><code>key</code> - key with type matching with type of the index
+<DD><code>value</code> - persistent capable object to be associated with this key. This object is automatically made persistent
+(if it isn't persistent yet).
+<DT><B>Returns</B>
+<DD>True if object was successfully inserted in index, False if index is unique and such key already exists in index.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Index.insert">
+<B>set(key, value)</B>
+<DL><DD>
+Set object for the specified key. If such key already exists in the index, 
+previous association of this key will be replaced.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>key</code> - key with type matching with type of the index
+<DD><code>value</code> - persistent capable object to be associated with this key. This object is automatically made persistent (if it isn't persistent yet).
+</DL></DL></A>
+
+<HR>
+<A NAME = "Index.remove">
+<B>remove(key, value=Null)</B>
+<DL><DD>
+Remove object from index
+<DL>
+<DT><B>Parameters</B>
+<DD><code>key</code> - key with type matching with type of the index
+<DD><code>value</code> - optional reference to the persistent object removed from the index. If index is unique, this parameter can be skipped.
+<DT><B>Returns</B>
+<DD>True if object was successfully removed from the index, False if there is no object with such key in index.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Index.get">
+<B>get(key)</B>
+<DL><DD>
+Get object associated with specified key.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>key</code> - key with type matching with type of the index
+<DT><B>Returns</B>
+<DD>Null if there is no object with such key in the index,<BR>
+object itself if there is only one object with such key in the index,<BR>
+array of object if there are more than one object with such key in the index
+</DL></DL></A>
+
+<HR>
+<A NAME = "Index.find">
+<B>find(low=null, lowInclusive=true, high=null, highInclusive=true)</B>
+<DL><DD>
+Get objects which keys belongs to the specified range.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>low</code> - low boundary for key value,  if Null than there is no low boundary.
+<DD><code>lowInclusive</code> - if low boundary is inclusive or not
+<DD><code>high</code> - high boundary for key value,  if Null than there is no high boundary.
+<DD><code>highInclusive</code> - if high boundary is inclusive or not
+<DT><B>Returns</B>
+<DD>Array of selected objects or Null if there are no object with key belonging to the specified range
+</DL></DL></A>
+
+<HR>
+<A NAME = "Index.iterator">
+<B>iterator(low=null, lowInclusive=true, high=null, highInclusive=true, ascent=true)</B>
+<DL><DD>
+Get iterator for objects in the index.
+Objects will be traversed in key ascending order.
+Details of iterator's implementation depends on particular language.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>low</code> - low boundary for key value,  if Null than there is no low boundary.
+<DD><code>lowInclusive</code> - if low boundary is inclusive or not
+<DD><code>high</code> - high boundary for key value,  if Null than there is no high boundary.
+<DD><code>highInclusive</code> - if high boundary is inclusive or not
+<DD><code>ascent</code> - iteration order: if <code>true</code>, then objects will be traversed in key ascending order
+<DT><B>Returns</B>
+<DD>Usually this method returns iterator object, but in some languages it is possible to pass block of code which
+will be executed for each selected object. 
+</DL></DL></A>
+
+<HR>
+
+<H3><A NAME = "Storage">Storage class</A></H3>
+
+Storage is class is the main class of DyBASE API. It provides access to the database storage.<P>
+
+<HR>
+<A NAME = "Storage.constructor">
+<B>Storage(pagePoolSize = 4*1024*1024, objectCacheSize = 1000)</B>
+<DL><DD>
+Storage constructor
+<DL>
+<DT><B>Parameters</B>
+<DD><code>pagePoolSize</code> - database page pool in bytes (larger page pool usually leads to better performance)
+<DD><code>objectCacheSize</code> - this parameter is used only by some of languages API and specify maximal number 
+of objects in application object cache. Not all languages APIs maintain such cache.
+<DT><B>Returns</B>
+<DD>Storage object. It is not opened and you should invoke open method explicitly.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.open">
+<B>open(path)</B>
+<DL><DD>
+Storage constructor
+<DL>
+<DT><B>Parameters</B>
+<DD><code>path</code> - path to the database file
+<DT><B>Returns</B>
+<DD>True if storage is successfully opened, False otherwise. Some language APIs do not return False, but throw exception
+in case of failure.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.close">
+<B>close()</B>
+<DL><DD>
+Close the storage. If there is an open transaction, it will be first committed.
+</DL></A>
+
+<HR>
+<A NAME = "Storage.commit">
+<B>commit()</B>
+<DL><DD>
+Commit current transaction. Transaction is automatically started once you update the database first time.
+</DL></A>
+
+<HR>
+<A NAME = "Storage.rollback">
+<B>rollback()</B>
+<DL><DD>
+Rollback current transaction. All changes done by current transaction are undone.
+<FONT COLOR="FF0000">Attention!</FONT>Rollback of transaction did not restore original values of application objects.
+It just clears object cache. You should not use any variable referencing persistent object after rollback, 
+but instead of it use <code>Storage.getRootObject</code> method and traverse objects from the root. 
+</DL></A>
+
+<HR>
+<A NAME = "Storage.getRootObject">
+<B>getRootObject()</B>
+<DL><DD>
+Get storage root object.
+<DL>
+<DT><B>Returns</B>
+<DD>Loaded storage root object or Null if root was not yet specified.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.setRootObject">
+<B>setRootObject(root)</B>
+<DL><DD>
+Specify new storage root object. Previous root object (if exists) is NOT deallocated. 
+<DL>
+<DT><B>Parameters</B>
+<DD><code>root</code> - new storage root object which is automatically made persistent.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.deallocateObject">
+<B>deallocateObject(obj)</B>
+<DL><DD>
+Deallocate persistent object from the storage. If object is not persistent, this method has no effect.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - persistent object
+</DL></DL></A>
+
+
+<HR>
+<A NAME = "Storage.makeObjectPeristent">
+<B>makeObjectPeristent(obj)</B>
+<DL><DD>
+Explicitly make object persistent. Object is automatically made persistent when persistent object containing reference
+to this object is stored (persistency by reachability). But sometimes you may need to force assignment OID and
+storage reference to the object. It can be done by makePerisistent method. This method doesn't actually store
+object in the storage, just assign OID to it.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - object to be made persistent, if it is already persistent = method as no effect. 
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.storeObject"><BR>
+This method is usually invoked by <code>Persistent.store()</code> method.
+<B>storeObject(obj)</B>
+<DL><DD>
+Make object persistent if it is not yet persistent and store it in the storage. 
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - stored object.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.modifyObject"><BR>
+This method is usually invoked by <code>Persistent.modify()</code> method.
+<B>modifyObject(obj)</B>
+<DL><DD>
+Mark object as modified. This object will be automatically stored to the database
+during transaction commit.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - modified object.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.loadObject">
+<B>loadObject(obj)</B>
+<DL><DD>
+Load object from the storage.<BR>
+This method is usually invoked by <code>Persistent.load()</code> method.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - loaded object.
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.createStrIndex">
+<B>createStrIndex(unique = True)</B>
+<DL><DD>
+Create index for keys of string type.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>unique</code> - whether duplicated keys are allowed or not (by default not allowed)
+<DT><B>Returns</B>
+<DD><A HREF="#Index">Index object</A>
+</DL></DL></A>
+
+
+<HR>
+<A NAME = "Storage.createIntIndex">
+<B>createIntIndex(unique = True)</B>
+<DL><DD>
+Create index for keys of integer type.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>unique</code> - whether duplicated keys are allowed or not (by default not allowed)
+<DT><B>Returns</B>
+<DD><A HREF="#Index">Index object</A>
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.createLongIndex">
+<B>createLongIndex(unique = True)</B>
+<DL><DD>
+Create index for keys of long integer type. Not all languages supports long (64-bit integer) type and so do not provide such method.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>unique</code> - whether duplicated keys are allowed or not (by default not allowed)
+<DT><B>Returns</B>
+<DD><A HREF="#Index">Index object</A>
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.createBoolndex">
+<B>createBoolIndex(unique = True)</B>
+<DL><DD>
+Create index for keys of boolean type. Not all languages supports boolean type and so do not provide such method.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>unique</code> - whether duplicated keys are allowed or not (by default not allowed)
+<DT><B>Returns</B>
+<DD><A HREF="#Index">Index object</A>
+</DL></DL></A>
+
+<HR>
+<A NAME = "Storage.createRealIndex">
+<B>createRealIndex(unique = True)</B>
+<DL><DD>
+Create index for keys of floating point type.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>unique</code> - whether duplicated keys are allowed or not (by default not allowed)
+<DT><B>Returns</B>
+<DD><A HREF="#Index">Index object</A>
+</DL></DL></A>
+
+
+<HR>
+<A NAME = "Storage.resetHash">
+<B>resetHash()</B>
+<DL><DD>
+Reset object hash. Each fetched object is stored in objByOidMap hash table.
+It is needed to provide OID->instance mapping. Since placing object in hash increase its access counter, 
+such object can not be deallocated by garbage collector. So after some time all persistent objects from 
+the storage will be loaded to the memory. To solve the problem almost all languages with implicit
+memory deallocation (garbage collection) provides weak references. But in some of them weak references are not supported
+and sometime implementation of weak references is very inefficient. 
+So to prevent memory overflow you should use resetHash() method. 
+This method just clear hash table. After invocation of this method, you should not use any variable
+referencing persistent objects. Instead you should invoke getRootObject method and access all other 
+persistent objects only through the root.
+</DL></A>
+
+
+<HR>
+<A NAME = "Storage.gc">
+<B>gc()</B>
+<DL><DD>
+Explicit start of garbage collector. Garbage collector will collect only committed object, so there is no need
+to invoke garbage collector more than once within one transaction. Garbage collection can be used together with
+explicit deallocator by <code>Persistent.deallocate</code> method. But when you are using garbage collector, 
+you should be careful with keeping references to the persistent objects in local variables. If there are no references
+to such object from other persistent object (so it is not reachable from root object), then garbage collector
+can deallocate such object. If you then try to access or update this object using reference stored 
+in local variable, you will get on error.
+</DL></A>
+
+<HR>
+<A NAME = "Storage.setGcThreshold">
+<B>setGcThreashold(maxAllocatedDelta)</B>
+<DL><DD>
+Set garbage collection threshold.
+By default garbage collection is disable (threshold is set to 0).
+If it is set to non zero value, GC will be started each time when
+delta between total size of allocated and deallocated objects exceeds specified threshold OR
+after reaching end of allocation bitmap in allocator.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>maxAllocatedDelta</code> - delta between total size of allocated and deallocated object since last GC 
+or storage opening 
+</DL></DL></A>
+
+
+<HR>
+<A NAME = "Storage.sharedLock">
+<B>sharedLock(obj, nowait=false)</B>
+<DL><DD>
+Lock object in shared mode. Other threads will be able to set their
+shared locks on this objects, but not exclusive lock can be set until this lock is released. 
+Upgrading of the lock is not possible (thread having read lock can not upgrade it to exclusive lock).
+It is done to prevent possible deadlocks caused by lock updates. 
+But locks are reentrant - so thread can request the same lock many times (and correspondent 
+number of unlocks is needed to release the lock).
+Locking the object doesn't prevent other threads from accessing the object - 
+it only has influence on <code>sharedLock</code> and <code>exclusiveLock</code> methods.
+So programmer should set proper lock before accessing the object in multithreaded application.
+If object is concurrently accessed by several threads in read-only mode, then explicit locking
+of this object is not needed, because language API provides consistent retrieving of objects itself. 
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - locked object
+<DD><code>nowait</code> - optional parameter specifying whether request should
+wait until lock is available or fail if lock can not be granted immediately.
+<DT><B>Returns</B>
+<DL>
+<DT><code>true</code> if lock is successfully granted<br>
+<DT><code>false</code> if lock can not be granted within specified time 
+</DL></DL></DL></A>
+
+<HR>
+<A NAME = "Storage.exclusiveLock">
+<B>exclusiveLock(obj, nowait=false)</B>
+<DL><DD>
+Lock object in exclusive mode. Only one thread can lock object in exclusive mode at each
+moment of time. Shared or exclusive lock requests of other threads will be blocked until
+this lock is released.
+shared locks on this objects, but not exclusive lock can be set until this lock is released. 
+This lock is reentrant, so thread owning the lock can successfully retrieve the lock many times
+(and correspondent number of unlocks is needed to release the lock).
+Locking the object doesn't prevent other threads from accessing the object - 
+it only has influence on <code>sharedLock</code> and <code>exclusiveLock</code> methods.
+So programmer should set proper lock before accessing the object in multithreaded application. 
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - locked object
+<DD><code>nowait</code> - optional parameter specifying whether request should
+wait until lock is available or fail if lock can not be granted immediately.
+<DT><B>Returns</B>
+<DL>
+<DT><code>true</code> if lock is successfully granted<br>
+<DT><code>false</code> if lock can not be granted within specified time 
+</DL></DL></DL></A>
+
+<HR>
+<A NAME = "Storage.unlock">
+<B>unlock(obj)</B>
+<DL><DD>
+Remove granted lock. If lock was requested several times by one thread, then correspondent number
+of unlocks is needed to release the lock.
+<DL>
+<DT><B>Parameters</B>
+<DD><code>obj</code> - unlocked object
+</DL></DL></A>
+
+<HR>
+
+ 
+<H2><A NAME="specific">Language specific issues</A></H2>
+
+<H3><A NAME = "Python">Python</A></H3>
+
+Python seems to be the most serious language among those three languages. 
+It provides efficient weak reference dictionary which makes it possible to implement object cache and do not make programmer to explicitly call resetHash method.<P>
+
+Python provides long integer type (64-bit integer) but it has not separate boolean type (boolean values are treated 
+as integers).<P>
+
+In Python instance variables are not declared at all and are attached to to the object when first time assigned.
+So objects of the same class can have different sets of instance variables. But this is not a problems for DyBASE.
+But because of this feature of Python it is not required to derive persistent capable object from Persistent
+(although it is still more convenient to do it, because in this case you can use methods derived fro Persistent class).<P>
+
+Unlike other languages stop of recursive loading is done not by redefinition of <code>recursiveLoading</code> method
+but by the assignment <code>__nonrecursive__</code> attribute to the object.<P>
+
+Python makes it possible to redefine getter/setter methods for attributes. 
+Using this facility delegators for persistent object can be implemented. 
+Instead of recursive loading of object cluster, it is possible to create delegators for the persistent
+object and load objects on demand. Python API provides <code>PersistentDelegator</code>
+class which catch method attribute access and load object from the database if needed. 
+This class also redefine comparison method to treat as equal two different delegators referencing 
+the same OID. The following things will not work with delegator:
+<OL>
+<LI>Check class of the objects with <code>isinstance</code> operator (it can return class of delegator instead of actual object class)
+<LI>Comparison of persistent object not derived from <code>Persistent</code> class (<code>Persistent</code> class defines special redefine stand quality comparison operator to correctly handle delegators)
+</OL><P>
+
+To enable usage of delagators you should path <code>True</code> to <code>useDelegators</code>
+parameter of <code>Storage</code> constructor (default value is <code>False</code>).<P>
+
+
+Python API can be built either using standard makefiles in <code>dybase/src</code>
+and <code>dybase/python</code> directories, either using <code>setup.py</code>
+python script. If you will build python using setup.py at Windows with MinGW, 
+you may be faced with the following problem:
+
+<pre>
+     C:\devel\dybase\python>setup.py build -cmingw32
+     ...
+     error: command 'cc' failed: No such file or directory
+</pre>
+
+The problem is caused by using "cc" for linking while command with such name is not defined 
+in MinGW. To fix it, just copy g++.exe to cc.exe<p>
+ 
+
+
+<H3><A NAME = "Ruby">Ruby</A></H3>
+
+Ruby is interesting language but with lack of some important features.
+For example reflection support in Ruby is very restricted - it is not possible to access instance variables
+outside the object. That is why I have to define C functions to access instance variables and 
+create instances of the class.<P>
+
+Ruby provides weak references but its implementation is so inefficient, that by default it is switched off. 
+To enable weak references, set <code>USE_WEAK_REFERENCES=true</code> in dybase.rb.
+Also Ruby support delegates: classes which redirect (delegate) methods to some other class. 
+With delegate classes there is no need in <code>recursiveLoading</code> method - objects
+are loaded on demand. So it is much more convenient then common DyBase model of loading object.
+But there are also some significant drawbacks of delegates:
+<OL>
+<LI>There are actually two object instances: delegator object and target object. 
+DyBASE always return reference to delegator object. But if you return <code>self</code>
+from some method, if will not be equal to the object from which method was invoked:
+<pre>
+class MyRoot&lt;Persistent 
+    def me
+        return self
+    end
+end
+
+root = db.getRootObject
+itIsMe = (root == root.me) # !!! false
+</pre>
+
+<LI>You can not inspect class of the object because it will return class of delegator (<code>PersistentDelegator</code>.
+
+<LI>Delegators adds extra space and CPU overhead (instead of one instance of the object we have two and 
+each method invocation requires extra redirection). 
+</OL>
+That is why delegators are also switched off by default. To enable them, set <code>USE_DELEGATOR = false</code>
+in dybase.rb.<P>
+
+Ruby has normal (mark-and-sweep) garbage collector so it is not suffer from cyclic references.
+It support big numbers but not long (64 bit) integers.<P>
+
+
+<H3><A NAME= "PHP">PHP</A></H3>
+
+May be this language is really very convenient for generation of Web pages, but as 
+it is almost impossible to use it (from my point of view) as normal object oriented language.
+This is because of very strange copy by value model. You have to specify explicitly (in three different places!) 
+whether you want to copy object by value or by reference and certainly it is so easy to make a mistake with very 
+interesting effect.<P>
+
+In PHP 4.3.x reference counter field has short type. It means that PHP is not able to correctly
+handle objects which are referenced from more than 65535 places. As far as each persistent
+object contains reference to the storage object, this limitation means that there can not be more
+than 65535 persistent object loaded from the database to the memory at each moment of time. 
+You have to periodically invoke <code>Storage.resetHash</code> method to remove
+persistent objects from the cache. Violation of this rule cause unpredictable behavior of the program
+(corruption of memory and sometimes segmentation faults).<P>
+
+PHP doesn't support weak references at all. Also it has no long (64-bit) integers.<P>
+
+PHP 4.* doesn't provide any primitives for working in multithreaded environment. 
+So locking mechanisms are not supported by PHP API.
+
+<H3><A NAME= "Rebol">Rebol</A></H3>
+Requirements/restrictions of Rebol DyBASE API:
+<UL>
+
+<LI>You will have to use professional version of Rebol, because free Command and View version do not 
+support access to external functions (loading DLLs). 
+ 
+<LI>All persistent objects should be derived (prototyped) from "persistent" object
+and specify word of prototype object in <code>__class__</code> field:
+
+<pre>
+my-persistent-object: make persistent [ __class__: 'my-persistent-object ... ]
+</pre>
+
+<LI>DyBASE Rebol API supports the following Rebol types: <code>object! integer! decimal! string! block! hash!</code>. Values of string, block and hash types are stored as part of referencing them object.
+So if one block is referenced by two objects, then in database two copies of this block will be stored.
+And after reloading of these objects, there will be two independent blocks in memory. 
+Also DyBASE doesn't store current position in the block. So the block <code>next [1 2 3 4 5]</code>
+will be stored as <code>[2 3 4 5]</code>.
+
+<LI>All other Rebol type (money, URL,...) will be converted and stored in database as strings.
+And them will be also loaded as strings.
+
+<LI>As far as Rebol doesn't provide weak reference, it is responsibility of programmer to periodically 
+clean object cache to avoid memory overflow. Without cleaning cache, all objects from the database will
+sooner or later be loaded in memory. If database size is larger than size of available main memory, 
+it can cause application crash. But even if database fits in main memory, cleaning cache can significantly
+increase performance, because adding object to hash table is very slow in Rebol and looks like it has 
+quadratic complexity (adding N objects requires O(N*N) time!!!).
+
+<LI>If you want to mark some fields as transient (do not store them in the database), start their
+names with "_" (underscore).
+</UL><P>
+
+
+<H2> <A NAME = "comparison">Comparison of performance of different languages</A></H2>
+
+I have three products GigaBASE, PERST and DyBASE build on the same core. 
+GigaBASE is implemented in C++ and provides C++ API, PERST is implemented in Java and C-Sharp and provides API 
+to the correspondent language, DyBASE mostly reuses GigaBASE implementation and provides API to the languages
+with dynamic type checking: Python, Ruby, PHP and Rebol.<P>
+
+I run the same simple test implemented in C++, Java, C-Sharp, PHP, Python, Ruby and Rebol. 
+This test contains three steps:<P>
+
+<OL>
+<LI>Create specified number of records with random long and string key and include it in long and
+string indices. After inserting of all records, commit is performed.
+<LI>Search for each record using long and string key.
+<LI>Search and remove each record from the indices and deallocate it from the storage.
+</OL><P>
+
+Time of execution of each step is measured. Number of records in each case is the same - 100000.
+Page pool size in all cases is 32Mb, which is enough to hold all records in memory.
+All test were executed at the same computer: AMD Athlon 1.3G, 512Mb RAM, WinXP.
+I am using MS Visual.NET 2003 C++ compiler, Java JDK 1.4, Python 2.3.2, PHP 4.3., Ruby 1.8.0 and Rebol/View 1.2.10.3.1.
+I divide time of each step by number of iteration and produce the following results:<P>
+
+<table border><tr><th>Color</th><th>Language</th><th>Database</th></tr>
+<tr><td BGCOLOR="FF0000">1</TD><TD>C++</TD><TD>GigaBASE</td></tr>
+<tr><td BGCOLOR="00FF00">2</TD><TD>Java</TD><TD>PERST</td></tr>
+<tr><td BGCOLOR="0000FF">3</TD><TD>C-Sharp</TD><TD>PERST</td></tr>
+<tr><td BGCOLOR="00FFFF">4</TD><TD>Ruby</TD><TD>DyBase</td></tr>
+<tr><td BGCOLOR="FF00FF">5</TD><TD>Python</TD><TD>DyBase</td></tr>
+<tr><td BGCOLOR="FFFF00">6</TD><TD>PHP</TD><TD>DyBase</td></tr>
+<tr><td BGCOLOR="008888">7</TD><TD>Rebol</TD><TD>DyBase</td></tr>
+</table><p>
+
+<H3>Index searches per second</H3>
+<table width=100%><TR><TD width=100% align=left BGCOLOR="FF0000">1</TD><TD>238949</TD></TR></table>
+<table width=100%><TR><TD width=16% align=left BGCOLOR="00FF00">2</TD><TD>37821</TD></TR></table>
+<table width=100%><TR><TD width=11% align=left BGCOLOR="0000FF">3</TD><TD>26382</TD></TR></table>
+<table width=100%><TR><TD width=3% align=left BGCOLOR="FFFF00">6</TD><TD>8000</TD></TR></table>
+<table width=100%><TR><TD width=3% align=left BGCOLOR="FF00FF">5</TD><TD>7789</TD></TR></table>
+<table width=100%><TR><TD width=2% align=left BGCOLOR="00FFFF">4</TD><TD>4348</TD></TR></table>
+<table width=100%><TR><TD width=2% align=left BGCOLOR="008888">7</TD><TD>3922</TD></TR></table>
+<P>
+
+<H3>Stored objects per second</H3>
+<table width=100%><TR><TD width=100% align=left BGCOLOR="FF0000">1</TD><TD>21612</TD></TR></table>
+<table width=100%><TR><TD width=68% align=left BGCOLOR="0000FF">3</TD><TD>14600</TD></TR></table>
+<table width=100%><TR><TD width=65% align=left BGCOLOR="00FF00">2</TD><TD>13986</TD></TR></table>
+<table width=100%><TR><TD width=27% align=left BGCOLOR="FF00FF">5</TD><TD>5748</TD></TR></table>
+<table width=100%><TR><TD width=20% align=left BGCOLOR="FFFF00">6</TD><TD>4347</TD></TR></table>
+<table width=100%><TR><TD width=17% align=left BGCOLOR="00FFFF">4</TD><TD>3571</TD></TR></table>
+<table width=100%><TR><TD width=14% align=left BGCOLOR="008888">7</TD><TD>2941</TD></TR></table>
+<P>
+
+<H3>Removed objects per second</H3>
+<table width=100%><TR><TD width=100% align=left BGCOLOR="FF0000">1</TD><TD>19972</TD></TR></table>
+<table width=100%><TR><TD width=83% align=left BGCOLOR="00FF00">2</TD><TD>16589</TD></TR></table>
+<table width=100%><TR><TD width=50% align=left BGCOLOR="0000FF">3</TD><TD>9907</TD></TR></table>
+<table width=100%><TR><TD width=24% align=left BGCOLOR="00FFFF">4</TD><TD>4761</TD></TR></table>
+<table width=100%><TR><TD width=21% align=left BGCOLOR="FF00FF">5</TD><TD>4130</TD></TR></table>
+<table width=100%><TR><TD width=19% align=left BGCOLOR="FFFF00">6</TD><TD>3704</TD></TR></table>
+<table width=100%><TR><TD width=10% align=left BGCOLOR="008888">7</TD><TD>2041</TD></TR></table>
+<P>
+
+
+
+<H2> <A NAME = "implementation">DyBASE implementation issues</A></H2>
+
+Below is more detailed description of DyBASE implementation.
+This section can be skipped if you are not interested in the details of implementation:<P>
+
+
+<H3> <A NAME = "memory">Memory allocation</A></H3>
+
+Memory allocation is performed in DyBASE by bitmap. Memory is allocated in
+chunks called allocation quantum. In current version of DyBASE size of
+allocation quantum is 64 byte. It means that size of all allocated objects is
+aligned on 64 byte boundary. Each 64 byte of database memory is represented by
+one bit in the bitmap. To locate hole of requested size in bitmap, DyBASE
+sequentially searches bitmap pages for correspondent number of successive
+cleared bits. DyBASE use three arrays indexed by bitmap byte, which
+makes possible fast calculation of hole offset and size within the byte.<P>
+
+DyBASE performs cyclic scanning of bitmap pages. It keeps identifier
+of current bitmap page and current position within the page. Each time
+when allocation request arrives, scanning of the bitmap starts from the
+current position.
+When last allocated bitmap page is scanned, scanning continues from the
+beginning (from the first bitmap page) and until current position.
+When no free space is found after full cycle through all bitmap pages,
+new bulk of memory is allocated. Size of extension is maximum of
+size of allocated object and extension quantum. Extension quantum is parameter
+of database, specified in constructor. Bitmap is extended to be able to map
+additional space. If virtual space is exhausted and no more
+bitmap pages can be allocated, then <code>OutOfMemory</code> error
+is reported.<P>
+
+Allocation memory using bitmap provides high locality of references
+(objects are mostly allocated sequentially) and also minimizes
+number of modified pages. Minimization of number of modified pages is
+significant when commit operation is performed and all dirty pages should
+be flushed on the disk. When all cloned objects are placed sequentially,
+number of modified pages is minimal and so transaction commit time is also
+reduced. Using extension quantum also helps to
+preserve sequential allocation. Once bitmap is extended, objects will
+be allocated sequentially until extension quantum will be completely used.
+Only after reaching the end of the bitmap, scanning restarts from the beginning
+searching for holes in previously allocated memory.<P>
+
+
+To reduce number of bitmap pages scans, DyBASE associates descriptor with
+each page, which is used to remember maximal size of the hole on the page.
+Calculation of maximal hole size is performed in the following way:
+if object of size <I>M</I> can not be allocated from this bitmap pages,
+then maximal hole size is less than <I>M</I>, so <I>M</I>
+is stored in the page descriptor if previous value of descriptor is large
+than <I>M</I>. For next allocation of object of size greater or
+equal than <I>M</I>, we will skip this bitmap page. Page descriptor
+is reset when some object is deallocated within this bitmap page.<P>
+
+Some database objects
+(like hash table pages) should be aligned on page boundary
+to provide more efficient access. DyBASE memory  allocator checks requested
+size and if it is aligned on page boundary, then address of
+allocated memory segment is also aligned on page boundary. Search of free hole
+will be done faster in this case, because DyBASE increases step of current
+position increment according to the value of alignment.<P>
+
+To be able to deallocate memory used by object, DyBASE needs to keep
+somewhere
+information about object size. DyBASE memory allocator deals with two types
+of objects - normal table records and page objects.
+All table records are prepended by record header, which contains
+record size and pointer of L2-list linking all records in the table.
+So size of the table record object can be extracted from record header.
+Page objects always occupies the whole database page are are allocated at
+the positions aligned on page boundary. Page objects has no headers.
+DyBASE distinguish page objects
+with normal object by using special marker in object index.<P>
+
+
+<H3> <A NAME = "logless">Shadow transaction mechanism</A></H3>
+
+Each record (object) in DyBASE has unique identifier (OID).
+Object identifiers
+are used to implement references between objects. To locate object by
+reference, its OID is used as index in array of object offsets within the file.
+This array is called <I>object index</I> and element of this array -
+<I>object handle</I>. These are two copies of object
+indices in DyBASE, one of which is current and other - shadow.
+Header of database contains pointers to both object indices and indicator
+which index is current at this moment.<P>
+
+When object is modified first time, it is cloned
+(copy of the object is created) and object handle in current index is
+changed to point to newly created object copy. And shadow index still
+contains handle which points to the original version of the object.
+All changes are done with the object copy, leaving original object unchanged.
+DyBASE marks in special bitmap page of the object index, which contains
+modified object handle.<P>
+
+When transaction is committed, DyBASE first checks if size of object index
+was increased during current transaction. If so, it also reallocates shadow
+copy of object index. Then DyBASE frees memory for all "old objects",
+i.e. objects which was cloned within transaction. Memory can not be
+deallocated before commit, because we wants to preserve consistent
+state of the database by keeping cloned object unchanged.
+If we deallocate memory immediately after cloning, new object can be
+allocated at the place of cloned object and we loose
+consistency. As far as memory deallocation is done in DyBASE by bitmap
+using the same transaction mechanism as for normal database objects,
+deallocation of object space will require clearing some bits in bitmap page,
+which also should be cloned before modification. Cloning bitmap page will
+require new space for allocation the page copy, and we can reuse space of
+deallocated objects. And it is not acceptable due to the reason explained
+above - we will loose database consistency. That is why deallocation
+of object is done in two steps. When object is cloned, all bitmap pages
+used for marking objects space, are also cloned (if not
+not cloned before). So when transaction is committed, we only clear bits in
+bitmap pages and no more requests for allocation memory can be generated at
+this moment.<P>
+
+After deallocation of old copies, DyBASE flushes all modified pages on disk
+to synchronize content of the memory and disk file. After that DyBASE
+changes current object index indicator in database
+header to switch roles of the object indices. Now object index, which was
+current becomes shadow, and shadow index becomes current. Then DyBASE again
+flushes modified page (i.e. page with database header) on disk, transferring
+database to new consistent state.
+After that DyBASE copies all modified handles from new object index
+to object index which was previously shadow and now becomes current.
+At this moment contents of both indices is synchronized and DyBASE is ready
+to start new transaction.<P>
+
+Bitmap of modified object index pages is used to minimize time of committing
+transaction. Not the whole object index, but only its modified pages should be
+copied. After committing of transaction bitmap is cleared.<P>
+
+When transaction is explicitly aborted by <code>Storage.rollback</code>
+method, shadow object index is copied back to the current index, eliminating
+all changes done by aborted transaction. After the end of copying,
+both indices are identical again and database state corresponds to the moment
+before the start of current transaction.<P>
+
+Allocation of object handles is done by free handles list. Header of the list
+is also shadowed and two instances of list headers are stored in database
+header. Switch between them is done in the same way as switch of
+object indices. When there are no more free elements in the list, DyBASE
+allocates handles from the unused part of new index. When there is no
+more space in the index, it is reallocated. Object index is the only
+entity in database whose is not cloned on modification. Instead of this
+two copies of object index are always used.<P>
+
+There are some predefined OID values in DyBASE. OID <I>0</I> is reserved
+as invalid object identifier. OID starting from <I>1</I> are reserved for bitmap pages.
+Number of bitmap pages depends on database maximum virtual space.
+For one terabyte virtual space, 8 Kb page size and 64 byte allocation quantum,
+32K bitmap pages are required. So 32K handles are reserved in object index for
+bitmap. Bitmap pages are allocated on demand, when database size is extended.
+So OID of first users object will be 0x8002.<P>
+
+Recovery procedure is trivial in DyBASE. There are two instances of
+object index, one of which is current and another corresponds to
+consistent database state. When database is opened, DyBASE checks database
+header to detect if database was normally closed. If not
+(<code>dirty</code> flag is set in database header), then DyBASE performs
+database recovery. Recovery is very similar to rollback of transaction.
+Indicator of current index in database object header is used to
+determine index corresponding to consistent database state and object handles
+from this index are copied to another object index, eliminating
+all changes done by uncommitted transaction. As far as the only action
+performed by recovery procedure is copying of objects index (really only
+handles having different values in current and shadow indices are copied to
+reduce number of modified pages) and size of object index is small,
+recovery can be done very fast.
+Fast recovery procedure reduces "out-of-service" time of application.<P>
+
+
+<H2> <A NAME = "where">Where to use</A></H2>
+
+DyBASE is simple and fast embedded database engine. 
+If your applications need embedded database engine and do not need to execute complex SQL queries, 
+and the only thing you need is to be able to store/fetch/locate object in the database using navigation 
+through references or indexed search by key, then DyBASE is what you need. It will provide much better performance
+than relational database and other (more sophisticated) object oriented database.<P>
+
+The table below summarize <B>pro</B> features of DyBASE:<P>
+
+<OL>
+<LI>Tight and transparent integration with programming language
+<LI>No gap in database and application data model
+<LI>Easy to use
+<LI>Minimal requirements (DyBASE package itself has size only 51Kb and it can be configured to use minimal memory and disk
+space during its work)
+<LI>High performance (no overheads of communication, locking and parsing and executing queries)
+<LI>Fault tolerance (transaction support)
+<LI>Fast recovery after fault
+<LI>Zero administration efforts (database consists of the single file), there is no need
+to define or tune any database parameters. Such situation like transaction log overflow can never happen
+</OL>
+
+Certainly nothing in this world can have only positive features.
+Now <B>contra</B> list which contains features lacking in DyBASE:
+
+<OL>
+<LI>No procedural query language
+<LI>Fine grain locking (DyBASE always access database in exclusive mode, making it possible for multiple threads
+to access the database but provide completely no parallelism).
+<LI>Remote access by multiple clients (unless you will implement you own server).
+<LI>Data distribution
+<LI>Database browsers and database administration tools and import/export utilities to other databases (may be
+will be implemented later)
+<LI>Lack of support of any standard (for example ODMG)
+</OL>
+
+<H2> <A NAME = "quick">Quick start</A></H2>
+
+DyBASE distribution includes binaries of libraries for MS-Windows and Visual C++ compiler. 
+The following modules are provides:<P>
+
+<DL>
+<DT><code>lib/dybase.lib</code>
+<DD>static DyBASE library 
+<DT><code>lib/dybasedll.dll</code>
+<DD>DyBASE dynamically loaded library (used by all language APIs)
+<DT><code>python/pythonapi.dll</code>
+<DD>Python extension library
+<DT><code>python/dybase.py</code>
+<DD>Python module implementing DyBASE API (using pythonapi.dll)
+<DT><code>php/php_dybaseapi.dll</code>
+<DD>PHP extension library
+<DT><code>php/dybase.php</code>
+<DD>PHP DyBASE API (using php_dybaseapi.dll)
+<DT><code>ruby/rubyapi.dll</code>
+<DD>Ruby extension library
+<DT><code>ruby/dybase.rb</code>
+<DD>Ruby module implementing DyBASE API (using rubyapi.dll)
+</DL><P>
+
+
+
+If you want to rebuild these libraries yourself, you should run <code>make.bat</code> (which invokes MS nmake
+for <code>makefile.mvc</code>) in <code>src</code> directory and <code>compile.bat</code> in each language API
+directory.
+You make have to change first paths to language home directory in <code>compile.bat</code> scripts. 
+At Unix you should run <code>make</code> in each directory (GCC compiler and GNU make is expected).
+Also paths to language installation directory may need to be adjusted in makefiles.<P>
+
+The easiest way to learn DyBASE API is to look at the examples. 
+Directory of each language contains three examples:<P>
+
+<DL>
+<DT><B>Guess</B>
+<DD>Game "Guess an Animal" - very simple game storing its binary tree in the database.
+<DT><B>TestIndex</B>
+<DD>Example of using indices and also performance test.
+<DT><B>TestLink</B>
+<DD>Classical Producer-Order-Detail example illustrating usage of one-to-many links.
+</DL><P>
+
+To run these example and your own application do not forget to include <code>dybase\lib</code>
+in <code>PATH</code>.<P>
+
+<H2><A NAME = "tuning">Tuning</A></H2>
+
+This sections contains several hints how to adjust DyBASE parameters and increase database performance.<P>
+
+Speed of accessing data at the disk is several times slower than speed of access data in main memory. 
+That is why caching of data is the key to increase database performance. DyBASE is using 
+pool of pages to optimize access to the disk. Page pool size can be specified in <code>Storage.open</code>
+method (by default it is 4Mb). Usually increasing page pool leads to better performance. But you should 
+notice the following things:
+
+<UL>
+<LI>Maximal size of memory used by application sometimes limited by interpreter (for example in PHP it is possible to specify limit
+in <code>php.ini</code> file). 
+
+<LI>If you specify very large pool size, leaving no free memory for other applications and operating system, 
+then swapping will cause significant performance degradation.
+
+<LI>Operating system itself maintains file buffers (it is not possible in Java to avoid it).
+So data is cached twice. Certainly accessing data from page pool is much faster than from 
+operating system cache, because in this case no operating system calls and context switches are needed. 
+
+<LI>It is not possible to specify empty page pool (leaving all caching for operating system).
+When data is access from the page, it is pinned in page pool. So page pool should contain enough entries
+to keep all pinned pages. So do not make page pool size less then 64kb.
+</UL>
+
+
+There are some constants defined in <code>database.h</code> file which has influence on
+initial and maximal database size. If you want to change them, you will have to rebuild DyBASE.
+Below is detailed description of this parameters:<P>
+
+<TABLE BORDER>
+<TR><TH>Parameter</TH><TH>Default value</TH><TH>Description</TH></TR>
+<TR><TD><code>dbDatabaseOffsetBits</code></TD><TD>32</TD>
+<TD>Number of bits in offset within database file. This parameter limit the maximal database size.
+Default value 32 restrict database to 1Gb. Increasing this parameter will also increase initial database
+size. DyBASE is using bitmap to allocate space in the database. Each bitmap page has its own ID
+which are reserved in objects index. When database is created, DyBASE reserve in object index space for 
+identifiers of ALL bitmap pages needed to map database virtual space (defined by <code>dbDatabaseOffsetBits</code>).
+Number of bitmap pages needed to map the whole database can be calculated as <code>2 ** (dbDatabaseOffsetBits-32))</code>.
+Actually index will be two times larger, because it should contain some other elements and when index is reallocated its
+size is always doubled. Each entry in object index is 8 byte long. There are two indices (active and shadow).
+So to estimate initial size of the database, you should multiply value of the expression above by 32.
+</TD></TR>
+
+<TR><TD><code>dbDefaultInitIndexSize</code></TD><TD>10*1024</TD>
+<TD>Initial object index size. Object index is increased on demand. Reallocation of index is
+expensive operation and so to minimize number of such reallocations, object index size is always doubled.
+Specifying larger initial index size allows to reduce number of future reallocations and so a little bit increase
+performance (certainly if your application allocates such number of object). But it also leads to larger initial
+size of database file. With default value of this parameter, initial database size is about 50Kb.
+</TD></TR>
+
+<TR><TD><code>dbDefaultExtensionQuantum</code></TD><TD>512*1024</TD>
+<TD>Database extension quantum. 
+Memory is allocate by scanning bitmap. If there is no large enough hole, then database is extended by the value of 
+<code>dbDefaultExtensionQuantum</code>. Increasing the value of this parameters leads to less frequent 
+rescanning of allocation bitmap from the very beginning. It leads to faster allocation speed and better locality of 
+reference for created objects (because there is more chances that them will be allocated sequentially). 
+From the other side it leads to less efficient memory usage. Reducing the value of this parameter force reusing 
+of existed holes in memory allocation bitmap. 
+</TD></TR>
+</TABLE><P>
+
+Now some hints how to increase DyBASE performance and reduce size of used main memory.
+If you database performs a lot of updates of persistent data, then the main limiting factor is speed 
+of writing changes to the disk. Especially synchronous write to the disk performed by commit.
+If you will do commit after each update, then average speed will be about 10 updates per second 
+(this estimation is based on the assumption than average disk access time is about 10msec and
+each transaction commit usually requires writing about 10 pages in random places in the file).
+But it is possible to dramatically increase update performance if you group several updates in 
+one transactions. DyBASE is creating shadow of the object when it is
+first time updated inside transaction. If object will be updated once in N transactions, 
+then N shadows will be created. If object will be updated N times inside one transaction, then
+shadow will be created only once. It explains advantage of having one large transaction.<P>
+
+But if you will perform update of large number of objects in one transaction and for each updated
+object shadow is created, then it leads to significant increase of database file size.
+If you update each object in the database inside one transaction, database size will be 
+almost doubled! And if you perform each update in separate transaction, then size of database
+will be almost unchanged (because space of allocated shadow objects will be reused in this case).
+So the best approach is to perform commit after 100 or 1000 updates, it will
+reduce overhead of each commit and save database size.<P>
+
+
+If your persistent object form tree or graph where all objects can be accessed by reference from the root object,
+then once you will load root object in main memory and store reference to it in some variable, 
+GC will never be able to collect any instance of loaded persistent object (because it will be accessible from
+the root object). So when you application access more and more objects from the storage, 
+at some moment of time all of them will have to be loaded in main memory. It can cause space exhaustion.
+To prevent this situation you should avoid to store in variables references to container objects which 
+contain references to a large number of members. Especially it is true for storage root object.
+In this case GC is able to do it work and throw out from the memory objects which are not used 
+at this moment (to which there are no references from local variable). 
+But it is important to say that objects accessible though the index by key can be normally deallocated by garbage
+collector. So in this case special care is not needed.<P>
+
+
+<H2><A NAME = "distribution">Distribution terms</A></H2>
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the <A HREF="#Software">Software</A>), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:<P>
+
+<A NAME="Software">
+<B>
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHOR OF THIS SOFTWARE BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</B>
+</A><P>
+
+I will provide e-mail support and help you with development of
+DyBASE applications.<P>
+<HR>
+<P ALIGN="CENTER"><A HREF="http://www.garret.ru/~knizhnik">
+<B>Look for new version at my homepage</B></A><B> | </B>
+<A HREF="mailto:knizhnik@garret.ru">
+<B>E-Mail me about bugs and problems</B></A></P>
+</BODY>
+</HTML>
+
+
+
+
+
+tor. So in this case special care is not needed.<P>
+
+
+<H2><A NAME = "distribution">Distribution terms</A></H2>
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the <A HREF="#Software">Software</A>), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:<P>
+
+<A NAME="Software">
+<B>
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHOR OF THIS SOFTWARE BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</B>
+</A><P>
+
+I will provide e-mail support and help you with development of
+DyBASE applications.<P>
+<HR>
+<P ALIGN="CENTER"><A HREF="http://www.garret.ru/~knizhnik">
+<B>Look for new version at my homepage</B></A><B> | </B>
+<A HREF="mailto:knizhnik@garret.ru">
+<B>E-Mail me about bugs and problems</B></A></P>
+</BODY>
+</HTML>
+
+
+
+
+

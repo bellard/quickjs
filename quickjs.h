@@ -55,6 +55,15 @@ typedef struct JSClass JSClass;
 typedef uint32_t JSClassID;
 typedef uint32_t JSAtom;
 
+#ifdef CONFIG_STORAGE
+typedef enum JS_PERSISTENT_STATUS {
+  JS_NOT_PERSISTENT = 0,
+  JS_PERSISTENT_DORMANT = 1,
+  JS_PERSISTENT_LOADED = 2,
+  JS_PERSISTENT_MODIFIED = 3
+} JS_PERSISTENT_STATUS;
+#endif
+
 #if INTPTR_MAX >= INT64_MAX
 #define JS_PTR64
 #define JS_PTR64_DEF(a) a
@@ -468,6 +477,8 @@ void JS_SetContextOpaque(JSContext *ctx, void *opaque);
 JSRuntime *JS_GetRuntime(JSContext *ctx);
 void JS_SetClassProto(JSContext *ctx, JSClassID class_id, JSValue obj);
 JSValue JS_GetClassProto(JSContext *ctx, JSClassID class_id);
+JSValue JS_GetClassName(JSContext *ctx, JSClassID class_id);
+
 
 /* the following functions are used to select the intrinsic object to
    save memory */
@@ -535,6 +546,7 @@ JSAtom JS_NewAtomLen(JSContext *ctx, const char *str, size_t len);
 JSAtom JS_NewAtom(JSContext *ctx, const char *str);
 JSAtom JS_NewAtomUInt32(JSContext *ctx, uint32_t n);
 JSAtom JS_NewAtomLenRT(JSRuntime *rt, const char *str, int len);
+const char *JS_AtomGetStr(JSContext *ctx, char *buf, int buf_size, JSAtom atom);
 const char *JS_AtomGetStrRT(JSRuntime *rt, char *buf, int buf_size, JSAtom atom);
 JSAtom JS_DupAtom(JSContext *ctx, JSAtom v);
 void JS_FreeAtom(JSContext *ctx, JSAtom v);
@@ -543,6 +555,14 @@ JSValue JS_AtomToValue(JSContext *ctx, JSAtom atom);
 JSValue JS_AtomToString(JSContext *ctx, JSAtom atom);
 const char *JS_AtomToCString(JSContext *ctx, JSAtom atom);
 JSAtom JS_ValueToAtom(JSContext *ctx, JSValueConst val);
+
+typedef enum {
+  JS_ATOM_KIND_STRING,
+  JS_ATOM_KIND_SYMBOL,
+  JS_ATOM_KIND_PRIVATE,
+} JSAtomKindEnum;
+
+JSAtomKindEnum JS_AtomGetKind(JSContext *ctx, JSAtom v);
 
 /* object class support */
 
@@ -680,6 +700,8 @@ static js_force_inline JSValue JS_NewFloat64(JSContext *ctx, double d)
     return v;
 }
 
+JSValue JS_NewDate(JSContext* ctx, double ms_1970);
+
 static inline JS_BOOL JS_IsNumber(JSValueConst v)
 {
     int tag = JS_VALUE_GET_TAG(v);
@@ -743,6 +765,8 @@ static inline JS_BOOL JS_IsObject(JSValueConst v)
 {
     return JS_VALUE_GET_TAG(v) == JS_TAG_OBJECT;
 }
+
+int JS_IsObjectPlain(JSContext *ctx, JSValueConst val); /* plain JS object, that is not function nor array nor anything else */
 
 JSValue JS_Throw(JSContext *ctx, JSValue obj);
 JSValue JS_GetException(JSContext *ctx);
@@ -834,6 +858,10 @@ JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_IsConstructor(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, JS_BOOL val);
 
+JSValue JS_GetUserClassName(JSContext *ctx, JSValueConst obj);
+
+JS_BOOL JS_IsDate(JSContext *ctx, JSValueConst obj, double* ms_since_1970);
+
 JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);
 
@@ -849,6 +877,9 @@ JSValue JS_GetPropertyStr(JSContext *ctx, JSValueConst this_obj,
                           const char *prop);
 JSValue JS_GetPropertyUint32(JSContext *ctx, JSValueConst this_obj,
                              uint32_t idx);
+
+/* get .length property */
+int JS_GetPropertyLength(JSContext *ctx, int64_t *plength, JSValueConst obj);
 
 int JS_SetPropertyInternal(JSContext *ctx, JSValueConst this_obj,
                            JSAtom prop, JSValue val,

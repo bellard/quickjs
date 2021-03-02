@@ -147,7 +147,7 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
     {
       if (next_token(s))
         goto fail;
-      if (js_parse_assign_expr(s, TRUE))
+      if (js_parse_assign_expr(s /*, TRUE*/))
         goto fail;
       if(s->token.val != '}')
         return js_parse_error(s, "expecting '}'");
@@ -211,7 +211,7 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
     else if (s->token.val == '{') {
       if (next_token(s))
         goto fail;
-      if (js_parse_assign_expr(s, TRUE))
+      if (js_parse_assign_expr(s/*, TRUE*/))
         goto fail;
       if(s->token.val != '}')
         return js_parse_error(s, "expected '}'");
