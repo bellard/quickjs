@@ -20,7 +20,7 @@ Each persistent JS object and array can be in one of four states:
 * ```JS_NOT_PERSISTENT``` - not persistent at the moment
 * ```JS_PERSISTENT_DORMANT``` - object is persistent but is "dormant", it holds just a reference - item ID in terms of DyBase (dybase_oid_t). Object in this state has no properties or elements loaded into it - it is a {proxy-ref}erence. 
 * ```JS_PERSISTENT_LOADED``` - the object has its properties and data loaded from DB;  
-* ```JS_PERSISTENT_MODIFIED``` - the object is loaded from DB and is modidied by script - ready to be commited to DB.
+* ```JS_PERSISTENT_MODIFIED``` - the object is loaded from DB and is modified by script - ready to be commited to DB.
 
 ## Data life cycle – how persistent mechanism works
 
