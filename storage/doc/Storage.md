@@ -24,4 +24,4 @@ Represents persistent storage.
 
 * ```storage.createIndex(type : string [, unique: bool]) returns: Index | null```
 
-  Creates an index of given type and returns the index object. Index could have unique or duplicated keys depending on unique argument. Default value for unique is true. Supported types: "integer", "long", "float", "date" and "string".
+  Creates an index of given type and returns the index object. Index can have unique or duplicated keys depending on unique argument. Default value for *unique* is *true*. Supported types: "integer", "long", "float", "date" and "string".
