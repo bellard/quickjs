@@ -9,7 +9,7 @@ This module provides built-in data persistence - transparent data storage and re
 Documentation:
 
   * class [Storage](Storage.md);
-  * class [Storage.Index](Storage.md);
+  * class [Storage.Index](Storage.Index.md);
 
 
 
