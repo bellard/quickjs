@@ -180,6 +180,8 @@ enum {
     JS_CLASS_INIT_COUNT, /* last entry for predefined classes */
 };
 
+static __thread const uint8_t *stack_top = NULL;
+
 /* number of typed array types */
 #define JS_TYPED_ARRAY_COUNT  (JS_CLASS_FLOAT64_ARRAY - JS_CLASS_UINT8C_ARRAY + 1)
 static uint8_t const typed_array_size_log2[JS_TYPED_ARRAY_COUNT];
@@ -265,7 +267,6 @@ struct JSRuntime {
     struct list_head string_list; /* list of JSString.link */
 #endif
     /* stack limitation */
-    const uint8_t *stack_top;
     size_t stack_size; /* in bytes */
 
     JSValue current_exception;
@@ -1588,7 +1589,7 @@ static inline uint8_t *js_get_stack_pointer(void)
 static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 {
     size_t size;
-    size = rt->stack_top - js_get_stack_pointer();
+    size = stack_top - js_get_stack_pointer();
     return unlikely((size + alloca_size) > rt->stack_size);
 }
 #endif
@@ -1649,7 +1650,6 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
     if (init_shape_hash(rt))
         goto fail;
 
-    rt->stack_top = js_get_stack_pointer();
     rt->stack_size = JS_DEFAULT_STACK_SIZE;
     rt->current_exception = JS_NULL;
 
@@ -33593,11 +33593,21 @@ static JSValue JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
                                const char *input, size_t input_len,
                                const char *filename, int flags, int scope_idx)
 {
+    JSValue ret;
+
     if (unlikely(!ctx->eval_internal)) {
         return JS_ThrowTypeError(ctx, "eval is not supported");
     }
-    return ctx->eval_internal(ctx, this_obj, input, input_len, filename,
-                              flags, scope_idx);
+    if (likely(stack_top == NULL)) {
+        stack_top = js_get_stack_pointer();
+    }
+    ret = ctx->eval_internal(ctx, this_obj, input, input_len, filename,
+                             flags, scope_idx);
+    if (likely(stack_top == js_get_stack_pointer())) {
+        stack_top = NULL;
+    }
+
+    return ret;
 }
 
 static JSValue JS_EvalObject(JSContext *ctx, JSValueConst this_obj,
