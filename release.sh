@@ -131,7 +131,8 @@ outdir="/tmp/${d}"
 rm -rf $outdir
 mkdir -p $outdir $outdir/doc $outdir/tests $outdir/examples
 
-cp Makefile VERSION TODO Changelog readme.txt release.sh unicode_download.sh \
+cp Makefile VERSION TODO Changelog readme.txt LICENSE \
+   release.sh unicode_download.sh \
    qjs.c qjsc.c qjscalc.js repl.js \
    quickjs.c quickjs.h quickjs-atom.h \
    quickjs-libc.c quickjs-libc.h quickjs-opcode.h \

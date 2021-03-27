@@ -1,8 +1,8 @@
 #
 # QuickJS Javascript Engine
 # 
-# Copyright (c) 2017-2020 Fabrice Bellard
-# Copyright (c) 2017-2020 Charlie Gordon
+# Copyright (c) 2017-2021 Fabrice Bellard
+# Copyright (c) 2017-2021 Charlie Gordon
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -179,6 +179,7 @@ LIBS=-lm
 ifndef CONFIG_WIN32
 LIBS+=-ldl -lpthread
 endif
+LIBS+=$(EXTRA_LIBS)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR) $(OBJDIR)/examples $(OBJDIR)/tests

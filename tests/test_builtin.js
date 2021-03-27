@@ -399,7 +399,7 @@ function test_eval()
 
 function test_typed_array()
 {
-    var buffer, a, i;
+    var buffer, a, i, str;
 
     a = new Uint8Array(4);
     assert(a.length, 4);
@@ -438,8 +438,13 @@ function test_typed_array()
     a[0] = 1;
     
     a = new Uint8Array(buffer);
-    
-    assert(a.toString(), "0,0,255,255,0,0,0,0,0,0,128,63,255,255,255,255");
+
+    str = a.toString();
+    /* test little and big endian cases */
+    if (str !== "0,0,255,255,0,0,0,0,0,0,128,63,255,255,255,255" &&
+        str !== "0,0,255,255,0,0,0,0,63,128,0,0,255,255,255,255") {
+        assert(false);
+    }
 
     assert(a.buffer, buffer);
 

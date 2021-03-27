@@ -1,3 +1,10 @@
+2021-03-27:
+
+- faster Array.prototype.push and Array.prototype.unshift
+- added JS_UpdateStackTop()
+- fixed Windows console
+- misc bug fixes
+
 2020-11-08:
 
 - improved function parameter initializers
