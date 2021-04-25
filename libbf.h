@@ -1,7 +1,7 @@
 /*
  * Tiny arbitrary precision floating point library
  * 
- * Copyright (c) 2017-2020 Fabrice Bellard
+ * Copyright (c) 2017-2021 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(__x86_64__)
+#if INTPTR_MAX >= INT64_MAX
 #define LIMB_LOG2_BITS 6
 #else
 #define LIMB_LOG2_BITS 5

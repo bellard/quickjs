@@ -81,7 +81,6 @@ DEF(await, "await")
 DEF(empty_string, "")
 /* identifiers */
 DEF(length, "length")
-DEF(tag, "tag")
 DEF(fileName, "fileName")
 DEF(lineNumber, "lineNumber")
 DEF(message, "message")
@@ -275,5 +274,8 @@ DEF(Symbol_asyncIterator, "Symbol.asyncIterator")
 #ifdef CONFIG_BIGNUM
 DEF(Symbol_operatorSet, "Symbol.operatorSet")
 #endif
+    
+DEF(Symbol_tag, "Symbol.tag")
+
     
 #endif /* DEF */

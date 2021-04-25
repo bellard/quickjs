@@ -1,8 +1,8 @@
 #
 # QuickJS Javascript Engine
 # 
-# Copyright (c) 2017-2020 Fabrice Bellard
-# Copyright (c) 2017-2020 Charlie Gordon
+# Copyright (c) 2017-2021 Fabrice Bellard
+# Copyright (c) 2017-2021 Charlie Gordon
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -53,7 +53,11 @@ CONFIG_BIGNUM=y
 OBJDIR=.obj
 
 ifdef CONFIG_WIN32
+  ifdef CONFIG_M32
   CROSS_PREFIX=i686-w64-mingw32-
+  else
+    CROSS_PREFIX=x86_64-w64-mingw32-
+  endif
   EXE=.exe
 else
   CROSS_PREFIX=

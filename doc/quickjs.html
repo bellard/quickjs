@@ -1136,10 +1136,11 @@ set the C opaque point with
 <code>JS_GetOpaque()</code>/<code>JS_SetOpaque()</code>.
 </p>
 <p>When defining a new JS class, it is possible to declare a finalizer
-which is called when the object is destroyed. A <code>gc_mark</code> method
-can be provided so that the cycle removal algorithm can find the other
-objects referenced by this object. Other methods are available to
-define exotic object behaviors.
+which is called when the object is destroyed. The finalizer should be
+used to release C resources. It is invalid to execute JS code from
+it. A <code>gc_mark</code> method can be provided so that the cycle removal
+algorithm can find the other objects referenced by this object. Other
+methods are available to define exotic object behaviors.
 </p>
 <p>The Class ID are globally allocated (i.e. for all runtimes). The
 JSClass are allocated per <code>JSRuntime</code>. <code>JS_SetClassProto()</code>

@@ -460,7 +460,11 @@ JSRuntime *JS_NewRuntime(void);
 void JS_SetRuntimeInfo(JSRuntime *rt, const char *info);
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit);
 void JS_SetGCThreshold(JSRuntime *rt, size_t gc_threshold);
+/* use 0 to disable maximum stack size check */
 void JS_SetMaxStackSize(JSRuntime *rt, size_t stack_size);
+/* should be called when changing thread to update the stack top value
+   used to check stack overflow. */
+void JS_UpdateStackTop(JSRuntime *rt);
 JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque);
 void JS_FreeRuntime(JSRuntime *rt);
 void *JS_GetRuntimeOpaque(JSRuntime *rt);
@@ -547,9 +551,11 @@ JSAtom JS_NewAtomLen(JSContext *ctx, const char *str, size_t len);
 JSAtom JS_NewAtom(JSContext *ctx, const char *str);
 JSAtom JS_NewAtomUInt32(JSContext *ctx, uint32_t n);
 JSAtom JS_NewAtomLenRT(JSRuntime *rt, const char *str, int len);
+JSAtom JS_NewAtomSymbolLenRT(JSRuntime *rt, const char *str, int len);
 const char *JS_AtomGetStr(JSContext *ctx, char *buf, int buf_size, JSAtom atom);
 const char *JS_AtomGetStrRT(JSRuntime *rt, char *buf, int buf_size, JSAtom atom);
 JSAtom JS_DupAtom(JSContext *ctx, JSAtom v);
+JSAtom JS_DupAtomRT(JSRuntime *rt, JSAtom v);
 void JS_FreeAtom(JSContext *ctx, JSAtom v);
 void JS_FreeAtomRT(JSRuntime *rt, JSAtom v);
 JSValue JS_AtomToValue(JSContext *ctx, JSAtom atom);
@@ -574,6 +580,8 @@ typedef struct JSPropertyDescriptor {
     JSValue setter;
 } JSPropertyDescriptor;
 
+#define JS_PROCEED_WITH_DEFAULT 12345
+
 typedef struct JSClassExoticMethods {
     /* Return -1 if exception (can only happen in case of Proxy object),
        FALSE if the property does not exists, TRUE if it exists. If 1 is
@@ -595,7 +603,7 @@ typedef struct JSClassExoticMethods {
                                int flags);
     /* The following methods can be emulated with the previous ones,
        so they are usually not needed */
-    /* return < 0 if exception or TRUE/FALSE */
+    /* return < 0 if exception or TRUE/FALSE or JS_PROCEED_WITH_DEFAULT */
     int (*has_property)(JSContext *ctx, JSValueConst obj, JSAtom atom);
     JSValue (*get_property)(JSContext *ctx, JSValueConst obj, JSAtom atom,
                             JSValueConst receiver);
@@ -695,6 +703,7 @@ static js_force_inline JSValue JS_NewFloat64(JSContext *ctx, double d)
 }
 
 JSValue JS_NewDate(JSContext* ctx, double ms_1970);
+JS_BOOL JS_IsDate(JSContext *ctx, JSValueConst obj, double* ms_since_1970);
 
 static inline JS_BOOL JS_IsNumber(JSValueConst v)
 {
@@ -852,9 +861,9 @@ JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_IsConstructor(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, JS_BOOL val);
 
-JSValue JS_GetUserClassName(JSContext *ctx, JSValueConst obj);
+JS_BOOL JS_AreFunctionsOfSameOrigin(JSContext *ctx, JSValue f1, JSValue f2);
 
-JS_BOOL JS_IsDate(JSContext *ctx, JSValueConst obj, double* ms_since_1970);
+JSValue JS_GetUserClassName(JSContext *ctx, JSValueConst obj);
 
 JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);

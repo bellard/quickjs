@@ -467,52 +467,8 @@ typedef JSModuleDef *(JSInitModuleFunc)(JSContext *ctx,
 static JSModuleDef *js_module_loader_so(JSContext *ctx,
                                         const char *module_name)
 {
-    //JS_ThrowReferenceError(ctx, "shared library modules are not supported yet");
-    //return NULL;
-    JSModuleDef *m;
-    HMODULE hd;//void *hd;
-      JSInitModuleFunc *init;
-      char *filename;
-
-      if (!strchr(module_name, '/')) {
-          /* must add a '/' so that the DLL is not searched in the
-             system library paths */
-          filename = js_malloc(ctx, strlen(module_name) + 2 + 1);
-          if (!filename)
+    JS_ThrowReferenceError(ctx, "shared library modules are not supported yet");
               return NULL;
-          strcpy(filename, "./");
-          strcpy(filename + 2, module_name);
-      } else {
-          filename = (char *)module_name;
-      }
-
-      /* C module */
-    hd = LoadLibraryA(filename);//hd = dlopen(filename, RTLD_NOW | RTLD_LOCAL);
-      if (filename != module_name)
-          js_free(ctx, filename);
-      if (hd == NULL) {
-          JS_ThrowReferenceError(ctx, "could not load module filename '%s' as shared library",
-                                 module_name);
-          goto fail;
-      }
-
-    init = (JSInitModuleFunc*)GetProcAddress(hd, "js_init_module");//dlsym(hd, "js_init_module");
-      if (!init) {
-          JS_ThrowReferenceError(ctx, "could not load module filename '%s': js_init_module not found",
-                                 module_name);
-          goto fail;
-      }
-
-      m = init(ctx, module_name);
-      if (!m) {
-          JS_ThrowReferenceError(ctx, "could not load module filename '%s': initialization error",
-                                 module_name);
-      fail:
-          if (hd)
-              FreeLibrary(hd);
-          return NULL;
-      }
-      return m;
 }
 #else
 static JSModuleDef *js_module_loader_so(JSContext *ctx,
@@ -618,19 +574,12 @@ int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val,
     return 0;
 }
 
-#if defined(_WIN32)
-  #define NATIVE_LIBRARY_SUFFIX ".dll"
-#elif defined(__APPLE__)
-  #define NATIVE_LIBRARY_SUFFIX ".dylib"
-#elif defined(__linux__)
-  #define NATIVE_LIBRARY_SUFFIX ".so"
-#endif
 JSModuleDef *js_module_loader(JSContext *ctx,
                               const char *module_name, void *opaque)
 {
     JSModuleDef *m;
 
-    if (has_suffix(module_name, NATIVE_LIBRARY_SUFFIX) || has_suffix(module_name, ".module")) {
+    if (has_suffix(module_name, ".so")) {
         m = js_module_loader_so(ctx, module_name);
     } else {
         size_t buf_len;
@@ -1724,7 +1673,7 @@ static JSValue js_os_isatty(JSContext *ctx, JSValueConst this_val,
     int fd;
     if (JS_ToInt32(ctx, &fd, argv[0]))
         return JS_EXCEPTION;
-    return JS_NewBool(ctx, isatty(fd) == 1);
+    return JS_NewBool(ctx, (isatty(fd) != 0));
 }
 
 #if defined(_WIN32)
@@ -1750,6 +1699,10 @@ static JSValue js_os_ttyGetWinSize(JSContext *ctx, JSValueConst this_val,
     return obj;
 }
 
+/* Windows 10 built-in VT100 emulation */
+#define __ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#define __ENABLE_VIRTUAL_TERMINAL_INPUT 0x0200
+
 static JSValue js_os_ttySetRaw(JSContext *ctx, JSValueConst this_val,
                                int argc, JSValueConst *argv)
 {
@@ -1759,8 +1712,12 @@ static JSValue js_os_ttySetRaw(JSContext *ctx, JSValueConst this_val,
     if (JS_ToInt32(ctx, &fd, argv[0]))
         return JS_EXCEPTION;
     handle = (HANDLE)_get_osfhandle(fd);
-    
-    SetConsoleMode(handle, ENABLE_WINDOW_INPUT);
+    SetConsoleMode(handle, ENABLE_WINDOW_INPUT | __ENABLE_VIRTUAL_TERMINAL_INPUT);
+    _setmode(fd, _O_BINARY);
+    if (fd == 0) {
+        handle = (HANDLE)_get_osfhandle(1); /* corresponding output */
+        SetConsoleMode(handle, ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | __ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
     return JS_UNDEFINED;
 }
 #else
@@ -1833,7 +1790,19 @@ static JSValue js_os_remove(JSContext *ctx, JSValueConst this_val,
     filename = JS_ToCString(ctx, argv[0]);
     if (!filename)
         return JS_EXCEPTION;
-    ret = js_get_errno(remove(filename));
+#if defined(_WIN32)
+    {
+        struct stat st;
+        if (stat(filename, &st) == 0 && S_ISDIR(st.st_mode)) {
+            ret = rmdir(filename);
+        } else {
+            ret = unlink(filename);
+        }
+    }
+#else
+    ret = remove(filename);
+#endif
+    ret = js_get_errno(ret);
     JS_FreeCString(ctx, filename);
     return JS_NewInt32(ctx, ret);
 }
@@ -2659,7 +2628,47 @@ static JSValue js_os_utimes(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, ret);
 }
 
-#if !defined(_WIN32)
+/* sleep(delay_ms) */
+static JSValue js_os_sleep(JSContext *ctx, JSValueConst this_val,
+                          int argc, JSValueConst *argv)
+{
+    int64_t delay;
+    int ret;
+    
+    if (JS_ToInt64(ctx, &delay, argv[0]))
+        return JS_EXCEPTION;
+    if (delay < 0)
+        delay = 0;
+#if defined(_WIN32)
+    {
+        if (delay > INT32_MAX)
+            delay = INT32_MAX;
+        Sleep(delay);
+        ret = 0;
+    }
+#else
+    {
+        struct timespec ts;
+
+        ts.tv_sec = delay / 1000;
+        ts.tv_nsec = (delay % 1000) * 1000000;
+        ret = js_get_errno(nanosleep(&ts, NULL));
+    }
+#endif
+    return JS_NewInt32(ctx, ret);
+}
+
+#if defined(_WIN32)
+static char *realpath(const char *path, char *buf)
+{
+    if (!_fullpath(buf, path, PATH_MAX)) {
+        errno = ENOENT;
+        return NULL;
+    } else {
+        return buf;
+    }
+}
+#endif
 
 /* return [path, errorcode] */
 static JSValue js_os_realpath(JSContext *ctx, JSValueConst this_val,
@@ -2683,6 +2692,7 @@ static JSValue js_os_realpath(JSContext *ctx, JSValueConst this_val,
     return make_string_error(ctx, buf, err);
 }
 
+#if !defined(_WIN32)
 static JSValue js_os_symlink(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
 {
@@ -3669,9 +3679,10 @@ static const JSCFunctionListEntry js_os_funcs[] = {
 #endif
     JS_CFUNC_MAGIC_DEF("stat", 1, js_os_stat, 0 ),
     JS_CFUNC_DEF("utimes", 3, js_os_utimes ),
+    JS_CFUNC_DEF("sleep", 1, js_os_sleep ),
+    JS_CFUNC_DEF("realpath", 1, js_os_realpath ),
 #if !defined(_WIN32)
     JS_CFUNC_MAGIC_DEF("lstat", 1, js_os_stat, 1 ),
-    JS_CFUNC_DEF("realpath", 1, js_os_realpath ),
     JS_CFUNC_DEF("symlink", 2, js_os_symlink ),
     JS_CFUNC_DEF("readlink", 1, js_os_readlink ),
     JS_CFUNC_DEF("exec", 1, js_os_exec ),
@@ -3679,7 +3690,6 @@ static const JSCFunctionListEntry js_os_funcs[] = {
     OS_FLAG(WNOHANG),
     JS_CFUNC_DEF("pipe", 0, js_os_pipe ),
     JS_CFUNC_DEF("kill", 2, js_os_kill ),
-    JS_CFUNC_DEF("sleep", 1, js_os_sleep ),
     JS_CFUNC_DEF("dup", 1, js_os_dup ),
     JS_CFUNC_DEF("dup2", 2, js_os_dup2 ),
 #endif
