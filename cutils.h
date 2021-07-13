@@ -27,6 +27,7 @@
 
 #include <stdlib.h>
 #include <inttypes.h>
+#include <string.h>
 
 #ifdef _MSC_VER
   #include <windows.h>

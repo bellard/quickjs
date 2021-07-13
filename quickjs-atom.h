@@ -81,6 +81,7 @@ DEF(await, "await")
 DEF(empty_string, "")
 /* identifiers */
 DEF(length, "length")
+DEF(tag, "tag")
 DEF(fileName, "fileName")
 DEF(lineNumber, "lineNumber")
 DEF(message, "message")

@@ -95,7 +95,7 @@ typedef struct db_triplet {
   int32_t      len;
 } db_triplet;
 
-inline void *keyptr(db_triplet *tri) {
+static void *keyptr(db_triplet *tri) {
   if (tri->type == dybase_chars_type || tri->type == dybase_bytes_type)
     return (void *)tri->data.s;
   return (void *)&tri->data;

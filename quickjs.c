@@ -883,6 +883,34 @@ struct JSPersitentBlock {
   JS_PERSISTENT_STATUS status;
 };
 
+int js_load_persistent_object(JSContext *ctx, JSValueConst obj);
+int js_free_persistent_object(JSRuntime *rt, JSValueConst obj);
+
+#define MARK_MODIFIED_OBJ(p) \
+  if (p->persistent) \
+    p->persistent->status = JS_PERSISTENT_MODIFIED;
+
+#define MARK_MODIFIED_VALUE(obj) \
+  if (JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT) { \
+    JSObject *p = JS_VALUE_GET_OBJ(obj); \
+    MARK_MODIFIED_OBJ(p); \
+  }
+
+#define PRELOAD_PERSISTENT_OBJ(p) \
+    if (p->persistent && (p->persistent->status == JS_PERSISTENT_DORMANT)) \
+      js_load_persistent_object(ctx, JS_MKPTR(JS_TAG_OBJECT, p));
+
+#define PRELOAD_PERSISTENT_VALUE(obj) \
+  if (JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT) { \
+    JSObject *p = JS_VALUE_GET_OBJ(obj); \
+    PRELOAD_PERSISTENT_OBJ(p); \
+  }
+
+#else 
+#define MARK_MODIFIED_OBJ(p);
+#define MARK_MODIFIED_VALUE(obj);
+#define PRELOAD_PERSISTENT_OBJ(p);
+#define PRELOAD_PERSISTENT_VALUE(p);
 #endif // CONFIG_STORAGE
 
 struct JSObject {
@@ -4973,6 +5001,8 @@ static int JS_SetObjectData(JSContext *ctx, JSValueConst obj, JSValue val)
 __exception int JS_ThisTimeValue(JSContext *ctx, double *valp, JSValueConst this_val);
 
 JS_BOOL JS_IsDate(JSContext *ctx, JSValueConst obj, double* ms_since_1970) {
+  if (JS_GetClassID(obj, NULL) != JS_CLASS_DATE)
+    return 0;
   double v;
   if (JS_ThisTimeValue(ctx, &v, obj))
     return 0;
@@ -7203,10 +7233,7 @@ JSValue JS_GetPropertyInternal(JSContext *ctx, JSValueConst obj,
         p = JS_VALUE_GET_OBJ(obj);
     }
 
-#ifdef CONFIG_STORAGE
-    if (p->persistent && (p->persistent->status == JS_PERSISTENT_DORMANT))
-      js_load_persistent_object(ctx, this_obj);
-#endif
+    PRELOAD_PERSISTENT_OBJ(p);
 
     for(;;) {
         prs = find_own_property(&pr, p, prop);
@@ -7563,10 +7590,8 @@ static int __exception JS_GetOwnPropertyNamesInternal(JSContext *ctx,
     exotic_count = 0;
     tab_exotic = NULL;
 
-#ifdef CONFIG_STORAGE
-    if (p->persistent && (p->persistent->status == JS_PERSISTENT_DORMANT))
-      js_load_persistent_object(ctx, JS_MKPTR(JS_TAG_OBJECT,p));
-#endif
+    PRELOAD_PERSISTENT_OBJ(p);
+
 
     sh = p->shape;
     for(i = 0, prs = get_shape_prop(sh); i < sh->prop_count; i++, prs++) {
@@ -7752,10 +7777,7 @@ static int JS_GetOwnPropertyInternal(JSContext *ctx, JSPropertyDescriptor *desc,
     JSShapeProperty *prs;
     JSProperty *pr;
 
-#ifdef CONFIG_STORAGE
-    if (p->persistent && (p->persistent->status == JS_PERSISTENT_DORMANT))
-      js_load_persistent_object(ctx, JS_MKPTR(JS_TAG_OBJECT, p));
-#endif
+    PRELOAD_PERSISTENT_OBJ(p);
 
 retry:
     prs = find_own_property(&pr, p, prop);
@@ -7866,9 +7888,6 @@ int JS_PreventExtensions(JSContext *ctx, JSValueConst obj)
     p->extensible = FALSE;
     return TRUE;
 }
-
-extern int js_load_persistent_object(JSContext *ctx, JSValueConst obj);
-extern int js_free_persistent_object(JSRuntime *rt, JSValueConst obj);
 
 /* return -1 if exception otherwise TRUE or FALSE */
 int JS_HasProperty(JSContext *ctx, JSValueConst obj, JSAtom prop)
@@ -8556,6 +8575,8 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst this_obj,
         }
     }
     p = JS_VALUE_GET_OBJ(this_obj);
+    MARK_MODIFIED_OBJ(p);
+
 retry:
     prs = find_own_property(&pr, p, prop);
     if (prs) {
@@ -8993,8 +9014,10 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
             const JSClassExoticMethods *em = ctx->rt->class_array[p->class_id].exotic;
             if (em) {
                 if (em->define_own_property) {
-                    return em->define_own_property(ctx, JS_MKPTR(JS_TAG_OBJECT, p),
+                    int r = em->define_own_property(ctx, JS_MKPTR(JS_TAG_OBJECT, p),
                                                    prop, val, getter, setter, flags);
+                    if (r != JS_PROCEED_WITH_DEFAULT)
+                      return r;
                 }
                 ret = JS_IsExtensible(ctx, JS_MKPTR(JS_TAG_OBJECT, p));
                 if (ret < 0)
@@ -9807,6 +9830,23 @@ int JS_DeletePropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx, int fl
     JS_FreeAtom(ctx, prop);
     return res;
 }
+
+BOOL JS_IsFunctionOfThisRealm(JSContext *ctx, JSValueConst val)
+{
+  JSObject *p;
+  if (JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT)
+    return FALSE;
+  p = JS_VALUE_GET_OBJ(val);
+  switch (p->class_id) {
+    case JS_CLASS_BYTECODE_FUNCTION:
+      return p->u.func.function_bytecode->realm == ctx;
+    case JS_CLASS_C_FUNCTION:
+      return p->u.cfunc.realm == ctx;
+    default:
+      return FALSE;
+  }
+}
+
 
 BOOL JS_IsFunction(JSContext *ctx, JSValueConst val)
 {
@@ -12097,6 +12137,22 @@ int JS_IsArray(JSContext *ctx, JSValueConst val)
     } else {
         return FALSE;
     }
+}
+
+int JS_IsTuple(JSContext *ctx, JSValueConst val) {
+  /* isArray and has tag property */
+  int ret;
+  ret = JS_IsArray(ctx, val);
+  if (ret < 0)
+    return JS_EXCEPTION;
+  else if (ret > 0)
+    return JS_HasProperty(ctx, val, JS_ATOM_tag);
+  return FALSE;
+}
+
+JSValue JS_GetTupleTag(JSContext *ctx, JSValueConst this_obj)
+{
+  return JS_GetProperty(ctx, this_obj, JS_ATOM_tag);
 }
 
 /* return -1 if exception (proxy case) or TRUE/FALSE */
@@ -20582,7 +20638,7 @@ static __exception int js_parse_string(JSParseState *s, int sep,
                     c = '\n';
                 }
 #ifdef CONFIG_JSX
-                if(sep == '<')
+                if(c == '\n' && sep == '<')
                   s->line_num++;
 #endif
                 /* do not update s->line_num */
@@ -23001,6 +23057,11 @@ static __exception int js_parse_object_literal(JSParseState *s)
 /* forbid the exponentiation operator in js_parse_unary() */
 #define PF_POW_FORBIDDEN (1 << 4) 
 
+#ifdef CONFIG_OBJECT_LITERAL_CALL
+#define PF_ACCEPT_LCURLY (1 << 5)
+#endif
+
+
 static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags);
 
 static __exception int js_parse_left_hand_side_expr(JSParseState *s)
@@ -23610,6 +23671,8 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
     return -1;
 }
 
+static BOOL is_label(JSParseState *s);
+
 static __exception int js_parse_array_literal(JSParseState *s)
 {
     uint32_t idx;
@@ -23619,6 +23682,17 @@ static __exception int js_parse_array_literal(JSParseState *s)
         return -1;
     /* small regular arrays are created on the stack */
     idx = 0;
+
+    JSValue tag = JS_UNINITIALIZED;
+
+    if (s->token.val == TOK_IDENT && is_label(s)) {
+      tag = JS_AtomToString(s->ctx, s->token.u.ident.atom);
+      if (next_token(s))
+        return -1;
+      if (next_token(s))
+        return -1;
+    }
+
     while (s->token.val != ']' && idx < 32) {
         if (s->token.val == ',' || s->token.val == TOK_ELLIPSIS)
             break;
@@ -23732,7 +23806,13 @@ static __exception int js_parse_array_literal(JSParseState *s)
     } else {
         emit_op(s, OP_drop);    /* array length - array */
     }
-done:
+  done:
+    if (tag != JS_UNINITIALIZED) {
+      emit_push_const(s, tag, 0);
+      JS_FreeValue(s->ctx, tag);
+      emit_op(s, OP_define_field);
+      emit_atom(s, JS_ATOM_tag);
+    }
     return js_parse_expect(s, ']');
 }
 
@@ -24905,6 +24985,9 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
     for(;;) {
         JSFunctionDef *fd = s->cur_func;
         BOOL has_optional_chain = FALSE;
+#ifdef CONFIG_OBJECT_LITERAL_CALL
+        BOOL object_literal_call = FALSE;
+#endif
 
         if (s->token.val == TOK_QUESTION_MARK_DOT) {
             /* optional chaining */
@@ -24925,9 +25008,15 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
             }
             call_type = FUNC_CALL_TEMPLATE;
             goto parse_func_call2;
-        } else if (s->token.val == '(' && accept_lparen) {
+        }
+#ifdef CONFIG_OBJECT_LITERAL_CALL
+        else if (s->token.val == '{' && (parse_flags & PF_ACCEPT_LCURLY)) {
+          object_literal_call = TRUE;
+          goto parse_func_call2;
+        }
+#endif
+        else if (s->token.val == '(' && accept_lparen) {
             int opcode, arg_count, drop_count;
-
             /* function call */
         parse_func_call:
             if (next_token(s))
@@ -25027,6 +25116,10 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
                 arg_count++;
                 if (s->token.val == ')')
                   break;
+#ifdef CONFIG_OBJECT_LITERAL_CALL
+                if (object_literal_call)
+                  break; /* foo {bar:1} - "object literal call" */
+#endif
                 /* accept a trailing comma before the ')' */
                 if (js_parse_expect(s, ','))
                     return -1;
@@ -25388,8 +25481,12 @@ static __exception int js_parse_unary(JSParseState *s, int parse_flags)
         parse_flags = 0;
         break;
     default:
-        if (js_parse_postfix_expr(s, (parse_flags & PF_ARROW_FUNC) |
-                                  PF_POSTFIX_CALL))
+        if (js_parse_postfix_expr(s, (parse_flags & PF_ARROW_FUNC)
+                                      | PF_POSTFIX_CALL
+#ifdef CONFIG_OBJECT_LITERAL_CALL
+                                      | PF_ACCEPT_LCURLY
+#endif
+        ))
             return -1;
         if (!s->got_lf &&
             (s->token.val == TOK_DEC || s->token.val == TOK_INC)) {
@@ -38530,6 +38627,18 @@ static JSValue js_array_isArray(JSContext *ctx, JSValueConst this_val,
         return JS_NewBool(ctx, ret);
 }
 
+static JSValue js_array_isTuple(JSContext *ctx, JSValueConst this_val,
+                                int argc, JSValueConst *argv)
+{
+    /* isArray and has tag property */
+    int ret;
+    ret = JS_IsTuple(ctx, argv[0]);
+    if (ret < 0)
+        return JS_EXCEPTION;
+    else
+        return JS_NewBool(ctx, ret);
+}
+
 static JSValue js_get_this(JSContext *ctx,
                            JSValueConst this_val)
 {
@@ -38584,6 +38693,7 @@ static JSValue JS_ArraySpeciesCreate(JSContext *ctx, JSValueConst obj,
 
 static const JSCFunctionListEntry js_array_funcs[] = {
     JS_CFUNC_DEF("isArray", 1, js_array_isArray ),
+    JS_CFUNC_DEF("isTuple", 1, js_array_isTuple),
     JS_CFUNC_DEF("from", 1, js_array_from ),
     JS_CFUNC_DEF("of", 0, js_array_of ),
     JS_CGETSET_DEF("[Symbol.species]", js_get_this, NULL ),
@@ -39251,9 +39361,12 @@ static JSValue js_array_pop(JSContext *ctx, JSValueConst this_val,
     JSValue *arrp;
     uint32_t count32;
 
+    MARK_MODIFIED_VALUE(this_val);
+
     obj = JS_ToObject(ctx, this_val);
     if (js_get_length64(ctx, &len, obj))
         goto exception;
+   
     newLen = 0;
     if (len > 0) {
         newLen = len - 1;
@@ -39307,6 +39420,9 @@ static JSValue js_array_push(JSContext *ctx, JSValueConst this_val,
 
     if (JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT) {
         JSObject *p = JS_VALUE_GET_OBJ(obj);
+
+        MARK_MODIFIED_OBJ(p);
+
         if (p->class_id != JS_CLASS_ARRAY ||
             !p->fast_array || !p->extensible)
             goto generic_case;
@@ -39378,6 +39494,8 @@ static JSValue js_array_reverse(JSContext *ctx, JSValueConst this_val,
     int64_t len, l, h;
     int l_present, h_present;
     uint32_t count32;
+
+    MARK_MODIFIED_VALUE(this_val);
 
     lval = JS_UNDEFINED;
     obj = JS_ToObject(ctx, this_val);
@@ -39457,6 +39575,7 @@ static JSValue js_array_slice(JSContext *ctx, JSValueConst this_val,
         goto exception;
 
     if (splice) {
+        MARK_MODIFIED_VALUE(obj); 
         if (argc == 0) {
             item_count = 0;
             del_count = 0;
@@ -39551,6 +39670,8 @@ static JSValue js_array_copyWithin(JSContext *ctx, JSValueConst this_val,
 {
     JSValue obj;
     int64_t len, from, to, final, count;
+
+    MARK_MODIFIED_VALUE(this_val);
 
     obj = JS_ToObject(ctx, this_val);
     if (js_get_length64(ctx, &len, obj))
@@ -39772,6 +39893,8 @@ static JSValue js_array_sort(JSContext *ctx, JSValueConst this_val,
     size_t array_size = 0, pos = 0, n = 0;
     int64_t i, len, undefined_count = 0;
     int present;
+
+    MARK_MODIFIED_VALUE(this_val);
 
     if (!JS_IsUndefined(asc.method)) {
         if (check_function(ctx, asc.method))
@@ -42339,8 +42462,19 @@ static JSValue js___date_clock(JSContext *ctx, JSValueConst this_val,
    between UTC time and local time 'd' in minutes */
 static int getTimezoneOffset(int64_t time) {
 #if defined(_WIN32)
-    /* XXX: TODO */
-    return 0;
+  TIME_ZONE_INFORMATION tzi;
+  memset(&tzi, 0, sizeof(tzi));
+  DWORD ctz = GetTimeZoneInformation(&tzi);
+  int r = tzi.Bias; // in minutes
+  switch (ctz) {
+    case TIME_ZONE_ID_STANDARD:
+      r += tzi.StandardBias;
+      break;
+    case TIME_ZONE_ID_DAYLIGHT:
+      r += tzi.DaylightBias;
+      break;
+  }
+  return r;
 #else
     time_t ti;
     struct tm tm;
@@ -51753,9 +51887,35 @@ static JSValue js_array_buffer_slice(JSContext *ctx,
     return JS_EXCEPTION;
 }
 
+static JSValue js_array_buffer_compare(JSContext *ctx,
+  JSValueConst this_val,
+  int argc, JSValueConst *argv) 
+{
+  if (argc == 0) {
+  TYPE_ERROR:
+    JS_ThrowTypeError(ctx, "ArrayBuffer expected");
+    return JS_EXCEPTION;
+  }
+
+  size_t sizet;
+  uint8_t *pt = JS_GetArrayBuffer(ctx, &sizet, this_val);
+  if (!pt) goto TYPE_ERROR;
+
+  size_t size;
+  uint8_t *p = JS_GetArrayBuffer(ctx, &size, argv[0]);
+  if (!p) goto TYPE_ERROR;
+
+  if (sizet < size) return JS_NewInt32(ctx, -1);
+  if (sizet > size) return JS_NewInt32(ctx, 1);
+
+  return JS_NewInt32(ctx, memcmp(pt, p, size));
+
+}
+
 static const JSCFunctionListEntry js_array_buffer_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("byteLength", js_array_buffer_get_byteLength, NULL, JS_CLASS_ARRAY_BUFFER ),
     JS_CFUNC_MAGIC_DEF("slice", 2, js_array_buffer_slice, JS_CLASS_ARRAY_BUFFER ),
+    JS_CFUNC_DEF("compare", 1, js_array_buffer_compare),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE ),
 };
 

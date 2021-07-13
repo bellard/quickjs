@@ -40,8 +40,11 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
   JSValue tag = JS_UNINITIALIZED;
   JSAtom  attr_name = JS_ATOM_NULL;
   JSValue attr_value = JS_UNINITIALIZED;
+  int token_read = 0;
+  int is_bodyless = 0;
 
   const char* errmsg = "invalid JSX expression";
+  char  msg_buffer[512] = { 0 };
 #if defined(CONFIG_JSX_SCITER) // HTML shortcuts used by Sciter
   char class_buffer[512] = { 0 };
 #endif
@@ -107,7 +110,9 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
         errmsg = "expecting '>'";
         goto fail;
       }
-      goto GENERATE_KIDS;
+      //goto GENERATE_KIDS;
+      is_bodyless = 1;
+      break;
     }
 #if defined(CONFIG_JSX_SCITER) // HTML shortcuts used by Sciter
     if (s->token.val == '#') { // <div #some> ->  <div id="some">
@@ -192,15 +197,28 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
         goto fail;
     }
 
-    if (js_parse_expect(s, '='))
+    if (s->token.val != '=') {
+      token_read = 1;
+      attr_value = JS_AtomToString(s->ctx, JS_ATOM_empty_string);
+      goto PUSH_ATTR_VALUE;
+    }
+    else {
+      token_read = 0;
+      if (next_token(s)) // eat `=`
       goto fail;
+    }
       
     if (s->token.val == TOK_STRING) {
-      attr_value = JS_DupValue(s->ctx,s->token.u.str.str);
+      attr_value = JS_DupValue(s->ctx, s->token.u.str.str);
  PUSH_ATTR_VALUE:
       if (emit_push_const(s, attr_value, 0))
         goto fail;
       JS_FreeValue(s->ctx, attr_value);
+    }
+    else if (s->token.val == TOK_TEMPLATE) {
+      if (js_parse_template(s, 0, NULL))
+        goto fail;
+      token_read = 1;
     }
     else if (s->token.val == '{')
     {
@@ -213,14 +231,33 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
         goto fail;
       }
     }
+    else if(s->token.val == TOK_NUMBER) {
+      attr_value = JS_DupValue(s->ctx,s->token.u.num.val);
+      goto PUSH_ATTR_VALUE;
+    }
+    else if (s->token.val == TOK_FALSE) {
+      emit_op(s, OP_push_false);
+    }
+    else if (s->token.val == TOK_TRUE) {
+      emit_op(s, OP_push_true);
+    }
+    else if (s->token.val == TOK_NULL) {
+      emit_op(s, OP_null);
+    }
+    else {
+      errmsg = "bad attribute value";
+      goto fail;
+    }
 
     set_object_name(s, attr_name);
     emit_op(s, OP_define_field);
     emit_atom(s, attr_name);
     JS_FreeAtom(s->ctx, attr_name);
 
+    if (!token_read) {
     if (next_web_token(s))
       goto fail;
+  }
   }
 
 #if defined(CONFIG_JSX_SCITER) // HTML shortcuts used by Sciter
@@ -239,7 +276,8 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
 
   // parse content of the element
   
-  for (;;) {
+  while(!is_bodyless) 
+  {
     const uint8_t *p;
     p = s->last_ptr = s->buf_ptr;
     s->last_line_num = s->token.line_num;
@@ -271,7 +309,12 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
           goto fail;
         if (token_is_ident(s->token.val)) {  /* keywords and reserved words have a valid atom */
           if (s->token.u.ident.atom != tag_atom) {
-            errmsg = "head and tail tags do not match";
+            char atail[64];
+            char ahead[64];
+            snprintf(msg_buffer, countof(msg_buffer), "head <%s> and tail </%s> tags do not match",
+              JS_AtomGetStr(s->ctx, ahead, countof(ahead), tag_atom),
+              JS_AtomGetStr(s->ctx, atail, countof(atail), s->token.u.ident.atom));
+            errmsg = msg_buffer;
             goto fail;
           }
           if (next_token(s))
@@ -301,7 +344,7 @@ static int js_parse_jsx_expr(JSParseState *s, int level)
     }
   }
 
-GENERATE_KIDS:
+//GENERATE_KIDS:
   emit_op(s, OP_array_from);
   emit_u16(s, kids_count);
   
@@ -315,15 +358,11 @@ GENERATE_KIDS:
 
   JS_FreeValue(s->ctx, tag);
   JS_FreeAtom(s->ctx, tag_atom);
-  //JS_FreeAtom(s->ctx, attr_name);
-  //JS_FreeValue(s->ctx, attr_value);
 
   return 0;
 fail:
   JS_FreeValue(s->ctx, tag);
   JS_FreeAtom(s->ctx, tag_atom);
-  JS_FreeAtom(s->ctx, attr_name);
-  //JS_FreeValue(s->ctx, attr_value);
   return js_parse_error(s, errmsg);
 }
 

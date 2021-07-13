@@ -860,6 +860,7 @@ JSValue JS_NewObject(JSContext *ctx);
 JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_IsConstructor(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, JS_BOOL val);
+JS_BOOL JS_IsFunctionOfThisRealm(JSContext *ctx, JSValueConst val);
 
 JS_BOOL JS_AreFunctionsOfSameOrigin(JSContext *ctx, JSValue f1, JSValue f2);
 
@@ -867,6 +868,9 @@ JSValue JS_GetUserClassName(JSContext *ctx, JSValueConst obj);
 
 JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);
+/* isArray and has 'tag' property */
+int     JS_IsTuple(JSContext *ctx, JSValueConst val);
+JSValue JS_GetTupleTag(JSContext *ctx, JSValueConst val);
 
 JSValue JS_NewFastArray(JSContext *ctx, int argc, JSValueConst *argv);
 /* Access an Array's internal JSValue array if available */
