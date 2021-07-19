@@ -264,38 +264,38 @@ void dybase_set_gc_threshold(dybase_storage_t storage, long allocated_delta) {
 void dybase_gc(dybase_storage_t storage) { ((dbDatabase *)storage)->gc(); }
 
 
-hastable_t hashtable_create() {
+hashtable_t hashtable_create() {
   return new dbHashtable();
 }
-void  hashtable_put(hastable_t ht, void *key, int keySize, void *value)
+void  hashtable_put(hashtable_t ht, void *key, int keySize, void *value)
 {
   dbHashtable* pht = (dbHashtable*)ht;
   pht->put(key, keySize, value);
 }
-void* hashtable_get(hastable_t ht, void *key, int keySize)
+void* hashtable_get(hashtable_t ht, void *key, int keySize)
 {
   dbHashtable* pht = (dbHashtable*)ht;
   return pht->get(key, keySize);
 }
-void hashtable_free(hastable_t ht)
+void hashtable_free(hashtable_t ht)
 {
   dbHashtable* pht = (dbHashtable*)ht;
   delete pht;
 }
 
-void* hashtable_remove(hastable_t ht, void *key, int keySize)
+void* hashtable_remove(hashtable_t ht, void *key, int keySize)
 {
   dbHashtable* pht = (dbHashtable*)ht;
   return pht->remove(key, keySize);
 }
-void  hashtable_clear(hastable_t ht) {
+void  hashtable_clear(hashtable_t ht) {
   dbHashtable* pht = (dbHashtable*)ht;
   pht->clear();
 }
 
 typedef int each_cb_t(void* key, unsigned int key_length, void* data, void* opaque);
 
-void hashtable_each(hastable_t ht, each_cb_t* pcb, void* opaque)
+void hashtable_each(hashtable_t ht, each_cb_t* pcb, void* opaque)
 {
   dbHashtable* pht = (dbHashtable*)ht;
   pht->each(pcb, opaque);

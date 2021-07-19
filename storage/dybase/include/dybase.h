@@ -58,7 +58,7 @@ typedef void *   dybase_handle_t;
 typedef void *   dybase_iterator_t;
 typedef unsigned dybase_oid_t;
 
-typedef void *   hastable_t;
+typedef void *   hashtable_t;
 
 typedef void (*dybase_error_handler_t)(int error_code, char const *msg);
 
@@ -415,16 +415,16 @@ void DYBASE_DLL_ENTRY dybase_set_gc_threshold(dybase_storage_t storage,
 void DYBASE_DLL_ENTRY dybase_gc(dybase_storage_t storage);
 
 
-hastable_t DYBASE_DLL_ENTRY hashtable_create();
-void       DYBASE_DLL_ENTRY hashtable_put(hastable_t ht, void *key, int keySize, void *value);
-void*      DYBASE_DLL_ENTRY hashtable_get(hastable_t ht, void *key, int keySize);
-void*      DYBASE_DLL_ENTRY hashtable_remove(hastable_t ht, void *key, int keySize);
-void       DYBASE_DLL_ENTRY hashtable_clear(hastable_t ht);
+hashtable_t DYBASE_DLL_ENTRY hashtable_create();
+void       DYBASE_DLL_ENTRY hashtable_put(hashtable_t ht, void *key, int keySize, void *value);
+void*      DYBASE_DLL_ENTRY hashtable_get(hashtable_t ht, void *key, int keySize);
+void*      DYBASE_DLL_ENTRY hashtable_remove(hashtable_t ht, void *key, int keySize);
+void       DYBASE_DLL_ENTRY hashtable_clear(hashtable_t ht);
 
 typedef int each_cb_t(void* key, unsigned int key_length, void* data, void* opaque);
 
-void       DYBASE_DLL_ENTRY hashtable_each(hastable_t ht, each_cb_t* pcb, void* opaque);
-void       DYBASE_DLL_ENTRY hashtable_free(hastable_t ht);
+void       DYBASE_DLL_ENTRY hashtable_each(hashtable_t ht, each_cb_t* pcb, void* opaque);
+void       DYBASE_DLL_ENTRY hashtable_free(hashtable_t ht);
 
 
 #ifdef __cplusplus

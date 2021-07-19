@@ -54779,7 +54779,7 @@ JS_BOOL js_set_persistent_rt(JSRuntime* rt, JSValue val, struct JSStorage* pst, 
       js_free_rt(rt,po->persistent);
       po->persistent = NULL;
     }
-    return 1;
+    return 0;
   }
 
   if (!po->persistent) {

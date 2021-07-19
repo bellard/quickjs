@@ -44,7 +44,7 @@ JSValue JS_GetLocalValue(JSContext *ctx, JSAtom name);
 typedef struct JSStorage {
   dybase_storage_t hs;
   JSContext*       ctx;
-  hastable_t       oid2obj;
+  hashtable_t      oid2obj;
   JSValue          classname2proto;
   JSValue          root;
 } JSStorage;
@@ -405,14 +405,16 @@ int db_fetch_array_data(JSContext *ctx, JSValue obj, JSStorage* pst, dybase_oid_
 JSValue db_fetch_object(JSContext *ctx, JSStorage* pst, dybase_oid_t oid)
 {
   JSValue rv = JS_NewObject(ctx);
-  js_set_persistent(ctx, rv, pst, oid, JS_PERSISTENT_DORMANT);
+  if(js_set_persistent(ctx, rv, pst, oid, JS_PERSISTENT_DORMANT))
+    hashtable_put(pst->oid2obj, &oid, sizeof(oid), JS_VALUE_GET_PTR(rv));
   return rv;
 }
 
 JSValue db_fetch_array(JSContext *ctx, JSStorage* pst, dybase_oid_t oid)
 {
   JSValue rv = JS_NewArray(ctx);
-  js_set_persistent(ctx, rv, pst, oid, JS_PERSISTENT_DORMANT);
+  if(js_set_persistent(ctx, rv, pst, oid, JS_PERSISTENT_DORMANT))
+    hashtable_put(pst->oid2obj, &oid, sizeof(oid), JS_VALUE_GET_PTR(rv));
   return rv;
 }
 
@@ -645,6 +647,7 @@ typedef struct commit_ctx {
   JSContext *ctx;
   JSStorage *pst;
   int        forget;
+  int        count;
 } commit_ctx;
 
 static int commit_value(void* key, unsigned int key_length, void* data, void* opaque) {
@@ -661,6 +664,7 @@ static int final_commit_value(void* key, unsigned int key_length, void* data, vo
   dybase_oid_t *poid = (dybase_oid_t *)key;
   db_store_entity(cc->ctx, cc->pst, *poid, obj);
   js_set_persistent(cc->ctx, obj, NULL, 0, JS_NOT_PERSISTENT);
+  ++cc->count;
   return 0;
 }
 
@@ -670,8 +674,14 @@ static void commit_storage(JSContext *ctx, JSStorage* pst) {
 }
 
 static void final_commit_storage(JSContext *ctx, JSStorage* pst) {
-  commit_ctx cc = { ctx,pst,1 };
-  hashtable_each(pst->oid2obj, &final_commit_value, &cc);
+  commit_ctx cc = { ctx,pst,1, 0 };
+  do {
+    cc.count = 0;
+    hashtable_t ht = pst->oid2obj;
+    pst->oid2obj = hashtable_create();
+    hashtable_each(ht, &final_commit_value, &cc);
+    hashtable_free(ht);
+  } while (cc.count);
 }
 
 void free_storage(JSValue st) 
@@ -679,11 +689,12 @@ void free_storage(JSValue st)
   JSStorage* ps = storage_of(st);
   if (!ps) return;
   JSContext *ctx = ps->ctx;
+  js_set_persistent(ctx, ps->root, NULL, 0, JS_NOT_PERSISTENT);
+  JS_FreeValue(ctx, ps->root);
+  JS_FreeValue(ctx, ps->classname2proto);
   final_commit_storage(ctx, ps);
   dybase_commit(ps->hs);
   dybase_close(ps->hs);
-  JS_FreeValue(ctx, ps->root);
-  JS_FreeValue(ctx, ps->classname2proto);
   ps->hs = 0;
   hashtable_free(ps->oid2obj);
   JS_FreeContext(ctx);
@@ -757,7 +768,7 @@ static void js_storage_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_f
   JSStorage *pst = get_storage(val);
   if (pst) {
     JS_MarkValue(rt, pst->root, mark_func);
-    //JS_MarkValue(rt, s->oid2obj, mark_func);
+    //JS_MarkValue(rt, pst->oid2obj, mark_func);
     JS_MarkValue(rt, pst->classname2proto, mark_func);
   }
 }
