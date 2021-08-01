@@ -3113,7 +3113,7 @@ static JSValue js_os_kill(JSContext *ctx, JSValueConst this_val,
 }
 
 /* sleep(delay_ms) */
-static JSValue js_os_sleep(JSContext *ctx, JSValueConst this_val,
+/*static JSValue js_os_sleep(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv)
 {
     int64_t delay;
@@ -3126,7 +3126,7 @@ static JSValue js_os_sleep(JSContext *ctx, JSValueConst this_val,
     ts.tv_nsec = (delay % 1000) * 1000000;
     ret = js_get_errno(nanosleep(&ts, NULL));
     return JS_NewInt32(ctx, ret);
-}
+}*/
 
 /* dup(fd) */
 static JSValue js_os_dup(JSContext *ctx, JSValueConst this_val,

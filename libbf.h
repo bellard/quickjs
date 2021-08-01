@@ -27,7 +27,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if INTPTR_MAX >= INT64_MAX
+#if defined(__x86_64__)
 #define LIMB_LOG2_BITS 6
 #else
 #define LIMB_LOG2_BITS 5
