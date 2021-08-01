@@ -15,6 +15,7 @@ This version is
 * It contains extras: 
   * [JSX](doc/jsx.md) - built-in [facebook::JSX](https://facebook.github.io/jsx/) support with Sciter specific extras.
   * Built-in [Persistence](storage/doc/README.md) - you can think of it as local MongoDB (NoSQL) DB embedded into the language. Pretty small, adds just 70kb into binary.
+    Persistence is based on [DyBASE of Konstantin Knizhnik](http://garret.ru/)
 
 The main documentation is in doc/quickjs.pdf or [doc/quickjs.html](doc/quickjs.html).
 
