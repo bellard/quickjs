@@ -12144,7 +12144,7 @@ int JS_IsTuple(JSContext *ctx, JSValueConst val) {
   int ret;
   ret = JS_IsArray(ctx, val);
   if (ret < 0)
-    return JS_EXCEPTION;
+    return -1;
   else if (ret > 0)
     return JS_HasProperty(ctx, val, JS_ATOM_tag);
   return FALSE;
