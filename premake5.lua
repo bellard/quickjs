@@ -74,7 +74,7 @@ workspace "quickjs"
 		systemversion "latest"
 
 	filter { }
-		targetdir ".bin/%{cfg.longname}/"
+		targetdir ".bin/%{cfg.buildcfg}/%{cfg.platform }"
 		exceptionhandling "Off"
 		rtti "Off"
 		--vectorextensions "AVX2"
