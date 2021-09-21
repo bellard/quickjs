@@ -23807,7 +23807,7 @@ static __exception int js_parse_array_literal(JSParseState *s)
         emit_op(s, OP_drop);    /* array length - array */
     }
   done:
-    if (tag != JS_UNINITIALIZED) {
+    if (!JS_IsUninitialized(tag)) {
       emit_push_const(s, tag, 0);
       JS_FreeValue(s->ctx, tag);
       emit_op(s, OP_define_field);
