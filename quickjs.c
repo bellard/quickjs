@@ -30831,7 +30831,7 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
     next: ;
     }
 
-    line_num = 0; /* avoid warning */
+    line_num = s->line_num; /* init with function start line num */
     for (pos = 0; pos < bc_len; pos = pos_next) {
         op = bc_buf[pos];
         len = opcode_info[op].size;
@@ -30967,9 +30967,18 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
                 /* remove dead code */
                 int line = -1;
                 dbuf_put(&bc_out, bc_buf + pos, len);
-                pos = skip_dead_code(s, bc_buf, bc_len, pos + len, &line);
+                if(pos + len < bc_len)
+		    /* have dead code, remove it */
+                    pos = skip_dead_code(s, bc_buf, bc_len, pos + len, &line);
+                else {
+                    /* already arrive the function end */
+                    pos += len;
+                    line = line_num + 1; /* line_num is inited with function start line, line_num + 1 goes outside */
+                }
+
                 pos_next = pos;
-                if (pos < bc_len && line >= 0 && line_num != line) {
+		/* use <= to allow save the function next line num */
+                if (pos <= bc_len && line >= 0 && line_num != line) {
                     line_num = line;
                     s->line_number_size++;
                     dbuf_putc(&bc_out, OP_line_num);
