@@ -180,13 +180,18 @@ int __attribute__((format(printf, 2, 3))) dbuf_printf(DynBuf *s,
         /* fast case */
         return dbuf_put(s, (uint8_t *)buf, len);
     } else {
-        if (dbuf_realloc(s, s->size + len + 1))
+        va_start(ap, fmt);
+        int real_len = vsnprintf(0, 0, fmt, ap);
+        va_end(ap);
+
+        if (dbuf_realloc(s, s->size + real_len + 1))
             return -1;
+
         va_start(ap, fmt);
         vsnprintf((char *)(s->buf + s->size), s->allocated_size - s->size,
                   fmt, ap);
         va_end(ap);
-        s->size += len;
+        s->size += real_len;
     }
     return 0;
 }
