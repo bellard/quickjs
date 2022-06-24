@@ -6732,6 +6732,13 @@ static JSValue JS_ThrowTypeErrorNotASymbol(JSContext *ctx)
     return JS_ThrowTypeError(ctx, "not a symbol");
 }
 
+static JSValue JS_ThrowTypeErrorNotAFunction(JSContext *ctx, JSAtom name)
+{
+    char buf[ATOM_GET_STR_BUF_SIZE];
+    return JS_ThrowTypeError(ctx, "'%s' is not a function",
+                             JS_AtomGetStr(ctx, buf, sizeof(buf), name));
+}
+
 static JSValue JS_ThrowReferenceErrorNotDefined(JSContext *ctx, JSAtom name)
 {
     char buf[ATOM_GET_STR_BUF_SIZE];
@@ -16639,6 +16646,19 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             has_call_argc:
                 call_argv = sp - call_argc;
                 sf->cur_pc = pc;
+                JSValue fun_obj = call_argv[-1];
+                // When the call is not a function, an exception is thrown with the name.
+                if (!JS_IsFunction(ctx, fun_obj)) {
+                    // Currently, only call0 is handled.
+                    if(opcode == OP_call0) {
+                        pc -= 6;
+                        if(*pc == OP_get_var) {
+                            pc++;
+                            JS_ThrowTypeErrorNotAFunction(ctx, get_u32(pc));
+                            goto exception;
+                        }
+                    }
+                }
                 ret_val = JS_CallInternal(ctx, call_argv[-1], JS_UNDEFINED,
                                           JS_UNDEFINED, call_argc, call_argv, 0);
                 if (unlikely(JS_IsException(ret_val)))
