@@ -16653,8 +16653,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     if(opcode == OP_call0) {
                         pc -= 6;
                         if(*pc == OP_get_var) {
-                            pc++;
-                            JS_ThrowTypeErrorNotAFunction(ctx, get_u32(pc));
+                            JS_ThrowTypeErrorNotAFunction(ctx, get_u32(++pc));
                             goto exception;
                         }
                     }
