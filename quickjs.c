@@ -16647,7 +16647,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 call_argv = sp - call_argc;
                 sf->cur_pc = pc;
                 JSValue fun_obj = call_argv[-1];
-                // When the call is not a function, an exception is thrown with the name.
+                // When the call is not a function, an exception is thrown and its name.
                 if (!JS_IsFunction(ctx, fun_obj)) {
                     // Currently, only call0 is handled.
                     if(opcode == OP_call0) {
