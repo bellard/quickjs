@@ -16658,7 +16658,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         }
                     }
                 }
-                ret_val = JS_CallInternal(ctx, call_argv[-1], JS_UNDEFINED,
+                ret_val = JS_CallInternal(ctx, fun_obj, JS_UNDEFINED,
                                           JS_UNDEFINED, call_argc, call_argv, 0);
                 if (unlikely(JS_IsException(ret_val)))
                     goto exception;
