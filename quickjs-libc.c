@@ -57,7 +57,7 @@ typedef sig_t sighandler_t;
 
 #endif
 
-#if !defined(_WIN32)
+#if !(defined(_WIN32) || defined(__wasi__))
 /* enable the os.Worker API. IT relies on POSIX threads */
 #define USE_WORKER
 #endif
@@ -453,7 +453,7 @@ typedef JSModuleDef *(JSInitModuleFunc)(JSContext *ctx,
                                         const char *module_name);
 
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__wasi__)
 static JSModuleDef *js_module_loader_so(JSContext *ctx,
                                         const char *module_name)
 {
@@ -901,6 +901,7 @@ static JSValue js_std_open(JSContext *ctx, JSValueConst this_val,
     return JS_EXCEPTION;
 }
 
+#ifndef __wasi__
 static JSValue js_std_popen(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv)
 {
@@ -936,6 +937,7 @@ static JSValue js_std_popen(JSContext *ctx, JSValueConst this_val,
     JS_FreeCString(ctx, mode);
     return JS_EXCEPTION;
 }
+#endif
 
 static JSValue js_std_fdopen(JSContext *ctx, JSValueConst this_val,
                              int argc, JSValueConst *argv)
@@ -1311,6 +1313,7 @@ static int http_get_status(const char *buf)
     return atoi(p);
 }
 
+#ifndef __wasi__
 static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
                              int argc, JSValueConst *argv)
 {
@@ -1457,6 +1460,7 @@ static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
     JS_FreeValue(ctx, response);
     return JS_EXCEPTION;
 }
+#endif
 
 static JSClassDef js_std_file_class = {
     "FILE",
@@ -1489,14 +1493,18 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_CFUNC_DEF("setenv", 1, js_std_setenv ),
     JS_CFUNC_DEF("unsetenv", 1, js_std_unsetenv ),
     JS_CFUNC_DEF("getenviron", 1, js_std_getenviron ),
+    #ifndef __wasi__
     JS_CFUNC_DEF("urlGet", 1, js_std_urlGet ),
+    #endif
     JS_CFUNC_DEF("loadFile", 1, js_std_loadFile ),
     JS_CFUNC_DEF("strerror", 1, js_std_strerror ),
     JS_CFUNC_DEF("parseExtJSON", 1, js_std_parseExtJSON ),
     
     /* FILE I/O */
     JS_CFUNC_DEF("open", 2, js_std_open ),
+    #ifndef __wasi__
     JS_CFUNC_DEF("popen", 2, js_std_popen ),
+    #endif
     JS_CFUNC_DEF("fdopen", 2, js_std_fdopen ),
     JS_CFUNC_DEF("tmpfile", 0, js_std_tmpfile ),
     JS_CFUNC_MAGIC_DEF("puts", 1, js_std_file_puts, 0 ),
@@ -1566,7 +1574,7 @@ JSModuleDef *js_init_module_std(JSContext *ctx, const char *module_name)
 
 /**********************************************************/
 /* 'os' object */
-
+#if !defined(__wasi__)
 static JSValue js_os_open(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv)
 {
@@ -3711,7 +3719,7 @@ JSModuleDef *js_init_module_os(JSContext *ctx, const char *module_name)
 #endif
     return m;
 }
-
+#endif
 /**********************************************************/
 
 static JSValue js_print(JSContext *ctx, JSValueConst this_val,

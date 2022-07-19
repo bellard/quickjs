@@ -689,14 +689,19 @@ int JS_ToIndex(JSContext *ctx, uint64_t *plen, JSValueConst val);
 int JS_ToFloat64(JSContext *ctx, double *pres, JSValueConst val);
 /* return an exception if 'val' is a Number */
 int JS_ToBigInt64(JSContext *ctx, int64_t *pres, JSValueConst val);
+int JS_ToBigUint64(JSContext *ctx, uint64_t *pres, JSValueConst val);
 /* same as JS_ToInt64() but allow BigInt */
 int JS_ToInt64Ext(JSContext *ctx, int64_t *pres, JSValueConst val);
+// Convert both JS Number and BigInt to C uint64_t
+int JS_ToUint64Ext(JSContext *ctx, uint64_t *pres, JSValueConst val);
 
+JSValue JS_NewStringLenRaw(JSContext *ctx, const char *buf, size_t buf_len);
 JSValue JS_NewStringLen(JSContext *ctx, const char *str1, size_t len1);
 JSValue JS_NewString(JSContext *ctx, const char *str);
 JSValue JS_NewAtomString(JSContext *ctx, const char *str);
 JSValue JS_ToString(JSContext *ctx, JSValueConst val);
 JSValue JS_ToPropertyKey(JSContext *ctx, JSValueConst val);
+const char *JS_ToCStringLenRaw(JSContext *ctx, size_t *plen, JSValueConst val1);
 const char *JS_ToCStringLen2(JSContext *ctx, size_t *plen, JSValueConst val1, JS_BOOL cesu8);
 static inline const char *JS_ToCStringLen(JSContext *ctx, size_t *plen, JSValueConst val1)
 {
@@ -1045,5 +1050,25 @@ int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
 #ifdef __cplusplus
 } /* extern "C" { */
 #endif
+
+#ifdef CONFIG_BIGNUM
+#include "libbf.h"
+
+/* the same structure is used for big integers and big floats. Big
+   integers are never infinite or NaNs */
+typedef struct JSBigFloat {
+    JSRefCountHeader header; /* must come first, 32-bit */
+    bf_t num;
+} JSBigFloat;
+
+JSValue JS_NewBigInt(JSContext *ctx);
+inline bf_t *JS_GetBigInt(JSValueConst val)
+{
+    JSBigFloat *p = JS_VALUE_GET_PTR(val);
+    return &p->num;
+}
+#endif /* CONFIG_BIGNUM */
+
+JSValue js_get_module_ns(JSContext *ctx, JSModuleDef *m);
 
 #endif /* QUICKJS_H */
