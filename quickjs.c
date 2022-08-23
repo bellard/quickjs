@@ -12314,7 +12314,10 @@ static int JS_ToBigUint64Free(JSContext *ctx, uint64_t *pres, JSValue val)
         *pres = 0;
         return -1;
     }
-    bf_get_uint64(pres, a);
+    if (bf_get_uint64(pres, a) == BF_ST_INVALID_OP) {
+        JS_FreeBigInt(ctx, a, &a_s);
+        return -1;
+    }
     JS_FreeBigInt(ctx, a, &a_s);
     return 0;
 }
