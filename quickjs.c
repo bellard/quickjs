@@ -33202,7 +33202,15 @@ static __exception int js_parse_function_decl2(JSParseState *s,
                     }
                 }
             } else {
-                js_parse_error(s, "missing formal parameter");
+                // Make a judgment here.
+                // There may be parsing errors in js_parse_skip_parens_token,
+                // to avoid the exceptions here covering the actual errors.
+                JSValue error = JS_GetException(ctx);
+                if (!JS_IsNull(error) && JS_IsError(ctx, error)) {
+                    JS_Throw(ctx, error);
+                } else {
+                    js_parse_error(s, "missing formal parameter");
+                }
                 goto fail;
             }
             if (rest && s->token.val != ')') {
