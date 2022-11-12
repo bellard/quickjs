@@ -284,6 +284,7 @@ def(scope_put_private_field, 7, 1, 1, atom_u16) /* obj value ->, emitted in phas
 def( set_class_name, 5, 1, 1, u32) /* emitted in phase 1, removed in phase 2 */
     
 def(       line_num, 5, 0, 0, u32) /* emitted in phase 1, removed in phase 3 */
+def(       column_num, 5, 0, 0, u32) /* emitted in phase 1, removed in phase 3 */
 
 #if SHORT_OPCODES
 DEF(    push_minus1, 1, 0, 1, none_int)

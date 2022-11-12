@@ -303,6 +303,16 @@ int unicode_from_utf8(const uint8_t *p, int max_len, const uint8_t **pp)
     return c;
 }
 
+int utf8_str_len(const uint8_t *p_start, const uint8_t *p_end) {
+    int count = 0;
+    while (p_start < p_end) {
+        if (!unicode_from_utf8(p_start, UTF8_CHAR_LEN_MAX, &p_start))
+            break;
+        count += 1;
+    }
+    return count;
+}
+
 #if 0
 
 #if defined(EMSCRIPTEN) || defined(__ANDROID__)

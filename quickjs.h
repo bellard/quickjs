@@ -407,6 +407,7 @@ typedef struct JSMemoryUsage {
     int64_t shape_count, shape_size;
     int64_t js_func_count, js_func_size, js_func_code_size;
     int64_t js_func_pc2line_count, js_func_pc2line_size;
+    int64_t js_func_pc2column_count, js_func_pc2column_size;
     int64_t c_func_count, array_count;
     int64_t fast_array_count, fast_array_elements;
     int64_t binary_object_count, binary_object_size;

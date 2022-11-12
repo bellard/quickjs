@@ -277,6 +277,7 @@ static inline void dbuf_set_error(DynBuf *s)
 
 int unicode_to_utf8(uint8_t *buf, unsigned int c);
 int unicode_from_utf8(const uint8_t *p, int max_len, const uint8_t **pp);
+int utf8_str_len(const uint8_t *p_start, const uint8_t *p_end);
 
 static inline int from_hex(int c)
 {
