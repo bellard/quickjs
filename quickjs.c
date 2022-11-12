@@ -32920,9 +32920,8 @@ static JSValue js_create_function(JSContext *ctx, JSFunctionDef *fd)
         b->debug.pc2column_buf = js_realloc(ctx, fd->pc2column.buf, fd->pc2column.size);
         if (!b->debug.pc2line_buf)
             b->debug.pc2line_buf = fd->pc2line.buf;
-        if(!b->debug.pc2column_buf) {
+        if(!b->debug.pc2column_buf)
             b->debug.pc2column_buf = fd->pc2column.buf;
-        }
         b->debug.pc2line_len = fd->pc2line.size;
         b->debug.pc2column_len = fd->pc2column.size;
         b->debug.source = fd->source;
