@@ -20877,7 +20877,6 @@ static __exception int next_token(JSParseState *s)
                     s->got_lf = TRUE; /* considered as LF for ASI */
                     s->column_ptr = ++p;
                     s->column_num_count = 0;
-                    p++;
                 } else if (*p == '\r') {
                     s->got_lf = TRUE; /* considered as LF for ASI */
                     p++;
@@ -21438,7 +21437,6 @@ static __exception int json_next_token(JSParseState *s)
                     s->line_num++;           
                     s->column_ptr = ++p;
                     s->column_num_count = 0;
-                    p++;
                 } else if (*p == '\r') {
                     p++;
                 } else if (*p >= 0x80) {
