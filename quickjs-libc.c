@@ -346,6 +346,7 @@ static JSValue js_printf_internal(JSContext *ctx,
         if (fp) {
             len = fwrite(dbuf.buf, 1, dbuf.size, fp);
             res = JS_NewInt32(ctx, len);
+            fflush(fp);
         } else {
             res = JS_NewStringLen(ctx, (char *)dbuf.buf, dbuf.size);
         }
@@ -3731,6 +3732,7 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
         JS_FreeCString(ctx, str);
     }
     putchar('\n');
+    fflush(stdout);
     return JS_UNDEFINED;
 }
 
