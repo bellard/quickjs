@@ -14557,6 +14557,11 @@ static BOOL js_strict_eq(JSContext *ctx, JSValue op1, JSValue op2)
     return js_strict_eq2(ctx, op1, op2, JS_EQ_STRICT);
 }
 
+BOOL JS_StrictEq(JSContext *ctx, JSValue op1, JSValue op2)
+{
+    return js_strict_eq(ctx, op1, op2);
+}
+
 static BOOL js_same_value(JSContext *ctx, JSValueConst op1, JSValueConst op2)
 {
     return js_strict_eq2(ctx,
@@ -14564,11 +14569,21 @@ static BOOL js_same_value(JSContext *ctx, JSValueConst op1, JSValueConst op2)
                          JS_EQ_SAME_VALUE);
 }
 
+BOOL JS_SameValue(JSContext *ctx, JSValueConst op1, JSValueConst op2)
+{
+    return js_same_value(ctx, op1, op2);
+}
+
 static BOOL js_same_value_zero(JSContext *ctx, JSValueConst op1, JSValueConst op2)
 {
     return js_strict_eq2(ctx,
                          JS_DupValue(ctx, op1), JS_DupValue(ctx, op2),
                          JS_EQ_SAME_VALUE_ZERO);
+}
+
+BOOL JS_SameValueZero(JSContext *ctx, JSValueConst op1, JSValueConst op2)
+{
+    return js_same_value_zero(ctx, op1, op2);
 }
 
 static no_inline int js_strict_eq_slow(JSContext *ctx, JSValue *sp,
