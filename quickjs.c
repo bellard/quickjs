@@ -49870,6 +49870,11 @@ has_val:
     return rv;
 }
 
+int JS_ToDate(JSContext *ctx, double *pres, JSValueConst val)
+{
+    return JS_ThisTimeValue(ctx, pres, val);
+}
+
 static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
                            int argc, JSValueConst *argv)
 {
