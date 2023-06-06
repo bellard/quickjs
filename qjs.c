@@ -297,6 +297,9 @@ void help(void)
 #endif
            "-T  --trace        trace memory allocation\n"
            "-d  --dump         dump the memory usage stats\n"
+#ifdef CONFIG_PROFILE_CALLS
+           "-p  --profile      dump the profiling stats\n"
+#endif
            "    --memory-limit n       limit the memory usage to 'n' bytes\n"
            "    --stack-size n         limit the stack size to 'n' bytes\n"
            "    --unhandled-rejection  dump unhandled promise rejections\n"
@@ -314,6 +317,9 @@ int main(int argc, char **argv)
     int interactive = 0;
     int dump_memory = 0;
     int trace_memory = 0;
+#ifdef CONFIG_PROFILE_CALLS
+    int profile_calls = 0;
+#endif
     int empty_run = 0;
     int module = -1;
     int load_std = 0;
@@ -407,6 +413,12 @@ int main(int argc, char **argv)
                 trace_memory++;
                 continue;
             }
+#ifdef CONFIG_PROFILE_CALLS
+            if (opt == 'p' || !strcmp(longopt, "profile")) {
+                ++profile_calls;
+                continue;
+            }
+#endif
             if (!strcmp(longopt, "std")) {
                 load_std = 1;
                 continue;
@@ -467,6 +479,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "qjs: cannot allocate JS runtime\n");
         exit(2);
     }
+#ifdef CONFIG_PROFILE_CALLS
+    if(profile_calls)
+        JS_EnableProfileCalls(rt, profile_calls);
+#endif
     if (memory_limit != 0)
         JS_SetMemoryLimit(rt, memory_limit);
     if (stack_size != 0)

@@ -305,6 +305,12 @@ struct JSRuntime {
     JSNumericOperations bigdecimal_ops;
     uint32_t operator_count;
 #endif
+#ifdef CONFIG_PROFILE_CALLS
+    // is_profile_calls_enabled = 1 -> only call_count > 0
+    // is_profile_calls_enabled = 2 -> only call_count > 0 and time_spent
+    // is_profile_calls_enabled = 3 -> all call_count and time_spent
+    uint32_t is_profile_calls_enabled;
+#endif
     void *user_opaque;
 };
 
@@ -620,6 +626,14 @@ typedef struct JSFunctionBytecode {
         int pc2line_len;
         uint8_t *pc2line_buf;
         char *source;
+#ifdef CONFIG_PROFILE_CALLS
+#ifndef PROFILE_CALLS_SAMPLE
+#define PROFILE_CALLS_SAMPLE 10
+#endif
+        size_t call_count;
+        clock_t time_spent;
+        size_t time_spent_count;
+#endif
     } debug;
 } JSFunctionBytecode;
 
@@ -3046,7 +3060,11 @@ static const char *JS_AtomGetStrRT(JSRuntime *rt, char *buf, int buf_size,
 
             q = buf;
             p = rt->atom_array[atom];
+#ifdef CONFIG_PROFILE_CALLS
+            if(atom_is_free(p)) return "<:isGone:>";
+#else
             assert(!atom_is_free(p));
+#endif
             str = p;
             if (str) {
                 if (!str->is_wide_char) {
@@ -5501,8 +5519,17 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
             }
         }
         break;
-    case JS_TAG_OBJECT:
     case JS_TAG_FUNCTION_BYTECODE:
+#ifdef CONFIG_PROFILE_CALLS
+        if(rt->is_profile_calls_enabled) {
+            JSFunctionBytecode *b = JS_VALUE_GET_PTR(v);
+            if(b->debug.call_count || rt->is_profile_calls_enabled > 2) {
+                char buf[ATOM_GET_STR_BUF_SIZE];
+                fprintf(stderr, "[%d\t%zu\t%zu\t%zu\t%s]\n", b->debug.line_num, b->debug.call_count, b->debug.time_spent_count, b->debug.time_spent, JS_AtomGetStrRT(rt, buf, sizeof(buf), b->func_name));
+            }
+        }
+#endif
+    case JS_TAG_OBJECT:
         {
             JSGCObjectHeader *p = JS_VALUE_GET_PTR(v);
             if (rt->gc_phase != JS_GC_PHASE_REMOVE_CYCLES) {
@@ -5817,6 +5844,12 @@ BOOL JS_IsLiveObject(JSRuntime *rt, JSValueConst obj)
     p = JS_VALUE_GET_OBJ(obj);
     return !p->free_mark;
 }
+#ifdef CONFIG_PROFILE_CALLS
+void JS_EnableProfileCalls(JSRuntime *rt, uint32_t enable)
+{
+    rt->is_profile_calls_enabled = enable;
+}
+#endif
 
 /* Compute memory used by various object types */
 /* XXX: poor man's approach to handling multiply referenced objects */
@@ -16209,6 +16242,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     JSValue *local_buf, *stack_buf, *var_buf, *arg_buf, *sp, ret_val, *pval;
     JSVarRef **var_refs;
     size_t alloca_size;
+#ifdef CONFIG_PROFILE_CALLS
+    //size_t this_call_count;
+    clock_t JS_CallInternal_start = 0;
+    int use_time_spent = 0;
+#endif
 
 #if !DIRECT_DISPATCH
 #define SWITCH(pc)      switch (opcode = *pc++)
@@ -16272,7 +16310,17 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                          (JSValueConst *)argv, flags);
     }
     b = p->u.func.function_bytecode;
-
+#ifdef CONFIG_PROFILE_CALLS
+    if(rt->is_profile_calls_enabled) {
+        if(rt->is_profile_calls_enabled > 1) {
+            use_time_spent = b->debug.call_count % PROFILE_CALLS_SAMPLE;
+            if(use_time_spent == 0) {
+                JS_CallInternal_start = clock();
+            }
+        }
+        ++b->debug.call_count;
+    }
+#endif
     if (unlikely(argc < b->arg_count || (flags & JS_CALL_FLAG_COPY_ARGV))) {
         arg_allocated_size = b->arg_count;
     } else {
@@ -18706,6 +18754,13 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         }
     }
     rt->current_stack_frame = sf->prev_frame;
+#ifdef CONFIG_PROFILE_CALLS
+    if(rt->is_profile_calls_enabled > 1 && (use_time_spent == 0)) {
+        clock_t JS_CallInternal_end = clock();
+        b->debug.time_spent += JS_CallInternal_end-JS_CallInternal_start;
+        ++b->debug.time_spent_count;
+    }
+#endif
     return ret_val;
 }
 

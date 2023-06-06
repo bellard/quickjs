@@ -132,6 +132,10 @@ else
 LDEXPORT=-rdynamic
 endif
 
+ifdef CONFIG_PROFILE_CALLS
+CFLAGS+=-DCONFIG_PROFILE_CALLS
+endif
+
 PROGS=qjs$(EXE) qjsc$(EXE) run-test262
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
