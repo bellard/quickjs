@@ -310,6 +310,7 @@ struct JSRuntime {
     // is_profile_calls_enabled = 2 -> only call_count > 0 and time_spent
     // is_profile_calls_enabled = 3 -> all call_count and time_spent
     uint32_t is_profile_calls_enabled;
+    JSAtom last_filename;
 #endif
     void *user_opaque;
 };
@@ -5524,8 +5525,16 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
         if(rt->is_profile_calls_enabled) {
             JSFunctionBytecode *b = JS_VALUE_GET_PTR(v);
             if(b->debug.call_count || rt->is_profile_calls_enabled > 2) {
-                char buf[ATOM_GET_STR_BUF_SIZE];
-                fprintf(stderr, "[%d\t%zu\t%zu\t%zu\t%s]\n", b->debug.line_num, b->debug.call_count, b->debug.time_spent_count, b->debug.time_spent, JS_AtomGetStrRT(rt, buf, sizeof(buf), b->func_name));
+                char buf_name[ATOM_GET_STR_BUF_SIZE];
+                char buf_filename[ATOM_GET_STR_BUF_SIZE];
+                const char *func_name = JS_AtomGetStrRT(rt, buf_name, sizeof(buf_name), b->func_name);
+                const char *func_filename;
+                if(rt->last_filename == b->debug.filename) func_filename = "@=^";
+                else {
+                    func_filename = JS_AtomGetStrRT(rt, buf_filename, sizeof(buf_filename), b->debug.filename);
+                    rt->last_filename = b->debug.filename;
+                }
+                fprintf(stderr, "[%d\t%zu\t%zu\t%zu\t%s\t%s]\n", b->debug.line_num, b->debug.call_count, b->debug.time_spent_count, b->debug.time_spent, func_name, func_filename);
             }
         }
 #endif
