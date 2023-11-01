@@ -34907,7 +34907,7 @@ static int JS_WriteBigNum(BCWriterState *s, JSValueConst obj)
         e = a->expn + 3;
     else
         e = a->expn;
-    e = (e << 1) | a->sign;
+    e = (e * 2) | a->sign;
     if (e < INT32_MIN || e > INT32_MAX) {
         JS_ThrowInternalError(s->ctx, "bignum exponent is too large");
         return -1;
