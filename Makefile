@@ -46,6 +46,8 @@ PREFIX?=/usr/local
 # use memory sanitizer
 #CONFIG_MSAN=y
 # include the code for BigFloat/BigDecimal, math mode and faster large integers
+# use UB sanitizer
+#CONFIG_UBSAN=y
 CONFIG_BIGNUM=y
 
 OBJDIR=.obj
@@ -148,6 +150,10 @@ ifdef CONFIG_MSAN
 CFLAGS+=-fsanitize=memory -fno-omit-frame-pointer
 LDFLAGS+=-fsanitize=memory -fno-omit-frame-pointer
 endif
+ifdef CONFIG_UBSAN
+CFLAGS+=-fsanitize=undefined -fno-omit-frame-pointer
+LDFLAGS+=-fsanitize=undefined -fno-omit-frame-pointer
+endif
 ifdef CONFIG_WIN32
 LDEXPORT=
 else
@@ -184,9 +190,11 @@ endif
 ifeq ($(CROSS_PREFIX),)
 ifndef CONFIG_ASAN
 ifndef CONFIG_MSAN
+ifndef CONFIG_UBSAN
 PROGS+=examples/hello examples/hello_module examples/test_fib
 ifdef CONFIG_SHARED_LIBS
 PROGS+=examples/fib.so examples/point.so
+endif
 endif
 endif
 endif
