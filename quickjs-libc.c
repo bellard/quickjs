@@ -1500,6 +1500,7 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_CFUNC_DEF("strerror", 1, js_std_strerror ),
     JS_CFUNC_DEF("parseExtJSON", 1, js_std_parseExtJSON ),
     JS_CFUNC_DEF("getpid", 0, js_std_getpid ),
+    JS_CFUNC_DEF("getpid2", 0, js_std_getpid ),
     
     /* FILE I/O */
     JS_CFUNC_DEF("open", 2, js_std_open ),
