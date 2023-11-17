@@ -623,6 +623,12 @@ static JSValue js_std_getenv(JSContext *ctx, JSValueConst this_val,
         return JS_NewString(ctx, str);
 }
 
+static JSValue js_std_getpid(JSContext *ctx, JSValueConst this_val,
+                           int argc, JSValueConst *argv)
+{
+    return JS_NewInt32(ctx, getpid());
+}
+
 #if defined(_WIN32)
 static void setenv(const char *name, const char *value, int overwrite)
 {
@@ -1493,6 +1499,7 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_CFUNC_DEF("loadFile", 1, js_std_loadFile ),
     JS_CFUNC_DEF("strerror", 1, js_std_strerror ),
     JS_CFUNC_DEF("parseExtJSON", 1, js_std_parseExtJSON ),
+    JS_CFUNC_DEF("getpid", 0, js_std_getpid ),
     
     /* FILE I/O */
     JS_CFUNC_DEF("open", 2, js_std_open ),
