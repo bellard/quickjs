@@ -695,6 +695,30 @@ function math_min(n)
     return n * 1000;
 }
 
+function regexp_ascii(n)
+{
+    var i, j, r, s;
+    s = "the quick brown fox jumped over the lazy dog"
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 10000; i++)
+            r = /the quick brown fox/.exec(s)
+        global_res = r;
+    }
+    return n * 10000;
+}
+
+function regexp_utf16(n)
+{
+    var i, j, r, s;
+    s = "the quick brown ᶠᵒˣ jumped over the lazy ᵈᵒᵍ"
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 10000; i++)
+            r = /the quick brown ᶠᵒˣ/.exec(s)
+        global_res = r;
+    }
+    return n * 10000;
+}
+
 /* incremental string contruction as local var */
 function string_build1(n)
 {
@@ -1026,6 +1050,8 @@ function main(argc, argv, g)
         array_for_in,
         array_for_of,
         math_min,
+        regexp_ascii,
+        regexp_utf16,
         string_build1,
         string_build1x,
         string_build2c,

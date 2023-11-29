@@ -144,6 +144,18 @@ function bjson_test_reference()
     }
 }
 
+function bjson_test_regexp()
+{
+    var buf, r;
+
+    bjson_test(/xyzzy/);
+    bjson_test(/xyzzy/digu);
+
+    buf = bjson.write(/(?<𝓓𝓸𝓰>dog)/);
+    r = bjson.read(buf, 0, buf.byteLength);
+    assert("sup dog".match(r).groups["𝓓𝓸𝓰"], "dog");
+}
+
 function bjson_test_all()
 {
     var obj;
@@ -186,6 +198,7 @@ function bjson_test_all()
     }
 
     bjson_test_reference();
+    bjson_test_regexp();
 }
 
 bjson_test_all();
