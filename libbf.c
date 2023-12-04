@@ -37,10 +37,12 @@
 
 /* enable it to check the multiplication result */
 //#define USE_MUL_CHECK
+#ifdef CONFIG_BIGNUM
 /* enable it to use FFT/NTT multiplication */
 #define USE_FFT_MUL
 /* enable decimal floating point support */
 #define USE_BF_DEC
+#endif
 
 //#define inline __attribute__((always_inline))
 
@@ -1600,7 +1602,9 @@ int bf_mul(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
                 r = &tmp;
             }
             if (bf_resize(r, a_len + b_len)) {
+#ifdef USE_FFT_MUL
             fail:
+#endif                
                 bf_set_nan(r);
                 ret = BF_ST_MEM_ERROR;
                 goto done;
@@ -2297,11 +2301,14 @@ static int bf_pow_ui_ui(bf_t *r, limb_t a1, limb_t b,
     bf_t a;
     int ret;
     
+#ifdef USE_BF_DEC
     if (a1 == 10 && b <= LIMB_DIGITS) {
         /* use precomputed powers. We do not round at this point
            because we expect the caller to do it */
         ret = bf_set_ui(r, mp_pow_dec[b]);
-    } else {
+    } else
+#endif        
+    {
         bf_init(r->ctx, &a);
         ret = bf_set_ui(&a, a1);
         ret |= bf_pow_ui(r, &a, b, prec, flags);
