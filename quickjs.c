@@ -37972,6 +37972,41 @@ static int JS_isConcatSpreadable(JSContext *ctx, JSValueConst obj)
     return JS_IsArray(ctx, obj);
 }
 
+static JSValue js_array_at(JSContext *ctx, JSValueConst this_val,
+                           int argc, JSValueConst *argv)
+{
+    JSValue obj, ret;
+    int64_t len, idx;
+    JSValue *arrp;
+    uint32_t count;
+    
+    obj = JS_ToObject(ctx, this_val);
+    if (js_get_length64(ctx, &len, obj))
+        goto exception;
+
+    if (JS_ToInt64Sat(ctx, &idx, argv[0]))
+        goto exception;
+
+    if (idx < 0)
+        idx = len + idx;
+    if (idx < 0 || idx >= len) {
+        ret = JS_UNDEFINED;
+    } else if (js_get_fast_array(ctx, obj, &arrp, &count) && idx < count) {
+        ret = JS_DupValue(ctx, arrp[idx]);
+    } else {
+        int present = JS_TryGetPropertyInt64(ctx, obj, idx, &ret);
+        if (present < 0)
+            goto exception;
+        if (!present)
+            ret = JS_UNDEFINED;
+    }
+    JS_FreeValue(ctx, obj);
+    return ret;
+ exception:
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+}
+
 static JSValue js_array_concat(JSContext *ctx, JSValueConst this_val,
                                int argc, JSValueConst *argv)
 {
@@ -39333,6 +39368,7 @@ static const JSCFunctionListEntry js_iterator_proto_funcs[] = {
 };
 
 static const JSCFunctionListEntry js_array_proto_funcs[] = {
+    JS_CFUNC_DEF("at", 1, js_array_at ),
     JS_CFUNC_DEF("concat", 1, js_array_concat ),
     JS_CFUNC_MAGIC_DEF("every", 1, js_array_every, special_every ),
     JS_CFUNC_MAGIC_DEF("some", 1, js_array_every, special_some ),
@@ -40032,7 +40068,7 @@ static JSValue js_string_charCodeAt(JSContext *ctx, JSValueConst this_val,
 }
 
 static JSValue js_string_charAt(JSContext *ctx, JSValueConst this_val,
-                                int argc, JSValueConst *argv)
+                                int argc, JSValueConst *argv, int is_at)
 {
     JSValue val, ret;
     JSString *p;
@@ -40046,8 +40082,13 @@ static JSValue js_string_charAt(JSContext *ctx, JSValueConst this_val,
         JS_FreeValue(ctx, val);
         return JS_EXCEPTION;
     }
+    if (idx < 0 && is_at)
+        idx += p->len;
     if (idx < 0 || idx >= p->len) {
-        ret = js_new_string8(ctx, NULL, 0);
+        if (is_at)
+            ret = JS_UNDEFINED;
+        else
+            ret = js_new_string8(ctx, NULL, 0);
     } else {
         if (p->is_wide_char)
             c = p->u.str16[idx];
@@ -41306,8 +41347,9 @@ static const JSCFunctionListEntry js_string_funcs[] = {
 
 static const JSCFunctionListEntry js_string_proto_funcs[] = {
     JS_PROP_INT32_DEF("length", 0, JS_PROP_CONFIGURABLE ),
+    JS_CFUNC_MAGIC_DEF("at", 1, js_string_charAt, 1 ),
     JS_CFUNC_DEF("charCodeAt", 1, js_string_charCodeAt ),
-    JS_CFUNC_DEF("charAt", 1, js_string_charAt ),
+    JS_CFUNC_MAGIC_DEF("charAt", 1, js_string_charAt, 0 ),
     JS_CFUNC_DEF("concat", 1, js_string_concat ),
     JS_CFUNC_DEF("codePointAt", 1, js_string_codePointAt ),
     JS_CFUNC_MAGIC_DEF("indexOf", 1, js_string_indexOf, 0 ),
@@ -51343,6 +51385,32 @@ fail:
     return JS_EXCEPTION;
 }
 
+static JSValue js_typed_array_at(JSContext *ctx, JSValueConst this_val,
+                                 int argc, JSValueConst *argv)
+{
+    JSObject *p;
+    int64_t idx, len;
+
+    p = get_typed_array(ctx, this_val, 0);
+    if (!p)
+        return JS_EXCEPTION;
+
+    if (typed_array_is_detached(ctx, p)) {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return JS_EXCEPTION;
+    }
+
+    if (JS_ToInt64Sat(ctx, &idx, argv[0]))
+        return JS_EXCEPTION;
+
+    len = p->u.array.count;
+    if (idx < 0)
+        idx = len + idx;
+    if (idx < 0 || idx >= len)
+        return JS_UNDEFINED;
+    return JS_GetPropertyUint32(ctx, this_val, idx);
+}
+
 static JSValue js_typed_array_set(JSContext *ctx,
                                   JSValueConst this_val,
                                   int argc, JSValueConst *argv)
@@ -52517,6 +52585,7 @@ static const JSCFunctionListEntry js_typed_array_base_funcs[] = {
 
 static const JSCFunctionListEntry js_typed_array_base_proto_funcs[] = {
     JS_CGETSET_DEF("length", js_typed_array_get_length, NULL ),
+    JS_CFUNC_DEF("at", 1, js_typed_array_at ),
     JS_CGETSET_MAGIC_DEF("buffer", js_typed_array_get_buffer, NULL, 0 ),
     JS_CGETSET_MAGIC_DEF("byteLength", js_typed_array_get_byteLength, NULL, 0 ),
     JS_CGETSET_MAGIC_DEF("byteOffset", js_typed_array_get_byteOffset, NULL, 0 ),
