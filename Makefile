@@ -25,6 +25,9 @@
 ifeq ($(shell uname -s),Darwin)
 CONFIG_DARWIN=y
 endif
+ifeq ($(shell uname -s),FreeBSD)
+CONFIG_FREEBSD=y
+endif
 # Windows cross compilation from Linux
 #CONFIG_WIN32=y
 # use link time optimization (smaller and faster executables but slower build)
@@ -38,6 +41,12 @@ ifdef CONFIG_DARWIN
 # use clang instead of gcc
 CONFIG_CLANG=y
 CONFIG_DEFAULT_AR=y
+endif
+ifdef CONFIG_FREEBSD
+# use clang instead of gcc
+CONFIG_CLANG=y
+CONFIG_DEFAULT_AR=y
+CONFIG_LTO=
 endif
 
 # installation directory
