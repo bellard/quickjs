@@ -11,18 +11,6 @@ test262/test/built-ins/RegExp/lookahead-quantifier-match-groups.js:27: Test262Er
 test262/test/built-ins/RegExp/lookahead-quantifier-match-groups.js:27: strict mode: Test262Error: Expected [a, abc] and [a, undefined] to have the same contents. ? quantifier
 test262/test/built-ins/RegExp/named-groups/non-unicode-property-names-valid.js:46: SyntaxError: invalid group name
 test262/test/built-ins/RegExp/named-groups/non-unicode-property-names-valid.js:46: strict mode: SyntaxError: invalid group name
-test262/test/built-ins/RegExp/prototype/Symbol.match/flags-tostring-error.js:22: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.match/flags-tostring-error.js:22: strict mode: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.match/get-flags-err.js:23: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.match/get-flags-err.js:23: strict mode: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.match/get-unicode-error.js:22: Test262Error: Expected a Test262Error to be thrown but no exception was thrown at all
-test262/test/built-ins/RegExp/prototype/Symbol.match/get-unicode-error.js:22: strict mode: Test262Error: Expected a Test262Error to be thrown but no exception was thrown at all
-test262/test/built-ins/RegExp/prototype/Symbol.replace/flags-tostring-error.js:26: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.replace/flags-tostring-error.js:26: strict mode: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.replace/get-flags-err.js:27: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.replace/get-flags-err.js:27: strict mode: Test262Error: Expected a CustomError but got a Test262Error
-test262/test/built-ins/RegExp/prototype/Symbol.replace/get-unicode-error.js:26: Test262Error: Expected a Test262Error to be thrown but no exception was thrown at all
-test262/test/built-ins/RegExp/prototype/Symbol.replace/get-unicode-error.js:26: strict mode: Test262Error: Expected a Test262Error to be thrown but no exception was thrown at all
 test262/test/built-ins/RegExp/unicode_full_case_folding.js:20: Test262Error: \u0390 does not match \u1fd3
 test262/test/built-ins/RegExp/unicode_full_case_folding.js:20: strict mode: Test262Error: \u0390 does not match \u1fd3
 test262/test/built-ins/String/prototype/localeCompare/15.5.4.9_CE.js:62: Test262Error: String.prototype.localeCompare considers ö (\u006f\u0308) ≠ ö (\u00f6).

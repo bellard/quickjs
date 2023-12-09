@@ -42551,7 +42551,7 @@ static JSValue js_regexp_Symbol_match(JSContext *ctx, JSValueConst this_val,
 {
     // [Symbol.match](str)
     JSValueConst rx = this_val;
-    JSValue A, S, result, matchStr;
+    JSValue A, S, flags, result, matchStr;
     int global, n, fullUnicode, isEmpty;
     JSString *p;
 
@@ -42559,16 +42559,23 @@ static JSValue js_regexp_Symbol_match(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeErrorNotAnObject(ctx);
 
     A = JS_UNDEFINED;
+    flags = JS_UNDEFINED;
     result = JS_UNDEFINED;
     matchStr = JS_UNDEFINED;
     S = JS_ToString(ctx, argv[0]);
     if (JS_IsException(S))
         goto exception;
 
-    global = JS_ToBoolFree(ctx, JS_GetProperty(ctx, rx, JS_ATOM_global));
-    if (global < 0)
+    flags = JS_GetProperty(ctx, rx, JS_ATOM_flags);
+    if (JS_IsException(flags))
         goto exception;
+    flags = JS_ToStringFree(ctx, flags);
+    if (JS_IsException(flags))
+        goto exception;
+    p = JS_VALUE_GET_STRING(flags);
 
+    // TODO(bnoordhuis) query 'u' flag the same way?
+    global = (-1 != string_indexof_char(p, 'g', 0));
     if (!global) {
         A = JS_RegExpExec(ctx, rx, S);
     } else {
@@ -42612,12 +42619,14 @@ static JSValue js_regexp_Symbol_match(JSContext *ctx, JSValueConst this_val,
         }
     }
     JS_FreeValue(ctx, result);
+    JS_FreeValue(ctx, flags);
     JS_FreeValue(ctx, S);
     return A;
 
 exception:
     JS_FreeValue(ctx, A);
     JS_FreeValue(ctx, result);
+    JS_FreeValue(ctx, flags);
     JS_FreeValue(ctx, S);
     return JS_EXCEPTION;
 }
@@ -42860,8 +42869,8 @@ static JSValue js_regexp_Symbol_replace(JSContext *ctx, JSValueConst this_val,
     // [Symbol.replace](str, rep)
     JSValueConst rx = this_val, rep = argv[1];
     JSValueConst args[6];
-    JSValue str, rep_val, matched, tab, rep_str, namedCaptures, res;
-    JSString *sp, *rp;
+    JSValue flags, str, rep_val, matched, tab, rep_str, namedCaptures, res;
+    JSString *p, *sp, *rp;
     StringBuffer b_s, *b = &b_s;
     ValueBuffer v_b, *results = &v_b;
     int nextSourcePosition, n, j, functionalReplace, is_global, fullUnicode;
@@ -42877,6 +42886,7 @@ static JSValue js_regexp_Symbol_replace(JSContext *ctx, JSValueConst this_val,
     rep_val = JS_UNDEFINED;
     matched = JS_UNDEFINED;
     tab = JS_UNDEFINED;
+    flags = JS_UNDEFINED;
     rep_str = JS_UNDEFINED;
     namedCaptures = JS_UNDEFINED;
 
@@ -42893,10 +42903,18 @@ static JSValue js_regexp_Symbol_replace(JSContext *ctx, JSValueConst this_val,
             goto exception;
         rp = JS_VALUE_GET_STRING(rep_val);
     }
-    fullUnicode = 0;
-    is_global = JS_ToBoolFree(ctx, JS_GetProperty(ctx, rx, JS_ATOM_global));
-    if (is_global < 0)
+
+    flags = JS_GetProperty(ctx, rx, JS_ATOM_flags);
+    if (JS_IsException(flags))
         goto exception;
+    flags = JS_ToStringFree(ctx, flags);
+    if (JS_IsException(flags))
+        goto exception;
+    p = JS_VALUE_GET_STRING(flags);
+
+    // TODO(bnoordhuis) query 'u' flag the same way?
+    fullUnicode = 0;
+    is_global = (-1 != string_indexof_char(p, 'g', 0));
     if (is_global) {
         fullUnicode = JS_ToBoolFree(ctx, JS_GetProperty(ctx, rx, JS_ATOM_unicode));
         if (fullUnicode < 0)
@@ -43030,6 +43048,7 @@ done1:
     value_buffer_free(results);
     JS_FreeValue(ctx, rep_val);
     JS_FreeValue(ctx, matched);
+    JS_FreeValue(ctx, flags);
     JS_FreeValue(ctx, tab);
     JS_FreeValue(ctx, rep_str);
     JS_FreeValue(ctx, namedCaptures);
