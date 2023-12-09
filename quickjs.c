@@ -48100,8 +48100,11 @@ static int string_get_signed_digits(JSString *sp, int *pp, int64_t *pval) {
         p++;
  
     res = string_get_digits(sp, &p, pval);
-    if (res == 0 && sgn == '-')
+    if (res == 0 && sgn == '-') {
+        if (*pval == 0)
+            return -1; // reject negative zero
         *pval = -*pval;
+    }
     *pp = p;
     return res;
 }

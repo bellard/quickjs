@@ -5,8 +5,6 @@ test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedStart-brok
 test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedStart-broken-promise.js:34: strict mode: TypeError: $DONE() not called
 test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedYield-broken-promise-try-catch.js:39: TypeError: $DONE() not called
 test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedYield-broken-promise-try-catch.js:39: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/Date/parse/year-zero.js:13: Test262Error: reject minus zero as extended year Expected SameValue(«-62159440500000», «NaN») to be true
-test262/test/built-ins/Date/parse/year-zero.js:13: strict mode: Test262Error: reject minus zero as extended year Expected SameValue(«-62159440500000», «NaN») to be true
 test262/test/built-ins/Date/prototype/setDate/arg-coercion-order.js:28: Test262Error: ToNumber invoked exactly once Expected SameValue(«0», «1») to be true
 test262/test/built-ins/Date/prototype/setDate/arg-coercion-order.js:28: strict mode: Test262Error: ToNumber invoked exactly once Expected SameValue(«0», «1») to be true
 test262/test/built-ins/Date/prototype/setHours/arg-coercion-order.js:57: Test262Error: Expected [] and [valueOf hour, valueOf min, valueOf sec, valueOf ms] to have the same contents. 
@@ -31,8 +29,6 @@ test262/test/built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js:34: Test
 test262/test/built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js:34: strict mode: Test262Error: Expected [] and [valueOf month, valueOf date] to have the same contents. 
 test262/test/built-ins/Date/prototype/setUTCSeconds/arg-coercion-order.js:34: Test262Error: Expected [] and [valueOf sec, valueOf ms] to have the same contents. 
 test262/test/built-ins/Date/prototype/setUTCSeconds/arg-coercion-order.js:34: strict mode: Test262Error: Expected [] and [valueOf sec, valueOf ms] to have the same contents. 
-test262/test/built-ins/Date/year-zero.js:13: Test262Error: reject minus zero as extended year Expected SameValue(«-62159440500000», «NaN») to be true
-test262/test/built-ins/Date/year-zero.js:13: strict mode: Test262Error: reject minus zero as extended year Expected SameValue(«-62159440500000», «NaN») to be true
 test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: Test262Error: Expected a ReferenceError but got a different error constructor with the same name
 test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: strict mode: Test262Error: Expected a ReferenceError but got a different error constructor with the same name
 test262/test/built-ins/RegExp/lookahead-quantifier-match-groups.js:27: Test262Error: Expected [a, abc] and [a, undefined] to have the same contents. ? quantifier
