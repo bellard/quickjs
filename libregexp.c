@@ -1071,11 +1071,10 @@ static int re_is_simple_quantifier(const uint8_t *bc_buf, int bc_buf_len)
 }
 
 /* '*pp' is the first char after '<' */
-static int re_parse_group_name(char *buf, int buf_size,
-                               const uint8_t **pp, BOOL is_utf16)
+static int re_parse_group_name(char *buf, int buf_size, const uint8_t **pp)
 {
-    const uint8_t *p;
-    uint32_t c;
+    const uint8_t *p, *p1;
+    uint32_t c, d;
     char *q;
 
     p = *pp;
@@ -1086,11 +1085,18 @@ static int re_parse_group_name(char *buf, int buf_size,
             p++;
             if (*p != 'u')
                 return -1;
-            c = lre_parse_escape(&p, is_utf16 * 2);
+            c = lre_parse_escape(&p, 2); // accept surrogate pairs
         } else if (c == '>') {
             break;
         } else if (c >= 128) {
             c = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX, &p);
+            if (c >= 0xD800 && c <= 0xDBFF) {
+                d = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX, &p1);
+                if (d >= 0xDC00 && d <= 0xDFFF) {
+                    c = 0x10000 + 0x400 * (c - 0xD800) + (d - 0xDC00);
+                    p = p1;
+                }
+            }
         } else {
             p++;
         }
@@ -1140,8 +1146,7 @@ static int re_parse_captures(REParseState *s, int *phas_named_captures,
                     /* potential named capture */
                     if (capture_name) {
                         p += 3;
-                        if (re_parse_group_name(name, sizeof(name), &p,
-                                                s->is_utf16) == 0) {
+                        if (re_parse_group_name(name, sizeof(name), &p) == 0) {
                             if (!strcmp(name, capture_name))
                                 return capture_index;
                         }
@@ -1314,7 +1319,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
             } else if (p[2] == '<') {
                 p += 3;
                 if (re_parse_group_name(s->u.tmp_buf, sizeof(s->u.tmp_buf),
-                                        &p, s->is_utf16)) {
+                                        &p)) {
                     return re_parse_error(s, "invalid group name");
                 }
                 if (find_group_name(s, s->u.tmp_buf) > 0) {
@@ -1378,7 +1383,7 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                 }
                 p1 += 3;
                 if (re_parse_group_name(s->u.tmp_buf, sizeof(s->u.tmp_buf),
-                                        &p1, s->is_utf16)) {
+                                        &p1)) {
                     if (s->is_utf16 || re_has_named_captures(s))
                         return re_parse_error(s, "invalid group name");
                     else
