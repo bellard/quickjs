@@ -21,8 +21,6 @@ test262/test/language/expressions/assignment/target-member-computed-reference-nu
 test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
-test262/test/language/expressions/delete/super-property-null-base.js:26: Test262Error: Expected a ReferenceError but got a TypeError
-test262/test/language/expressions/delete/super-property-null-base.js:26: strict mode: Test262Error: Expected a ReferenceError but got a TypeError
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: TypeError: $DONE() not called
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: strict mode: TypeError: $DONE() not called
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: cannot read property 'c' of undefined

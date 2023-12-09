@@ -24646,6 +24646,8 @@ static __exception int js_parse_delete(JSParseState *s)
     case OP_scope_get_private_field:
         return js_parse_error(s, "cannot delete a private class field");
     case OP_get_super_value:
+        fd->byte_code.size = fd->last_opcode_pos;
+        fd->last_opcode_pos = -1;
         emit_op(s, OP_throw_error);
         emit_atom(s, JS_ATOM_NULL);
         emit_u8(s, JS_THROW_ERROR_DELETE_SUPER);
