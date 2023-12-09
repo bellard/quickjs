@@ -52777,7 +52777,7 @@ static JSValue js_typed_array_constructor_ta(JSContext *ctx,
 {
     JSObject *p, *src_buffer;
     JSTypedArray *ta;
-    JSValue ctor, obj, buffer;
+    JSValue obj, buffer;
     uint32_t len, i;
     int size_log2;
     JSArrayBuffer *src_abuf, *abuf;
@@ -52794,19 +52794,9 @@ static JSValue js_typed_array_constructor_ta(JSContext *ctx,
     len = p->u.array.count;
     src_buffer = ta->buffer;
     src_abuf = src_buffer->u.array_buffer;
-    if (!src_abuf->shared) {
-        ctor = JS_SpeciesConstructor(ctx, JS_MKPTR(JS_TAG_OBJECT, src_buffer),
-                                     JS_UNDEFINED);
-        if (JS_IsException(ctor))
-            goto fail;
-    } else {
-        /* force ArrayBuffer default constructor */
-        ctor = JS_UNDEFINED;
-    }
     size_log2 = typed_array_size_log2(classid);
-    buffer = js_array_buffer_constructor1(ctx, ctor,
+    buffer = js_array_buffer_constructor1(ctx, JS_UNDEFINED,
                                           (uint64_t)len << size_log2);
-    JS_FreeValue(ctx, ctor);
     if (JS_IsException(buffer))
         goto fail;
     /* necessary because it could have been detached */

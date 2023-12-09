@@ -15,8 +15,6 @@ test262/test/built-ins/String/prototype/localeCompare/15.5.4.9_CE.js:62: Test262
 test262/test/built-ins/String/prototype/localeCompare/15.5.4.9_CE.js:62: strict mode: Test262Error: String.prototype.localeCompare considers ö (\u006f\u0308) ≠ ö (\u00f6).
 test262/test/built-ins/TypedArray/prototype/sort/sort-tonumber.js:30: TypeError: ArrayBuffer is detached (Testing with Float64Array.)
 test262/test/built-ins/TypedArray/prototype/sort/sort-tonumber.js:30: strict mode: TypeError: ArrayBuffer is detached (Testing with Float64Array.)
-test262/test/built-ins/TypedArrayConstructors/ctors/no-species.js:16: Test262Error: unreachable
-test262/test/built-ins/TypedArrayConstructors/ctors/no-species.js:16: strict mode: Test262Error: unreachable
 test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: Test262Error: Expected a DummyError but got a TypeError
