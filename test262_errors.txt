@@ -37,13 +37,5 @@ test262/test/language/statements/class/elements/private-method-double-initialisa
 test262/test/language/statements/class/elements/private-method-double-initialisation-set.js:32: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/language/statements/class/elements/private-method-double-initialisation.js:32: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/language/statements/class/elements/private-method-double-initialisation.js:32: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/private-non-static-getter-static-setter-early-error.js:13: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-non-static-getter-static-setter-early-error.js:13: strict mode: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-non-static-setter-static-getter-early-error.js:13: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-non-static-setter-static-getter-early-error.js:13: strict mode: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-static-getter-non-static-setter-early-error.js:13: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-static-getter-non-static-setter-early-error.js:13: strict mode: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-static-setter-non-static-getter-early-error.js:13: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/statements/class/private-static-setter-non-static-getter-early-error.js:13: strict mode: unexpected error type: Test262: This statement should not be evaluated.
 test262/test/language/statements/for-of/head-lhs-async-invalid.js:14: unexpected error type: Test262: This statement should not be evaluated.
 test262/test/language/statements/for-of/head-lhs-async-invalid.js:14: strict mode: unexpected error type: Test262: This statement should not be evaluated.
