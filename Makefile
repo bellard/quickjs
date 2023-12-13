@@ -96,6 +96,7 @@ else
   endif
 endif
 STRIP=$(CROSS_PREFIX)strip
+CFLAGS+=-fwrapv # ensure that signed overflows behave as expected
 ifdef CONFIG_WERROR
 CFLAGS+=-Werror
 endif
