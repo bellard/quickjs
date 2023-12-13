@@ -645,6 +645,18 @@ function test_generator()
         assert(ret, "ret_val");
         return 3;
     }
+    function *f3() {
+        var ret;
+        /* test stack consistency with nip_n to handle yield return +
+         * finally clause */
+        try {
+            ret = 2 + (yield 1);
+        } catch(e) {
+        } finally {
+            ret++;
+        }
+        return ret;
+    }
     var g, v;
     g = f();
     v = g.next();
@@ -665,6 +677,12 @@ function test_generator()
     assert(v.value === 3 && v.done === true);
     v = g.next();
     assert(v.value === undefined && v.done === true);
+
+    g = f3();
+    v = g.next();
+    assert(v.value === 1 && v.done === false);
+    v = g.next(3);
+    assert(v.value === 6 && v.done === true);
 }
 
 test();
