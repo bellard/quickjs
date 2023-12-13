@@ -1,8 +1,4 @@
 test262/test/annexB/language/eval-code/direct/script-decl-lex-collision-in-sloppy-mode.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/built-ins/AsyncGeneratorPrototype/return/return-state-completed-broken-promise.js:53: TypeError: $DONE() not called
-test262/test/built-ins/AsyncGeneratorPrototype/return/return-state-completed-broken-promise.js:53: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedStart-broken-promise.js:34: TypeError: $DONE() not called
-test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedStart-broken-promise.js:34: strict mode: TypeError: $DONE() not called
 test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedYield-broken-promise-try-catch.js:39: TypeError: $DONE() not called
 test262/test/built-ins/AsyncGeneratorPrototype/return/return-suspendedYield-broken-promise-try-catch.js:39: strict mode: TypeError: $DONE() not called
 test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: Test262Error: Expected a ReferenceError but got a different error constructor with the same name

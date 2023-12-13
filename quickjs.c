@@ -19175,10 +19175,19 @@ static int js_async_generator_completed_return(JSContext *ctx,
     JSValue promise, resolving_funcs[2], resolving_funcs1[2];
     int res;
 
-    promise = js_promise_resolve(ctx, ctx->promise_ctor,
-                                 1, (JSValueConst *)&value, 0);
-    if (JS_IsException(promise))
-        return -1;
+    // Can fail looking up JS_ATOM_constructor when is_reject==0.
+    promise = js_promise_resolve(ctx, ctx->promise_ctor, 1, &value,
+                                 /*is_reject*/0);
+    // A poisoned .constructor property is observable and the resulting
+    // exception should be delivered to the catch handler.
+    if (JS_IsException(promise)) {
+        JSValue err = JS_GetException(ctx);
+        promise = js_promise_resolve(ctx, ctx->promise_ctor, 1, &err,
+                                     /*is_reject*/1);
+        JS_FreeValue(ctx, err);
+        if (JS_IsException(promise))
+            return -1;
+    }
     if (js_async_generator_resolve_function_create(ctx,
                                                    JS_MKPTR(JS_TAG_OBJECT, s->generator),
                                                    resolving_funcs1,
