@@ -29,13 +29,5 @@ test262/test/language/statements/async-generator/yield-star-promise-not-unwrappe
 test262/test/language/statements/async-generator/yield-star-promise-not-unwrapped.js:25: strict mode: TypeError: $DONE() not called
 test262/test/language/statements/async-generator/yield-star-return-then-getter-ticks.js:131: TypeError: $DONE() not called
 test262/test/language/statements/async-generator/yield-star-return-then-getter-ticks.js:131: strict mode: TypeError: $DONE() not called
-test262/test/language/statements/class/elements/private-method-double-initialisation-get-and-set.js:33: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation-get-and-set.js:33: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation-get.js:32: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation-get.js:32: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation-set.js:32: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation-set.js:32: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation.js:32: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/language/statements/class/elements/private-method-double-initialisation.js:32: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/language/statements/for-of/head-lhs-async-invalid.js:14: unexpected error type: Test262: This statement should not be evaluated.
 test262/test/language/statements/for-of/head-lhs-async-invalid.js:14: strict mode: unexpected error type: Test262: This statement should not be evaluated.
