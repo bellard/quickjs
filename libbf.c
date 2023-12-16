@@ -37,10 +37,12 @@
 
 /* enable it to check the multiplication result */
 //#define USE_MUL_CHECK
+#ifdef CONFIG_BIGNUM
 /* enable it to use FFT/NTT multiplication */
 #define USE_FFT_MUL
 /* enable decimal floating point support */
 #define USE_BF_DEC
+#endif
 
 //#define inline __attribute__((always_inline))
 
@@ -164,6 +166,21 @@ static inline slimb_t sat_add(slimb_t a, slimb_t b)
     return r;
 }
 
+static inline __maybe_unused limb_t shrd(limb_t low, limb_t high, long shift)
+{
+    if (shift != 0)
+        low = (low >> shift) | (high << (LIMB_BITS - shift));
+    return low;
+}
+
+static inline __maybe_unused limb_t shld(limb_t a1, limb_t a0, long shift)
+{
+    if (shift != 0)
+        return (a1 << shift) | (a0 >> (LIMB_BITS - shift));
+    else
+        return a1;
+}
+
 #define malloc(s) malloc_is_forbidden(s)
 #define free(p) free_is_forbidden(p)
 #define realloc(p, s) realloc_is_forbidden(p, s)
@@ -236,7 +253,7 @@ int bf_set_ui(bf_t *r, uint64_t a)
         a1 = a >> 32;
         shift = clz(a1);
         r->tab[0] = a0 << shift;
-        r->tab[1] = (a1 << shift) | (a0 >> (LIMB_BITS - shift));
+        r->tab[1] = shld(a1, a0, shift);
         r->expn = 2 * LIMB_BITS - shift;
     }
 #endif
@@ -1585,7 +1602,9 @@ int bf_mul(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
                 r = &tmp;
             }
             if (bf_resize(r, a_len + b_len)) {
+#ifdef USE_FFT_MUL
             fail:
+#endif                
                 bf_set_nan(r);
                 ret = BF_ST_MEM_ERROR;
                 goto done;
@@ -2282,11 +2301,14 @@ static int bf_pow_ui_ui(bf_t *r, limb_t a1, limb_t b,
     bf_t a;
     int ret;
     
+#ifdef USE_BF_DEC
     if (a1 == 10 && b <= LIMB_DIGITS) {
         /* use precomputed powers. We do not round at this point
            because we expect the caller to do it */
         ret = bf_set_ui(r, mp_pow_dec[b]);
-    } else {
+    } else
+#endif        
+    {
         bf_init(r->ctx, &a);
         ret = bf_set_ui(&a, a1);
         ret |= bf_pow_ui(r, &a, b, prec, flags);
@@ -5391,21 +5413,6 @@ int bf_acos(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags)
     } while (0)
 
 #endif /* LIMB_BITS != 64 */
-
-static inline __maybe_unused limb_t shrd(limb_t low, limb_t high, long shift)
-{
-    if (shift != 0)
-        low = (low >> shift) | (high << (LIMB_BITS - shift));
-    return low;
-}
-
-static inline __maybe_unused limb_t shld(limb_t a1, limb_t a0, long shift)
-{
-    if (shift != 0)
-        return (a1 << shift) | (a0 >> (LIMB_BITS - shift));
-    else
-        return a1;
-}
 
 #if LIMB_DIGITS == 19
 

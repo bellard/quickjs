@@ -1,3 +1,11 @@
+2023-12-09:
+
+- added Object.hasOwn, {String|Array|TypedArray}.prototype.at,
+  {Array|TypedArray}.prototype.findLast{Index}
+- BigInt support is enabled even if CONFIG_BIGNUM disabled
+- updated to Unicode 15.0.0
+- misc bug fixes
+
 2021-03-27:
 
 - faster Array.prototype.push and Array.prototype.unshift

@@ -169,8 +169,8 @@ DEF(groups, "groups")
 DEF(status, "status")
 DEF(reason, "reason")
 DEF(globalThis, "globalThis")
-#ifdef CONFIG_BIGNUM
 DEF(bigint, "bigint")
+#ifdef CONFIG_BIGNUM
 DEF(bigfloat, "bigfloat")
 DEF(bigdecimal, "bigdecimal")
 DEF(roundingMode, "roundingMode")
@@ -209,15 +209,13 @@ DEF(Int16Array, "Int16Array")
 DEF(Uint16Array, "Uint16Array")
 DEF(Int32Array, "Int32Array")
 DEF(Uint32Array, "Uint32Array")
-#ifdef CONFIG_BIGNUM
 DEF(BigInt64Array, "BigInt64Array")
 DEF(BigUint64Array, "BigUint64Array")
-#endif
 DEF(Float32Array, "Float32Array")
 DEF(Float64Array, "Float64Array")
 DEF(DataView, "DataView")
-#ifdef CONFIG_BIGNUM
 DEF(BigInt, "BigInt")
+#ifdef CONFIG_BIGNUM
 DEF(BigFloat, "BigFloat")
 DEF(BigFloatEnv, "BigFloatEnv")
 DEF(BigDecimal, "BigDecimal")

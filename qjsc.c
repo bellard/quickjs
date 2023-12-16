@@ -76,9 +76,7 @@ static const FeatureEntry feature_list[] = {
     { "promise", "Promise" },
 #define FE_MODULE_LOADER 9
     { "module-loader", NULL },
-#ifdef CONFIG_BIGNUM
     { "bigint", "BigInt" },
-#endif
 };
 
 void namelist_add(namelist_t *lp, const char *name, const char *short_name,
