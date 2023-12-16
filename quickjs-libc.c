@@ -2968,6 +2968,36 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
             }
         }
 
+#if defined(__linux__)
+        int pid = getpid();
+        int max_fd = 0;
+        char path[32];
+        struct stat statbuf;
+        sprintf(path, "/proc/%d/fd", pid);
+        if (stat(path, &statbuf) == 0) {
+            if (S_ISDIR(statbuf.st_mode)) {
+                DIR *dir = opendir(path);
+                if (dir) {
+                    struct dirent *subdir;
+                    int fd;
+                    for(;;) {
+                        subdir = readdir(dir);
+                        if (!subdir) {
+                            break;
+                        }
+                        fd = atoi(subdir->d_name);
+                        if (fd > max_fd) {
+                            max_fd = fd;
+                        }
+                    }
+                    if (max_fd  > 0) {
+                        fd_max = max_fd;
+                    }
+                    closedir(dir);
+                }
+            }
+        }
+#endif
         for(i = 3; i < fd_max; i++)
             close(i);
         if (cwd) {
