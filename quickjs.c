@@ -9950,12 +9950,13 @@ static inline int to_digit(int c)
 }
 
 /* XXX: remove */
-static double js_strtod(const char *p, int radix, BOOL is_float)
+static double js_strtod(const char *str, int radix, BOOL is_float)
 {
     double d;
     int c;
     
     if (!is_float || radix != 10) {
+        const char *p = str;
         uint64_t n_max, n;
         int int_exp, is_neg;
         
@@ -9982,6 +9983,8 @@ static double js_strtod(const char *p, int radix, BOOL is_float)
             if (n <= n_max) {
                 n = n * radix + c;
             } else {
+                if (radix == 10)
+                    goto strtod_case;
                 int_exp++;
             }
             p++;
@@ -9993,7 +9996,8 @@ static double js_strtod(const char *p, int radix, BOOL is_float)
         if (is_neg)
             d = -d;
     } else {
-        d = strtod(p, NULL);
+    strtod_case:
+        d = strtod(str, NULL);
     }
     return d;
 }

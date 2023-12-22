@@ -120,6 +120,7 @@ function test_cvt()
     assert((Infinity >>> 0) === 0);
     assert(((-Infinity) >>> 0) === 0);
     assert(((4294967296 * 3 - 4) >>> 0) === (4294967296 - 4));
+    assert((19686109595169230000).toString() === "19686109595169230000");
 }
 
 function test_eq()
