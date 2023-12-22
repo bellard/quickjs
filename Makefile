@@ -155,10 +155,9 @@ endif
 
 # examples
 ifeq ($(CROSS_PREFIX),)
-ifdef CONFIG_ASAN
-PROGS+=
-else
-PROGS+=examples/hello examples/hello_module examples/test_fib
+PROGS+=examples/hello
+ifndef CONFIG_ASAN
+PROGS+=examples/hello_module examples/test_fib
 ifndef CONFIG_DARWIN
 PROGS+=examples/fib.so examples/point.so
 endif
