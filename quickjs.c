@@ -440,7 +440,6 @@ struct JSContext {
 #endif
     /* when the counter reaches zero, JSRutime.interrupt_handler is called */
     int interrupt_counter;
-    BOOL is_error_property_enabled;
 
     struct list_head loaded_modules; /* list of JSModuleDef.link */
 
