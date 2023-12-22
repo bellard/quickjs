@@ -11492,8 +11492,10 @@ static void js_dtoa1(char *buf, double d, int radix, int n_digits, int flags)
     } else if (flags == JS_DTOA_VAR_FORMAT) {
         int64_t i64;
         char buf1[70], *ptr;
+        if (d > (double)MAX_SAFE_INTEGER || d < (double)-MAX_SAFE_INTEGER)
+            goto generic_conv;
         i64 = (int64_t)d;
-        if (d != i64 || i64 > MAX_SAFE_INTEGER || i64 < -MAX_SAFE_INTEGER)
+        if (d != i64)
             goto generic_conv;
         /* fast path for integers */
         ptr = i64toa(buf1 + sizeof(buf1), i64, radix);
