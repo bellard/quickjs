@@ -25148,7 +25148,6 @@ static __exception int js_parse_assign_expr2(JSParseState *s, int parse_flags)
                 /* OP_async_yield_star takes the value as parameter */
                 emit_op(s, OP_get_field);
                 emit_atom(s, JS_ATOM_value);
-                emit_op(s, OP_await);
                 emit_op(s, OP_async_yield_star);
             } else {
                 /* OP_yield_star takes (value, done) as parameter */
