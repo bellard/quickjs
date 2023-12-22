@@ -51090,11 +51090,26 @@ static void js_array_buffer_finalizer(JSRuntime *rt, JSValue val)
 {
     JSObject *p = JS_VALUE_GET_OBJ(val);
     JSArrayBuffer *abuf = p->u.array_buffer;
+    struct list_head *el, *el1;
+    
     if (abuf) {
         /* The ArrayBuffer finalizer may be called before the typed
            array finalizers using it, so abuf->array_list is not
            necessarily empty. */
-        // assert(list_empty(&abuf->array_list));
+        list_for_each_safe(el, el1, &abuf->array_list) {
+            JSTypedArray *ta;
+            JSObject *p1;
+            
+            ta = list_entry(el, JSTypedArray, link);
+            ta->link.prev = NULL;
+            ta->link.next = NULL;
+            p1 = ta->obj;
+            /* Note: the typed array length and offset fields are not modified */
+            if (p1->class_id != JS_CLASS_DATAVIEW) {
+                p1->u.array.count = 0;
+                p1->u.array.u.ptr = NULL;
+            }
+        }
         if (abuf->shared && rt->sab_funcs.sab_free) {
             rt->sab_funcs.sab_free(rt->sab_funcs.sab_opaque, abuf->data);
         } else {
@@ -53030,7 +53045,7 @@ static void js_typed_array_finalizer(JSRuntime *rt, JSValue val)
     if (ta) {
         /* during the GC the finalizers are called in an arbitrary
            order so the ArrayBuffer finalizer may have been called */
-        if (JS_IsLiveObject(rt, JS_MKPTR(JS_TAG_OBJECT, ta->buffer))) {
+        if (ta->link.next) {
             list_del(&ta->link);
         }
         JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, ta->buffer));
