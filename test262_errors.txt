@@ -18,7 +18,6 @@ test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: strict m
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: cannot read property 'c' of undefined
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: cannot read property '_b' of undefined
 test262/test/language/global-code/script-decl-lex-var-declared-via-eval-sloppy.js:13: Test262Error: variable Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/language/module-code/namespace/internals/define-own-property.js:30: Test262Error: Object.freeze: 1 Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/language/statements/async-generator/yield-star-promise-not-unwrapped.js:25: TypeError: $DONE() not called
 test262/test/language/statements/async-generator/yield-star-promise-not-unwrapped.js:25: strict mode: TypeError: $DONE() not called
 test262/test/language/statements/async-generator/yield-star-return-then-getter-ticks.js:131: TypeError: $DONE() not called
