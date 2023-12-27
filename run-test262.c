@@ -1174,7 +1174,7 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
 {
     JSValue res_val, exception_val;
     int ret, error_line, pos, pos_line;
-    BOOL is_error, has_error_line;
+    BOOL is_error, has_error_line, ret_promise;
     const char *error_name;
     
     pos = skip_comments(buf, 1, &pos_line);
@@ -1183,12 +1183,19 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
     exception_val = JS_UNDEFINED;
     error_name = NULL;
 
+    /* a module evaluation returns a promise */
+    ret_promise = ((eval_flags & JS_EVAL_TYPE_MODULE) != 0);
     async_done = 0; /* counter of "Test262:AsyncTestComplete" messages */
-
+    
     res_val = JS_Eval(ctx, buf, buf_len, filename, eval_flags);
 
-    if (is_async && !JS_IsException(res_val)) {
-        JS_FreeValue(ctx, res_val);
+    if ((is_async || ret_promise) && !JS_IsException(res_val)) {
+        JSValue promise = JS_UNDEFINED;
+        if (ret_promise) {
+            promise = res_val;
+        } else {
+            JS_FreeValue(ctx, res_val);
+        }
         for(;;) {
             JSContext *ctx1;
             ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
@@ -1196,15 +1203,27 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
                 res_val = JS_EXCEPTION;
                 break;
             } else if (ret == 0) {
-                /* test if the test called $DONE() once */
-                if (async_done != 1) {
-                    res_val = JS_ThrowTypeError(ctx, "$DONE() not called");
+                if (is_async) {
+                    /* test if the test called $DONE() once */
+                    if (async_done != 1) {
+                        res_val = JS_ThrowTypeError(ctx, "$DONE() not called");
+                    } else {
+                        res_val = JS_UNDEFINED;
+                    }
                 } else {
-                    res_val = JS_UNDEFINED;
+                    /* check that the returned promise is fulfilled */
+                    JSPromiseStateEnum state = JS_PromiseState(ctx, promise);
+                    if (state == JS_PROMISE_FULFILLED)
+                        res_val = JS_UNDEFINED;
+                    else if (state == JS_PROMISE_REJECTED)
+                        res_val = JS_Throw(ctx, JS_PromiseResult(ctx, promise));
+                    else
+                        res_val = JS_ThrowTypeError(ctx, "promise is pending");
                 }
                 break;
             }
         }
+        JS_FreeValue(ctx, promise);
     }
 
     if (JS_IsException(res_val)) {
