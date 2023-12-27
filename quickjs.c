@@ -21225,6 +21225,31 @@ static int peek_token(JSParseState *s, BOOL no_line_terminator)
     return simple_next_token(&p, no_line_terminator);
 }
 
+static void skip_shebang(const uint8_t **pp, const uint8_t *buf_end)
+{
+    const uint8_t *p = *pp;
+    int c;
+
+    if (p[0] == '#' && p[1] == '!') {
+        p += 2;
+        while (p < buf_end) {
+            if (*p == '\n' || *p == '\r') {
+                break;
+            } else if (*p >= 0x80) {
+                c = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX, &p);
+                if (c == CP_LS || c == CP_PS) {
+                    break;
+                } else if (c == -1) {
+                    p++; /* skip invalid UTF-8 */
+                }
+            } else {
+                p++;
+            }
+        }
+        *pp = p;
+    }
+}
+
 /* return true if 'input' contains the source of a module
    (heuristic). 'input' must be a zero terminated.
 
@@ -21235,6 +21260,8 @@ BOOL JS_DetectModule(const char *input, size_t input_len)
 {
     const uint8_t *p = (const uint8_t *)input;
     int tok;
+
+    skip_shebang(&p, p + input_len);
     switch(simple_next_token(&p, FALSE)) {
     case TOK_IMPORT:
         tok = simple_next_token(&p, FALSE);
@@ -33850,31 +33877,6 @@ JSValue JS_EvalFunction(JSContext *ctx, JSValue fun_obj)
     return JS_EvalFunctionInternal(ctx, fun_obj, ctx->global_obj, NULL, NULL);
 }
 
-static void skip_shebang(JSParseState *s)
-{
-    const uint8_t *p = s->buf_ptr;
-    int c;
-
-    if (p[0] == '#' && p[1] == '!') {
-        p += 2;
-        while (p < s->buf_end) {
-            if (*p == '\n' || *p == '\r') {
-                break;
-            } else if (*p >= 0x80) {
-                c = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX, &p);
-                if (c == CP_LS || c == CP_PS) {
-                    break;
-                } else if (c == -1) {
-                    p++; /* skip invalid UTF-8 */
-                }
-            } else {
-                p++;
-            }
-        }
-        s->buf_ptr = p;
-    }
-}
-
 /* 'input' must be zero terminated i.e. input[input_len] = '\0'. */
 static JSValue __JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
                                  const char *input, size_t input_len,
@@ -33890,7 +33892,7 @@ static JSValue __JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
     JSModuleDef *m;
 
     js_parse_init(ctx, s, input, input_len, filename);
-    skip_shebang(s);
+    skip_shebang(&s->buf_ptr, s->buf_end);
 
     eval_type = flags & JS_EVAL_TYPE_MASK;
     m = NULL;
