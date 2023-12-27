@@ -24236,8 +24236,10 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
                     return -1;
                 }
                 name = JS_DupAtom(s->ctx, s->token.u.ident.atom);
-                if (next_token(s))  /* update line number before emitting code */
+                if (next_token(s)) {  /* update line number before emitting code */
+                    JS_FreeAtom(s->ctx, name);
                     return -1;
+                }
             do_get_var:
                 emit_op(s, OP_scope_get_var);
                 emit_u32(s, name);
