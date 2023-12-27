@@ -40824,6 +40824,84 @@ static int64_t string_advance_index(JSString *p, int64_t index, BOOL unicode)
     return index;
 }
 
+/* return the position of the first invalid character in the string or
+   -1 if none */
+static int js_string_find_invalid_codepoint(JSString *p)
+{
+    int i, c;
+    if (!p->is_wide_char)
+        return -1;
+    for(i = 0; i < p->len; i++) {
+        c = p->u.str16[i];
+        if (c >= 0xD800 && c <= 0xDFFF) {
+            if (c >= 0xDC00 || (i + 1) >= p->len)
+                return i;
+            c = p->u.str16[i + 1];
+            if (c < 0xDC00 || c > 0xDFFF)
+                return i;
+            i++;
+        }
+    }
+    return -1;
+}
+
+static JSValue js_string_isWellFormed(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+    JSValue str;
+    JSString *p;
+    BOOL ret;
+    
+    str = JS_ToStringCheckObject(ctx, this_val);
+    if (JS_IsException(str))
+        return JS_EXCEPTION;
+    p = JS_VALUE_GET_STRING(str);
+    ret = (js_string_find_invalid_codepoint(p) < 0);
+    JS_FreeValue(ctx, str);
+    return JS_NewBool(ctx, ret);
+}
+
+static JSValue js_string_toWellFormed(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+    JSValue str, ret;
+    JSString *p;
+    int c, i;
+
+    str = JS_ToStringCheckObject(ctx, this_val);
+    if (JS_IsException(str))
+        return JS_EXCEPTION;
+
+    p = JS_VALUE_GET_STRING(str);
+    /* avoid reallocating the string if it is well-formed */
+    i = js_string_find_invalid_codepoint(p);
+    if (i < 0)
+        return str;
+
+    ret = js_new_string16(ctx, p->u.str16, p->len);
+    JS_FreeValue(ctx, str);
+    if (JS_IsException(ret))
+        return JS_EXCEPTION;
+    
+    p = JS_VALUE_GET_STRING(ret);
+    for (; i < p->len; i++) {
+        c = p->u.str16[i];
+        if (c >= 0xD800 && c <= 0xDFFF) {
+            if (c >= 0xDC00 || (i + 1) >= p->len) {
+                p->u.str16[i] = 0xFFFD;
+            } else {
+                c = p->u.str16[i + 1];
+                if (c < 0xDC00 || c > 0xDFFF) {
+                    p->u.str16[i] = 0xFFFD;
+                } else {
+                    i++;
+                }
+            }
+        }
+    }
+    return ret;
+}
+
 static JSValue js_string_indexOf(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv, int lastIndexOf)
 {
@@ -42044,6 +42122,8 @@ static const JSCFunctionListEntry js_string_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("charAt", 1, js_string_charAt, 0 ),
     JS_CFUNC_DEF("concat", 1, js_string_concat ),
     JS_CFUNC_DEF("codePointAt", 1, js_string_codePointAt ),
+    JS_CFUNC_DEF("isWellFormed", 0, js_string_isWellFormed ),
+    JS_CFUNC_DEF("toWellFormed", 0, js_string_toWellFormed ),
     JS_CFUNC_MAGIC_DEF("indexOf", 1, js_string_indexOf, 0 ),
     JS_CFUNC_MAGIC_DEF("lastIndexOf", 1, js_string_indexOf, 1 ),
     JS_CFUNC_MAGIC_DEF("includes", 1, js_string_includes, 0 ),
