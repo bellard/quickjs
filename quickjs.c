@@ -42894,6 +42894,9 @@ static JSValue js_compile_regexp(JSContext *ctx, JSValueConst pattern,
         /* XXX: re_flags = LRE_FLAG_OCTAL unless strict mode? */
         for (i = 0; i < len; i++) {
             switch(str[i]) {
+            case 'd':
+                mask = LRE_FLAG_INDICES;
+                break;
             case 'g':
                 mask = LRE_FLAG_GLOBAL;
                 break;
@@ -43237,6 +43240,11 @@ static JSValue js_regexp_get_flags(JSContext *ctx, JSValueConst this_val)
     if (JS_VALUE_GET_TAG(this_val) != JS_TAG_OBJECT)
         return JS_ThrowTypeErrorNotAnObject(ctx);
 
+    res = JS_ToBoolFree(ctx, JS_GetPropertyStr(ctx, this_val, "hasIndices"));
+    if (res < 0)
+        goto exception;
+    if (res)
+        *p++ = 'd';
     res = JS_ToBoolFree(ctx, JS_GetProperty(ctx, this_val, JS_ATOM_global));
     if (res < 0)
         goto exception;
@@ -43316,25 +43324,32 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
 {
     JSRegExp *re = js_get_regexp(ctx, this_val, TRUE);
     JSString *str;
-    JSValue str_val, obj, val, groups = JS_UNDEFINED;
+    JSValue t, ret, str_val, obj, val, groups;
+    JSValue indices, indices_groups;
     uint8_t *re_bytecode;
-    int ret;
     uint8_t **capture, *str_buf;
-    int capture_count, shift, i, re_flags;
+    int rc, capture_count, shift, i, re_flags;
     int64_t last_index;
     const char *group_name_ptr;
 
     if (!re)
         return JS_EXCEPTION;
+
     str_val = JS_ToString(ctx, argv[0]);
     if (JS_IsException(str_val))
-        return str_val;
-    val = JS_GetProperty(ctx, this_val, JS_ATOM_lastIndex);
-    if (JS_IsException(val) ||
-        JS_ToLengthFree(ctx, &last_index, val)) {
-        JS_FreeValue(ctx, str_val);
         return JS_EXCEPTION;
-    }
+
+    ret = JS_EXCEPTION;
+    obj = JS_NULL;
+    groups = JS_UNDEFINED;
+    indices = JS_UNDEFINED;
+    indices_groups = JS_UNDEFINED;
+    capture = NULL;
+
+    val = JS_GetProperty(ctx, this_val, JS_ATOM_lastIndex);
+    if (JS_IsException(val) || JS_ToLengthFree(ctx, &last_index, val))
+        goto fail;
+
     re_bytecode = re->bytecode->u.str8;
     re_flags = lre_get_flags(re_bytecode);
     if ((re_flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY)) == 0) {
@@ -43342,27 +43357,23 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
     }
     str = JS_VALUE_GET_STRING(str_val);
     capture_count = lre_get_capture_count(re_bytecode);
-    capture = NULL;
     if (capture_count > 0) {
         capture = js_malloc(ctx, sizeof(capture[0]) * capture_count * 2);
-        if (!capture) {
-            JS_FreeValue(ctx, str_val);
-            return JS_EXCEPTION;
-        }
+        if (!capture)
+            goto fail;
     }
     shift = str->is_wide_char;
     str_buf = str->u.str8;
     if (last_index > str->len) {
-        ret = 2;
+        rc = 2;
     } else {
-        ret = lre_exec(capture, re_bytecode,
-                       str_buf, last_index, str->len,
-                       shift, ctx);
+        rc = lre_exec(capture, re_bytecode,
+                      str_buf, last_index, str->len,
+                      shift, ctx);
     }
-    obj = JS_NULL;
-    if (ret != 1) {
-        if (ret >= 0) {
-            if (ret == 2 || (re_flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY))) {
+    if (rc != 1) {
+        if (rc >= 0) {
+            if (rc == 2 || (re_flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY))) {
                 if (JS_SetProperty(ctx, this_val, JS_ATOM_lastIndex,
                                    JS_NewInt32(ctx, 0)) < 0)
                     goto fail;
@@ -43371,7 +43382,6 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
             JS_ThrowInternalError(ctx, "out of memory in regexp execution");
             goto fail;
         }
-        JS_FreeValue(ctx, str_val);
     } else {
         int prop_flags;
         if (re_flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY)) {
@@ -43389,52 +43399,124 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
             if (JS_IsException(groups))
                 goto fail;
         }
-
-        for(i = 0; i < capture_count; i++) {
-            int start, end;
-            JSValue val;
-            if (capture[2 * i] == NULL ||
-                capture[2 * i + 1] == NULL) {
-                val = JS_UNDEFINED;
-            } else {
-                start = (capture[2 * i] - str_buf) >> shift;
-                end = (capture[2 * i + 1] - str_buf) >> shift;
-                val = js_sub_string(ctx, str, start, end);
-                if (JS_IsException(val))
+        if (re_flags & LRE_FLAG_INDICES) {
+            indices = JS_NewArray(ctx);
+            if (JS_IsException(indices))
+                goto fail;
+            if (group_name_ptr) {
+                indices_groups = JS_NewObjectProto(ctx, JS_NULL);
+                if (JS_IsException(indices_groups))
                     goto fail;
             }
+        }
+
+        for(i = 0; i < capture_count; i++) {
+            const char *name = NULL;
+            uint8_t **match = &capture[2 * i];
+            int start = -1;
+            int end = -1;
+            JSValue val;
+            
             if (group_name_ptr && i > 0) {
-                if (*group_name_ptr) {
-                    if (JS_DefinePropertyValueStr(ctx, groups, group_name_ptr,
-                                                  JS_DupValue(ctx, val),
-                                                  prop_flags) < 0) {
+                if (*group_name_ptr) name = group_name_ptr;
+                group_name_ptr += strlen(group_name_ptr) + 1;
+            }
+
+            if (match[0] && match[1]) {
+                start = (match[0] - str_buf) >> shift;
+                end = (match[1] - str_buf) >> shift;
+            }
+
+            if (!JS_IsUndefined(indices)) {
+                val = JS_UNDEFINED;
+                if (start != -1) {
+                    val = JS_NewArray(ctx);
+                    if (JS_IsException(val))
+                        goto fail;
+                    if (JS_DefinePropertyValueUint32(ctx, val, 0,
+                                                     JS_NewInt32(ctx, start),
+                                                     prop_flags) < 0) {
+                        JS_FreeValue(ctx, val);
+                        goto fail;
+                    }
+                    if (JS_DefinePropertyValueUint32(ctx, val, 1,
+                                                     JS_NewInt32(ctx, end),
+                                                     prop_flags) < 0) {
                         JS_FreeValue(ctx, val);
                         goto fail;
                     }
                 }
-                group_name_ptr += strlen(group_name_ptr) + 1;
+                if (name && !JS_IsUndefined(indices_groups)) {
+                    val = JS_DupValue(ctx, val);
+                    if (JS_DefinePropertyValueStr(ctx, indices_groups,
+                                                  name, val, prop_flags) < 0) {
+                        JS_FreeValue(ctx, val);
+                        goto fail;
+                    }
+                }
+                if (JS_DefinePropertyValueUint32(ctx, indices, i, val,
+                                                 prop_flags) < 0) {
+                    goto fail;
+                }
             }
+
+            val = JS_UNDEFINED;
+            if (start != -1) {
+                val = js_sub_string(ctx, str, start, end);
+                if (JS_IsException(val))
+                    goto fail;
+            }
+
+            if (name) {
+                if (JS_DefinePropertyValueStr(ctx, groups, name,
+                                              JS_DupValue(ctx, val),
+                                              prop_flags) < 0) {
+                    JS_FreeValue(ctx, val);
+                    goto fail;
+                }
+            }
+
             if (JS_DefinePropertyValueUint32(ctx, obj, i, val, prop_flags) < 0)
                 goto fail;
         }
+
+        t = groups, groups = JS_UNDEFINED;
         if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_groups,
-                                   groups, prop_flags) < 0)
+                                   t, prop_flags) < 0) {
             goto fail;
-        if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_index,
-                                   JS_NewInt32(ctx, (capture[0] - str_buf) >> shift), prop_flags) < 0)
+        }
+
+        t = JS_NewInt32(ctx, (capture[0] - str_buf) >> shift);
+        if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_index, t, prop_flags) < 0)
             goto fail;
-        if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_input, str_val, prop_flags) < 0)
-            goto fail1;
+
+        t = str_val, str_val = JS_UNDEFINED;
+        if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_input, t, prop_flags) < 0)
+            goto fail;
+
+        if (!JS_IsUndefined(indices)) {
+            t = indices_groups, indices_groups = JS_UNDEFINED;
+            if (JS_DefinePropertyValue(ctx, indices, JS_ATOM_groups,
+                                       t, prop_flags) < 0) {
+                goto fail;
+            }
+            t = indices, indices = JS_UNDEFINED;
+            if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_indices,
+                                       t, prop_flags) < 0) {
+                goto fail;
+            }
+        }
     }
-    js_free(ctx, capture);
-    return obj;
+    ret = obj;
+    obj = JS_UNDEFINED;
 fail:
-    JS_FreeValue(ctx, groups);
+    JS_FreeValue(ctx, indices_groups);
+    JS_FreeValue(ctx, indices);
     JS_FreeValue(ctx, str_val);
-fail1:
+    JS_FreeValue(ctx, groups);
     JS_FreeValue(ctx, obj);
     js_free(ctx, capture);
-    return JS_EXCEPTION;
+    return ret;
 }
 
 /* delete portions of a string that match a given regex */
@@ -44284,12 +44366,13 @@ static const JSCFunctionListEntry js_regexp_funcs[] = {
 static const JSCFunctionListEntry js_regexp_proto_funcs[] = {
     JS_CGETSET_DEF("flags", js_regexp_get_flags, NULL ),
     JS_CGETSET_DEF("source", js_regexp_get_source, NULL ),
-    JS_CGETSET_MAGIC_DEF("global", js_regexp_get_flag, NULL, 1 ),
-    JS_CGETSET_MAGIC_DEF("ignoreCase", js_regexp_get_flag, NULL, 2 ),
-    JS_CGETSET_MAGIC_DEF("multiline", js_regexp_get_flag, NULL, 4 ),
-    JS_CGETSET_MAGIC_DEF("dotAll", js_regexp_get_flag, NULL, 8 ),
-    JS_CGETSET_MAGIC_DEF("unicode", js_regexp_get_flag, NULL, 16 ),
-    JS_CGETSET_MAGIC_DEF("sticky", js_regexp_get_flag, NULL, 32 ),
+    JS_CGETSET_MAGIC_DEF("global", js_regexp_get_flag, NULL, LRE_FLAG_GLOBAL ),
+    JS_CGETSET_MAGIC_DEF("ignoreCase", js_regexp_get_flag, NULL, LRE_FLAG_IGNORECASE ),
+    JS_CGETSET_MAGIC_DEF("multiline", js_regexp_get_flag, NULL, LRE_FLAG_MULTILINE ),
+    JS_CGETSET_MAGIC_DEF("dotAll", js_regexp_get_flag, NULL, LRE_FLAG_DOTALL ),
+    JS_CGETSET_MAGIC_DEF("unicode", js_regexp_get_flag, NULL, LRE_FLAG_UTF16 ),
+    JS_CGETSET_MAGIC_DEF("sticky", js_regexp_get_flag, NULL, LRE_FLAG_STICKY ),
+    JS_CGETSET_MAGIC_DEF("hasIndices", js_regexp_get_flag, NULL, LRE_FLAG_INDICES ),
     JS_CFUNC_DEF("exec", 1, js_regexp_exec ),
     JS_CFUNC_DEF("compile", 2, js_regexp_compile ),
     JS_CFUNC_DEF("test", 1, js_regexp_test ),
