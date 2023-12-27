@@ -217,7 +217,7 @@ static const char *unicode_prop_short_name[] = {
 #undef DEF
 };
 
-#undef UNICODE_SPROP_LIST
+#undef UNICODE_PROP_LIST
 
 typedef struct {
     /* case conv */
