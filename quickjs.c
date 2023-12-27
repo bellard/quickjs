@@ -4468,6 +4468,7 @@ static no_inline int resize_properties(JSContext *ctx, JSShape **psh,
     JSShapeProperty *pr;
     void *sh_alloc;
     intptr_t h;
+    JSShape *old_sh;
 
     sh = *psh;
     new_size = max_int(count, sh->prop_size * 3 / 2);
@@ -4483,19 +4484,21 @@ static no_inline int resize_properties(JSContext *ctx, JSShape **psh,
     new_hash_size = sh->prop_hash_mask + 1;
     while (new_hash_size < new_size)
         new_hash_size = 2 * new_hash_size;
+    /* resize the property shapes. Using js_realloc() is not possible in
+       case the GC runs during the allocation */
+    old_sh = sh;
+    sh_alloc = js_malloc(ctx, get_shape_size(new_hash_size, new_size));
+    if (!sh_alloc)
+        return -1;
+    sh = get_shape_from_alloc(sh_alloc, new_hash_size);
+    list_del(&old_sh->header.link);
+    /* copy all the shape properties */
+    memcpy(sh, old_sh,
+           sizeof(JSShape) + sizeof(sh->prop[0]) * old_sh->prop_count);
+    list_add_tail(&sh->header.link, &ctx->rt->gc_obj_list);
+    
     if (new_hash_size != (sh->prop_hash_mask + 1)) {
-        JSShape *old_sh;
         /* resize the hash table and the properties */
-        old_sh = sh;
-        sh_alloc = js_malloc(ctx, get_shape_size(new_hash_size, new_size));
-        if (!sh_alloc)
-            return -1;
-        sh = get_shape_from_alloc(sh_alloc, new_hash_size);
-        list_del(&old_sh->header.link);
-        /* copy all the fields and the properties */
-        memcpy(sh, old_sh,
-               sizeof(JSShape) + sizeof(sh->prop[0]) * old_sh->prop_count);
-        list_add_tail(&sh->header.link, &ctx->rt->gc_obj_list);
         new_hash_mask = new_hash_size - 1;
         sh->prop_hash_mask = new_hash_mask;
         memset(prop_hash_end(sh) - new_hash_size, 0,
@@ -4507,20 +4510,12 @@ static no_inline int resize_properties(JSContext *ctx, JSShape **psh,
                 prop_hash_end(sh)[-h - 1] = i + 1;
             }
         }
-        js_free(ctx, get_alloc_from_shape(old_sh));
     } else {
-        /* only resize the properties */
-        list_del(&sh->header.link);
-        sh_alloc = js_realloc(ctx, get_alloc_from_shape(sh),
-                              get_shape_size(new_hash_size, new_size));
-        if (unlikely(!sh_alloc)) {
-            /* insert again in the GC list */
-            list_add_tail(&sh->header.link, &ctx->rt->gc_obj_list);
-            return -1;
-        }
-        sh = get_shape_from_alloc(sh_alloc, new_hash_size);
-        list_add_tail(&sh->header.link, &ctx->rt->gc_obj_list);
+        /* just copy the previous hash table */
+        memcpy(prop_hash_end(sh) - new_hash_size, prop_hash_end(old_sh) - new_hash_size,
+               sizeof(prop_hash_end(sh)[0]) * new_hash_size);
     }
+    js_free(ctx, get_alloc_from_shape(old_sh));
     *psh = sh;
     sh->prop_size = new_size;
     return 0;
