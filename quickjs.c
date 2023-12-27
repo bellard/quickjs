@@ -1271,6 +1271,8 @@ static JSValue js_module_ns_autoinit(JSContext *ctx, JSObject *p, JSAtom atom,
 static JSValue JS_InstantiateFunctionListItem2(JSContext *ctx, JSObject *p,
                                                JSAtom atom, void *opaque);
 void JS_SetUncatchableError(JSContext *ctx, JSValueConst val, BOOL flag);
+static JSValue js_object_groupBy(JSContext *ctx, JSValueConst this_val,
+                                 int argc, JSValueConst *argv, int is_map);
 
 static const JSClassExoticMethods js_arguments_exotic_methods;
 static const JSClassExoticMethods js_string_exotic_methods;
@@ -37711,6 +37713,7 @@ static const JSCFunctionListEntry js_object_funcs[] = {
     JS_CFUNC_DEF("defineProperties", 2, js_object_defineProperties ),
     JS_CFUNC_DEF("getOwnPropertyNames", 1, js_object_getOwnPropertyNames ),
     JS_CFUNC_DEF("getOwnPropertySymbols", 1, js_object_getOwnPropertySymbols ),
+    JS_CFUNC_MAGIC_DEF("groupBy", 2, js_object_groupBy, 0 ),
     JS_CFUNC_MAGIC_DEF("keys", 1, js_object_keys, JS_ITERATOR_KIND_KEY ),
     JS_CFUNC_MAGIC_DEF("values", 1, js_object_keys, JS_ITERATOR_KIND_VALUE ),
     JS_CFUNC_MAGIC_DEF("entries", 1, js_object_keys, JS_ITERATOR_KIND_KEY_AND_VALUE ),
@@ -46456,6 +46459,123 @@ static JSValue js_map_forEach(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+static JSValue js_object_groupBy(JSContext *ctx, JSValueConst this_val,
+                                 int argc, JSValueConst *argv, int is_map)
+{
+    JSValueConst cb, args[2];
+    JSValue res, iter, next, groups, key, v, prop;
+    JSAtom key_atom = JS_ATOM_NULL;
+    int64_t idx;
+    BOOL done;
+
+    // "is function?" check must be observed before argv[0] is accessed
+    cb = argv[1];
+    if (check_function(ctx, cb))
+        return JS_EXCEPTION;
+
+    iter = JS_GetIterator(ctx, argv[0], /*is_async*/FALSE);
+    if (JS_IsException(iter))
+        return JS_EXCEPTION;
+
+    key = JS_UNDEFINED;
+    key_atom = JS_ATOM_NULL;
+    v = JS_UNDEFINED;
+    prop = JS_UNDEFINED;
+    groups = JS_UNDEFINED;
+    
+    next = JS_GetProperty(ctx, iter, JS_ATOM_next);
+    if (JS_IsException(next))
+        goto exception;
+
+    if (is_map) {
+        groups = js_map_constructor(ctx, JS_UNDEFINED, 0, NULL, 0);
+    } else {
+        groups = JS_NewObjectProto(ctx, JS_NULL);
+    }
+    if (JS_IsException(groups))
+        goto exception;
+
+    for (idx = 0; ; idx++) {
+        if (idx >= MAX_SAFE_INTEGER) {
+            JS_ThrowTypeError(ctx, "too many elements");
+            goto iterator_close_exception;
+        }
+        v = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
+        if (JS_IsException(v))
+            goto exception;
+        if (done)
+            break; // v is JS_UNDEFINED
+
+        args[0] = v;
+        args[1] = JS_NewInt64(ctx, idx);
+        key = JS_Call(ctx, cb, ctx->global_obj, 2, args);
+        if (JS_IsException(key))
+            goto iterator_close_exception;
+
+        if (is_map) {
+            prop = js_map_get(ctx, groups, 1, (JSValueConst *)&key, 0);
+        } else {
+            key_atom = JS_ValueToAtom(ctx, key);
+            JS_FreeValue(ctx, key);
+            key = JS_UNDEFINED;
+            if (key_atom == JS_ATOM_NULL)
+                goto iterator_close_exception;
+            prop = JS_GetProperty(ctx, groups, key_atom);
+        }
+        if (JS_IsException(prop))
+            goto exception;
+
+        if (JS_IsUndefined(prop)) {
+            prop = JS_NewArray(ctx);
+            if (JS_IsException(prop))
+                goto exception;
+            if (is_map) {
+                args[0] = key;
+                args[1] = prop;
+                res = js_map_set(ctx, groups, 2, args, 0);
+                if (JS_IsException(res))
+                    goto exception;
+                JS_FreeValue(ctx, res);
+            } else {
+                prop = JS_DupValue(ctx, prop);
+                if (JS_DefinePropertyValue(ctx, groups, key_atom, prop,
+                                           JS_PROP_C_W_E) < 0) {
+                    goto exception;
+                }
+            }
+        }
+        res = js_array_push(ctx, prop, 1, (JSValueConst *)&v, /*unshift*/0);
+        if (JS_IsException(res))
+            goto exception;
+        // res is an int64
+
+        JS_FreeValue(ctx, prop);
+        JS_FreeValue(ctx, key);
+        JS_FreeAtom(ctx, key_atom);
+        JS_FreeValue(ctx, v);
+        prop = JS_UNDEFINED;
+        key = JS_UNDEFINED;
+        key_atom = JS_ATOM_NULL;
+        v = JS_UNDEFINED;
+    }
+
+    JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, next);
+    return groups;
+
+ iterator_close_exception:
+    JS_IteratorClose(ctx, iter, TRUE);
+ exception:
+    JS_FreeAtom(ctx, key_atom);
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, key);
+    JS_FreeValue(ctx, v);
+    JS_FreeValue(ctx, groups);
+    JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, next);
+    return JS_EXCEPTION;
+}
+
 static void js_map_finalizer(JSRuntime *rt, JSValue val)
 {
     JSObject *p;
@@ -46636,6 +46756,7 @@ static JSValue js_map_iterator_next(JSContext *ctx, JSValueConst this_val,
 }
 
 static const JSCFunctionListEntry js_map_funcs[] = {
+    JS_CFUNC_MAGIC_DEF("groupBy", 2, js_object_groupBy, 1 ),
     JS_CGETSET_DEF("[Symbol.species]", js_get_this, NULL ),
 };
 
