@@ -769,6 +769,11 @@ write_fd]} or null in case of error.
 @item sleep(delay_ms)
 Sleep during @code{delay_ms} milliseconds.
 
+@item now()
+Return a timestamp in milliseconds with more precision than
+@code{Date.now()}. The time origin is unspecified and is normally not
+impacted by system clock adjustments.
+
 @item setTimeout(func, delay)
 Call the function @code{func} after @code{delay} ms. Return a handle
 to the timer.

@@ -23,6 +23,7 @@
  * THE SOFTWARE.
  */
 import * as std from "std";
+import * as os from "os";
 
 function pad(str, n) {
     str += "";
@@ -93,21 +94,12 @@ function log_line() {
     console.log(s);
 }
 
-var clocks_per_sec = 1000000;
-var max_iterations = 100;
-var clock_threshold = 2000;  /* favoring short measuring spans */
+var clocks_per_sec = 1000;
+var max_iterations = 10;
+var clock_threshold = 100;  /* favoring short measuring spans */
 var min_n_argument = 1;
-var get_clock;
-
-if (typeof globalThis.__date_clock != "function") {
-    console.log("using fallback millisecond clock");
-    clocks_per_sec = 1000;
-    max_iterations = 10;
-    clock_threshold = 100;
-    get_clock = Date.now;
-} else {
-    get_clock = globalThis.__date_clock;
-}
+//var get_clock = Date.now;
+var get_clock = os.now;
 
 function log_one(text, n, ti) {
     var ref;
