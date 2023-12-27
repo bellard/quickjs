@@ -63,5 +63,5 @@ Optimization ideas:
 Test262o:   0/11262 errors, 463 excluded
 Test262o commit: 7da91bceb9ce7613f87db47ddd1292a2dda58b42 (es5-tests branch)
 
-Result: 16/76707 errors, 1497 excluded, 8237 skipped
+Result: 16/76719 errors, 1497 excluded, 8231 skipped
 Test262 commit: 6cbb6da9473c56d95358d8e679c5a6d2b4574efb
