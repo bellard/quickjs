@@ -270,6 +270,26 @@ function test_timer()
         os.clearTimeout(th[i]);
 }
 
+/* test closure variable handling when freeing asynchronous
+   function */
+function test_async_gc()
+{
+    (async function run () {
+        let obj = {}
+        
+        let done = () => {
+            obj
+            std.gc();
+        }
+        
+        Promise.resolve().then(done)
+        
+        const p = new Promise(() => {})
+        
+        await p
+    })();
+}
+
 test_printf();
 test_file1();
 test_file2();
@@ -279,3 +299,5 @@ test_os();
 test_os_exec();
 test_timer();
 test_ext_json();
+test_async_gc();
+
