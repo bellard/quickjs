@@ -6279,10 +6279,10 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
             if (obj_classes[0])
                 fprintf(fp, "  %5d  %2.0d %s\n", obj_classes[0], 0, "none");
             for (class_id = 1; class_id < JS_CLASS_INIT_COUNT; class_id++) {
-                if (obj_classes[class_id]) {
+                if (obj_classes[class_id] && class_id < rt->class_count) {
                     char buf[ATOM_GET_STR_BUF_SIZE];
                     fprintf(fp, "  %5d  %2.0d %s\n", obj_classes[class_id], class_id,
-                            JS_AtomGetStrRT(rt, buf, sizeof(buf), js_std_class_def[class_id - 1].class_name));
+                            JS_AtomGetStrRT(rt, buf, sizeof(buf), rt->class_array[class_id].class_name));
                 }
             }
             if (obj_classes[JS_CLASS_INIT_COUNT])
