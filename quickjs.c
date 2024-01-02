@@ -33827,7 +33827,7 @@ static __exception int js_parse_program(JSParseState *s)
         emit_op(s, OP_get_loc);
         emit_u16(s, fd->eval_ret_idx);
 
-        emit_op(s, OP_return);
+        emit_return(s, TRUE);
     } else {
         emit_return(s, FALSE);
     }
@@ -33959,7 +33959,7 @@ static JSValue __JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
             goto fail;
     }
     fd->module = m;
-    if (m != NULL) {
+    if (m != NULL || (flags & JS_EVAL_FLAG_ASYNC)) {
         fd->in_function_body = TRUE;
         fd->func_kind = JS_FUNC_ASYNC;
     }

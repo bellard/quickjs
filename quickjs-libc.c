@@ -751,12 +751,16 @@ static JSValue js_evalScript(JSContext *ctx, JSValueConst this_val,
     JSValue ret;
     JSValueConst options_obj;
     BOOL backtrace_barrier = FALSE;
+    BOOL is_async = FALSE;
     int flags;
     
     if (argc >= 2) {
         options_obj = argv[1];
         if (get_bool_option(ctx, &backtrace_barrier, options_obj,
                             "backtrace_barrier"))
+            return JS_EXCEPTION;
+        if (get_bool_option(ctx, &is_async, options_obj,
+                            "async"))
             return JS_EXCEPTION;
     }
 
@@ -770,6 +774,8 @@ static JSValue js_evalScript(JSContext *ctx, JSValueConst this_val,
     flags = JS_EVAL_TYPE_GLOBAL; 
     if (backtrace_barrier)
         flags |= JS_EVAL_FLAG_BACKTRACE_BARRIER;
+    if (is_async)
+        flags |= JS_EVAL_FLAG_ASYNC;
     ret = JS_Eval(ctx, str, len, "<evalScript>", flags);
     JS_FreeCString(ctx, str);
     if (!ts->recv_pipe && --ts->eval_script_recurse == 0) {
@@ -2081,6 +2087,38 @@ static JSClassDef js_os_timer_class = {
     .finalizer = js_os_timer_finalizer,
     .gc_mark = js_os_timer_mark,
 }; 
+
+/* return a promise */
+static JSValue js_os_sleepAsync(JSContext *ctx, JSValueConst this_val,
+                                int argc, JSValueConst *argv)
+{
+    JSRuntime *rt = JS_GetRuntime(ctx);
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+    int64_t delay;
+    JSOSTimer *th;
+    JSValue promise, resolving_funcs[2];
+
+    if (JS_ToInt64(ctx, &delay, argv[0]))
+        return JS_EXCEPTION;
+    promise = JS_NewPromiseCapability(ctx, resolving_funcs);
+    if (JS_IsException(promise))
+        return JS_EXCEPTION;
+
+    th = js_mallocz(ctx, sizeof(*th));
+    if (!th) {
+        JS_FreeValue(ctx, promise);
+        JS_FreeValue(ctx, resolving_funcs[0]);
+        JS_FreeValue(ctx, resolving_funcs[1]);
+        return JS_EXCEPTION;
+    }
+    th->has_object = FALSE;
+    th->timeout = get_time_ms() + delay;
+    th->func = JS_DupValue(ctx, resolving_funcs[0]);
+    list_add_tail(&th->link, &ts->os_timers);
+    JS_FreeValue(ctx, resolving_funcs[0]);
+    JS_FreeValue(ctx, resolving_funcs[1]);
+    return promise;
+}
 
 static void call_handler(JSContext *ctx, JSValueConst func)
 {
@@ -3648,6 +3686,7 @@ static const JSCFunctionListEntry js_os_funcs[] = {
     JS_CFUNC_DEF("now", 0, js_os_now ),
     JS_CFUNC_DEF("setTimeout", 2, js_os_setTimeout ),
     JS_CFUNC_DEF("clearTimeout", 1, js_os_clearTimeout ),
+    JS_CFUNC_DEF("sleepAsync", 1, js_os_sleepAsync ),
     JS_PROP_STRING_DEF("platform", OS_PLATFORM, 0 ),
     JS_CFUNC_DEF("getcwd", 0, js_os_getcwd ),
     JS_CFUNC_DEF("chdir", 0, js_os_chdir ),
