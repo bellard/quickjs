@@ -69,6 +69,11 @@ options then run @code{make}.
 You can type @code{make install} as root if you wish to install the binaries and support files to
 @code{/usr/local} (this is not necessary to use QuickJS).
 
+Note: On some OSes atomic operations are not available or need a
+specific library. If you get related errors, you should either add
+@code{-latomics} in the Makefile @code{LIBS} variable or disable
+@code{CONFIG_ATOMICS} in @file{quickjs.c}.
+
 @section Quick start
 
 @code{qjs} is the command line interpreter (Read-Eval-Print Loop). You can pass
