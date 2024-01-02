@@ -256,6 +256,7 @@ DEF(            and, 1, 2, 1, none)
 DEF(            xor, 1, 2, 1, none)
 DEF(             or, 1, 2, 1, none)
 DEF(is_undefined_or_null, 1, 1, 1, none)
+DEF(     private_in, 1, 2, 1, none)
 #ifdef CONFIG_BIGNUM
 DEF(      mul_pow10, 1, 2, 1, none)
 DEF(       math_mod, 1, 2, 1, none)
@@ -280,7 +281,7 @@ def(scope_put_var_init, 7, 0, 2, atom_u16) /* emitted in phase 1, removed in pha
 def(scope_get_private_field, 7, 1, 1, atom_u16) /* obj -> value, emitted in phase 1, removed in phase 2 */
 def(scope_get_private_field2, 7, 1, 2, atom_u16) /* obj -> obj value, emitted in phase 1, removed in phase 2 */
 def(scope_put_private_field, 7, 2, 0, atom_u16) /* obj value ->, emitted in phase 1, removed in phase 2 */
-
+def(scope_in_private_field, 7, 1, 1, atom_u16) /* obj -> res emitted in phase 1, removed in phase 2 */
 def( set_class_name, 5, 1, 1, u32) /* emitted in phase 1, removed in phase 2 */
     
 def(       line_num, 5, 0, 0, u32) /* emitted in phase 1, removed in phase 3 */

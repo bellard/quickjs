@@ -11,6 +11,8 @@ test262/test/language/expressions/assignment/target-member-computed-reference-un
 test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: TypeError: $DONE() not called
 test262/test/language/expressions/dynamic-import/usage-from-eval.js:26: strict mode: TypeError: $DONE() not called
+test262/test/language/expressions/in/private-field-invalid-assignment-target.js:23: unexpected error type: Test262: This statement should not be evaluated.
+test262/test/language/expressions/in/private-field-invalid-assignment-target.js:23: strict mode: unexpected error type: Test262: This statement should not be evaluated.
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:21: TypeError: cannot read property 'c' of undefined
 test262/test/language/expressions/optional-chaining/optional-call-preserves-this.js:15: strict mode: TypeError: cannot read property '_b' of undefined
 test262/test/language/global-code/script-decl-lex-var-declared-via-eval-sloppy.js:13: Test262Error: variable Expected a SyntaxError to be thrown but no exception was thrown at all
