@@ -29,13 +29,15 @@
           };
       in
       {
-        defaultPackage = pkgs.quickjs;
+        packages.quickjs = pkgs.quickjs;
+
+        defaultPackage = self.packages.${system}.quickjs;
 
         devShell = pkgs.mkShell {
           name = "quickjs";
 
           buildInputs = [
-            pkgs.quickjs
+            self.packages.${system}.quickjs
           ];
 
           shellHook = ''
