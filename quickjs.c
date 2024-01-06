@@ -637,9 +637,11 @@ typedef enum JSIteratorKindEnum {
 
 typedef struct JSForInIterator {
     JSValue obj;
-    BOOL is_array;
-    uint32_t array_length;
     uint32_t idx;
+    uint32_t atom_count;
+    uint8_t in_prototype_chain;
+    uint8_t is_array;
+    JSPropertyEnum *tab_atom; /* is_array = FALSE */
 } JSForInIterator;
 
 typedef struct JSRegExp {
@@ -5399,7 +5401,15 @@ static void js_for_in_iterator_finalizer(JSRuntime *rt, JSValue val)
 {
     JSObject *p = JS_VALUE_GET_OBJ(val);
     JSForInIterator *it = p->u.for_in_iterator;
+    int i;
+    
     JS_FreeValueRT(rt, it->obj);
+    if (!it->is_array) {
+        for(i = 0; i < it->atom_count; i++) {
+            JS_FreeAtomRT(rt, it->tab_atom[i].atom);
+        }
+        js_free_rt(rt, it->tab_atom);
+    }
     js_free_rt(rt, it);
 }
 
@@ -14842,10 +14852,10 @@ static JSValue js_build_rest(JSContext *ctx, int first, int argc, JSValueConst *
 
 static JSValue build_for_in_iterator(JSContext *ctx, JSValue obj)
 {
-    JSObject *p;
+    JSObject *p, *p1;
     JSPropertyEnum *tab_atom;
     int i;
-    JSValue enum_obj, obj1;
+    JSValue enum_obj;
     JSForInIterator *it;
     uint32_t tag, tab_atom_count;
 
@@ -14868,14 +14878,65 @@ static JSValue build_for_in_iterator(JSContext *ctx, JSValue obj)
     it->is_array = FALSE;
     it->obj = obj;
     it->idx = 0;
-    p = JS_VALUE_GET_OBJ(enum_obj);
-    p->u.for_in_iterator = it;
+    it->tab_atom = NULL;
+    it->atom_count = 0;
+    it->in_prototype_chain = FALSE;
+    p1 = JS_VALUE_GET_OBJ(enum_obj);
+    p1->u.for_in_iterator = it;
 
     if (tag == JS_TAG_NULL || tag == JS_TAG_UNDEFINED)
         return enum_obj;
 
-    /* fast path: assume no enumerable properties in the prototype chain */
-    obj1 = JS_DupValue(ctx, obj);
+    p = JS_VALUE_GET_OBJ(obj);
+    if (p->fast_array) {
+        JSShape *sh;
+        JSShapeProperty *prs;
+        /* check that there are no enumerable normal fields */
+        sh = p->shape;
+        for(i = 0, prs = get_shape_prop(sh); i < sh->prop_count; i++, prs++) {
+            if (prs->flags & JS_PROP_ENUMERABLE)
+                goto normal_case;
+        }
+        /* for fast arrays, we only store the number of elements */
+        it->is_array = TRUE;
+        it->atom_count = p->u.array.count;
+    } else {
+    normal_case:
+        if (JS_GetOwnPropertyNamesInternal(ctx, &tab_atom, &tab_atom_count, p,
+                                           JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
+            JS_FreeValue(ctx, enum_obj);
+            return JS_EXCEPTION;
+        }
+        it->tab_atom = tab_atom;
+        it->atom_count = tab_atom_count;
+    }
+    return enum_obj;
+}
+
+/* obj -> enum_obj */
+static __exception int js_for_in_start(JSContext *ctx, JSValue *sp)
+{
+    sp[-1] = build_for_in_iterator(ctx, sp[-1]);
+    if (JS_IsException(sp[-1]))
+        return -1;
+    return 0;
+}
+
+/* return -1 if exception, 0 if slow case, 1 if the enumeration is finished */
+static __exception int js_for_in_prepare_prototype_chain_enum(JSContext *ctx,
+                                                              JSValueConst enum_obj)
+{
+    JSObject *p;
+    JSForInIterator *it;
+    JSPropertyEnum *tab_atom;
+    uint32_t tab_atom_count, i;
+    JSValue obj1;
+    
+    p = JS_VALUE_GET_OBJ(enum_obj);
+    it = p->u.for_in_iterator;
+
+    /* check if there are enumerable properties in the prototype chain (fast path) */
+    obj1 = JS_DupValue(ctx, it->obj);
     for(;;) {
         obj1 = JS_GetPrototypeFree(ctx, obj1);
         if (JS_IsNull(obj1))
@@ -14899,75 +14960,29 @@ static JSValue build_for_in_iterator(JSContext *ctx, JSValue obj)
             goto fail;
         }
     }
-
-    p = JS_VALUE_GET_OBJ(obj);
-
-    if (p->fast_array) {
-        JSShape *sh;
-        JSShapeProperty *prs;
-        /* check that there are no enumerable normal fields */
-        sh = p->shape;
-        for(i = 0, prs = get_shape_prop(sh); i < sh->prop_count; i++, prs++) {
-            if (prs->flags & JS_PROP_ENUMERABLE)
-                goto normal_case;
-        }
-        /* for fast arrays, we only store the number of elements */
-        it->is_array = TRUE;
-        it->array_length = p->u.array.count;
-    } else {
-    normal_case:
-        if (JS_GetOwnPropertyNamesInternal(ctx, &tab_atom, &tab_atom_count, p,
-                                   JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY))
-            goto fail;
-        for(i = 0; i < tab_atom_count; i++) {
-            JS_SetPropertyInternal(ctx, enum_obj, tab_atom[i].atom, JS_NULL, enum_obj, 0);
-        }
-        js_free_prop_enum(ctx, tab_atom, tab_atom_count);
-    }
-    return enum_obj;
+    JS_FreeValue(ctx, obj1);
+    return 1;
 
  slow_path:
-    /* non enumerable properties hide the enumerables ones in the
-       prototype chain */
-    obj1 = JS_DupValue(ctx, obj);
-    for(;;) {
+    /* add the visited properties, even if they are not enumerable */
+    if (it->is_array) {
         if (JS_GetOwnPropertyNamesInternal(ctx, &tab_atom, &tab_atom_count,
-                                           JS_VALUE_GET_OBJ(obj1),
+                                           JS_VALUE_GET_OBJ(it->obj),
                                            JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
-            JS_FreeValue(ctx, obj1);
             goto fail;
         }
-        for(i = 0; i < tab_atom_count; i++) {
-            JS_DefinePropertyValue(ctx, enum_obj, tab_atom[i].atom, JS_NULL,
-                                   (tab_atom[i].is_enumerable ?
-                                    JS_PROP_ENUMERABLE : 0));
-        }
-        js_free_prop_enum(ctx, tab_atom, tab_atom_count);
-        obj1 = JS_GetPrototypeFree(ctx, obj1);
-        if (JS_IsNull(obj1))
-            break;
-        if (JS_IsException(obj1))
-            goto fail;
-        /* must check for timeout to avoid infinite loop */
-        if (js_poll_interrupts(ctx)) {
-            JS_FreeValue(ctx, obj1);
-            goto fail;
-        }
+        it->is_array = FALSE;
+        it->tab_atom = tab_atom;
+        it->atom_count = tab_atom_count;
     }
-    return enum_obj;
-
- fail:
-    JS_FreeValue(ctx, enum_obj);
-    return JS_EXCEPTION;
-}
-
-/* obj -> enum_obj */
-static __exception int js_for_in_start(JSContext *ctx, JSValue *sp)
-{
-    sp[-1] = build_for_in_iterator(ctx, sp[-1]);
-    if (JS_IsException(sp[-1]))
-        return -1;
+    
+    for(i = 0; i < it->atom_count; i++) {
+        if (JS_DefinePropertyValue(ctx, enum_obj, it->tab_atom[i].atom, JS_NULL, JS_PROP_ENUMERABLE) < 0)
+            goto fail;
+    }
     return 0;
+ fail:
+    return -1;
 }
 
 /* enum_obj -> enum_obj value done */
@@ -14977,6 +14992,8 @@ static __exception int js_for_in_next(JSContext *ctx, JSValue *sp)
     JSObject *p;
     JSAtom prop;
     JSForInIterator *it;
+    JSPropertyEnum *tab_atom;
+    uint32_t tab_atom_count;
     int ret;
 
     enum_obj = sp[-1];
@@ -14989,28 +15006,68 @@ static __exception int js_for_in_next(JSContext *ctx, JSValue *sp)
     it = p->u.for_in_iterator;
 
     for(;;) {
-        if (it->is_array) {
-            if (it->idx >= it->array_length)
-                goto done;
-            prop = __JS_AtomFromUInt32(it->idx);
-            it->idx++;
+        if (it->idx >= it->atom_count) {
+            if (JS_IsNull(it->obj) || JS_IsUndefined(it->obj))
+                goto done; /* not an object */
+            /* no more property in the current object: look in the prototype */
+            if (!it->in_prototype_chain) {
+                ret = js_for_in_prepare_prototype_chain_enum(ctx, enum_obj);
+                if (ret < 0)
+                    return -1;
+                if (ret)
+                    goto done;
+                it->in_prototype_chain = TRUE;
+            }
+            it->obj = JS_GetPrototypeFree(ctx, it->obj);
+            if (JS_IsException(it->obj))
+                return -1;
+            if (JS_IsNull(it->obj))
+                goto done; /* no more prototype */
+
+            /* must check for timeout to avoid infinite loop */
+            if (js_poll_interrupts(ctx))
+                return -1;
+
+            if (JS_GetOwnPropertyNamesInternal(ctx, &tab_atom, &tab_atom_count,
+                                               JS_VALUE_GET_OBJ(it->obj),
+                                               JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
+                return -1;
+            }
+            js_free_prop_enum(ctx, it->tab_atom, it->atom_count);
+            it->tab_atom = tab_atom;
+            it->atom_count = tab_atom_count;
+            it->idx = 0;
         } else {
-            JSShape *sh = p->shape;
-            JSShapeProperty *prs;
-            if (it->idx >= sh->prop_count)
-                goto done;
-            prs = get_shape_prop(sh) + it->idx;
-            prop = prs->atom;
-            it->idx++;
-            if (prop == JS_ATOM_NULL || !(prs->flags & JS_PROP_ENUMERABLE))
-                continue;
+            if (it->is_array) {
+                prop = __JS_AtomFromUInt32(it->idx);
+                it->idx++;
+            } else {
+                BOOL is_enumerable;
+                prop = it->tab_atom[it->idx].atom;
+                is_enumerable = it->tab_atom[it->idx].is_enumerable;
+                it->idx++;
+                if (it->in_prototype_chain) {
+                    /* slow case: we are in the prototype chain */
+                    ret = JS_GetOwnPropertyInternal(ctx, NULL, JS_VALUE_GET_OBJ(enum_obj), prop);
+                    if (ret < 0)
+                        return ret;
+                    if (ret)
+                        continue; /* already visited */
+                    /* add to the visited property list */
+                    if (JS_DefinePropertyValue(ctx, enum_obj, prop, JS_NULL,
+                                               JS_PROP_ENUMERABLE) < 0)
+                        return -1;
+                }
+                if (!is_enumerable)
+                    continue;
+            }
+            /* check if the property was deleted */
+            ret = JS_GetOwnPropertyInternal(ctx, NULL, JS_VALUE_GET_OBJ(it->obj), prop);
+            if (ret < 0)
+                return ret;
+            if (ret)
+                break;
         }
-        /* check if the property was deleted */
-        ret = JS_HasProperty(ctx, it->obj, prop);
-        if (ret < 0)
-            return ret;
-        if (ret)
-            break;
     }
     /* return the property */
     sp[0] = JS_AtomToValue(ctx, prop);
