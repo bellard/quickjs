@@ -7899,6 +7899,16 @@ static JSValue JS_GetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         /* fast path for array access */
         p = JS_VALUE_GET_OBJ(this_obj);
         idx = JS_VALUE_GET_INT(prop);
+        /* Note: this code works even if 'p->u.array.count' is not
+           initialized. There are two cases:
+           - 'p' is an array-like object. 'p->u.array.count' is
+             initialized so the slow_path is taken when the index is
+             out of bounds.
+           - 'p' is not an array-like object. 'p->u.array.count' has
+           any value and potentially not initialized. In all the cases
+           (idx >= len or idx < len) the slow path is taken as
+           expected.
+        */
         len = (uint32_t)p->u.array.count;
         if (unlikely(idx >= len))
             goto slow_path;
