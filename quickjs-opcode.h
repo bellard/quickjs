@@ -172,6 +172,7 @@ DEF(set_loc_uninitialized, 3, 0, 0, loc)
 DEF(  get_loc_check, 3, 0, 1, loc)
 DEF(  put_loc_check, 3, 1, 0, loc) /* must come after get_loc_check */
 DEF(  put_loc_check_init, 3, 1, 0, loc)
+DEF(get_loc_checkthis, 3, 0, 1, loc)
 DEF(get_var_ref_check, 3, 0, 1, var_ref) 
 DEF(put_var_ref_check, 3, 1, 0, var_ref) /* must come after get_var_ref_check */
 DEF(put_var_ref_check_init, 3, 1, 0, var_ref)
@@ -271,6 +272,8 @@ def(    leave_scope, 3, 0, 0, u16)  /* emitted in phase 1, removed in phase 2 */
 
 def(          label, 5, 0, 0, label) /* emitted in phase 1, removed in phase 3 */
 
+/* the following opcodes must be in the same order as the 'with_x' and
+   get_var_undef, get_var and put_var opcodes */
 def(scope_get_var_undef, 7, 0, 1, atom_u16) /* emitted in phase 1, removed in phase 2 */
 def(  scope_get_var, 7, 0, 1, atom_u16) /* emitted in phase 1, removed in phase 2 */
 def(  scope_put_var, 7, 1, 0, atom_u16) /* emitted in phase 1, removed in phase 2 */
@@ -278,6 +281,7 @@ def(scope_delete_var, 7, 0, 1, atom_u16) /* emitted in phase 1, removed in phase
 def( scope_make_ref, 11, 0, 2, atom_label_u16) /* emitted in phase 1, removed in phase 2 */
 def(  scope_get_ref, 7, 0, 2, atom_u16) /* emitted in phase 1, removed in phase 2 */
 def(scope_put_var_init, 7, 0, 2, atom_u16) /* emitted in phase 1, removed in phase 2 */
+def(scope_get_var_checkthis, 7, 0, 1, atom_u16) /* emitted in phase 1, removed in phase 2, only used to return 'this' in derived class constructors */
 def(scope_get_private_field, 7, 1, 1, atom_u16) /* obj -> value, emitted in phase 1, removed in phase 2 */
 def(scope_get_private_field2, 7, 1, 2, atom_u16) /* obj -> obj value, emitted in phase 1, removed in phase 2 */
 def(scope_put_private_field, 7, 2, 0, atom_u16) /* obj value ->, emitted in phase 1, removed in phase 2 */

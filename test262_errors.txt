@@ -1,6 +1,4 @@
 test262/test/annexB/language/eval-code/direct/script-decl-lex-collision-in-sloppy-mode.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: Test262Error: Expected a ReferenceError but got a different error constructor with the same name
-test262/test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js:20: strict mode: Test262Error: Expected a ReferenceError but got a different error constructor with the same name
 test262/test/built-ins/RegExp/lookahead-quantifier-match-groups.js:27: Test262Error: Expected [a, abc] and [a, undefined] to have the same contents. ? quantifier
 test262/test/built-ins/RegExp/lookahead-quantifier-match-groups.js:27: strict mode: Test262Error: Expected [a, abc] and [a, undefined] to have the same contents. ? quantifier
 test262/test/built-ins/RegExp/unicode_full_case_folding.js:20: Test262Error: \u0390 does not match \u1fd3

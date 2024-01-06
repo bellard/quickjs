@@ -16976,6 +16976,19 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 sp++;
             }
             BREAK;
+        CASE(OP_get_loc_checkthis):
+            {
+                int idx;
+                idx = get_u16(pc);
+                pc += 2;
+                if (unlikely(JS_IsUninitialized(var_buf[idx]))) {
+                    JS_ThrowReferenceErrorUninitialized2(caller_ctx, b, idx, FALSE);
+                    goto exception;
+                }
+                sp[0] = JS_DupValue(ctx, var_buf[idx]);
+                sp++;
+            }
+            BREAK;
         CASE(OP_put_loc_check):
             {
                 int idx;
@@ -25770,9 +25783,9 @@ static void emit_return(JSParseState *s, BOOL hasval)
             label_return = -1;
         }
 
-        /* XXX: if this is not initialized, should throw the
-           ReferenceError in the caller realm */
-        emit_op(s, OP_scope_get_var);
+        /* The error should be raised in the caller context, so we use
+           a specific opcode */
+        emit_op(s, OP_scope_get_var_checkthis);
         emit_atom(s, JS_ATOM_this);
         emit_u16(s, 0);
 
@@ -30109,6 +30122,7 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
         case OP_scope_get_ref:
             dbuf_putc(bc, OP_undefined);
             /* fall thru */
+        case OP_scope_get_var_checkthis:
         case OP_scope_get_var_undef:
         case OP_scope_get_var:
         case OP_scope_put_var:
@@ -30134,7 +30148,12 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
                     }
                 } else {
                     if (s->vars[var_idx].is_lexical) {
-                        dbuf_putc(bc, OP_get_loc_check);
+                        if (op == OP_scope_get_var_checkthis) {
+                            /* only used for 'this' return in derived class constructors */
+                            dbuf_putc(bc, OP_get_loc_checkthis);
+                        } else {
+                            dbuf_putc(bc, OP_get_loc_check);
+                        }
                     } else {
                         dbuf_putc(bc, OP_get_loc);
                     }
@@ -31279,6 +31298,7 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
             dbuf_putc(&bc_out, op);
             dbuf_put_u16(&bc_out, s->scopes[scope].first + 1);
             break;
+        case OP_scope_get_var_checkthis:
         case OP_scope_get_var_undef:
         case OP_scope_get_var:
         case OP_scope_put_var:
