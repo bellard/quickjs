@@ -1854,17 +1854,32 @@ int run_test262_harness_test(const char *filename, BOOL is_module)
        js_std_dump_error(ctx);
        ret_code = 1;
     } else {
-        JS_FreeValue(ctx, res_val);
+        JSValue promise = JS_UNDEFINED;
+        if (is_module) {
+            promise = res_val;
+        } else {
+            JS_FreeValue(ctx, res_val);
+        }
         for(;;) {
             JSContext *ctx1;
             ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
             if (ret < 0) {
-	      js_std_dump_error(ctx1);
-	      ret_code = 1;
+                js_std_dump_error(ctx1);
+                ret_code = 1;
             } else if (ret == 0) {
-	      break;
+                break;
             }
         }
+        /* dump the error if the module returned an error. */
+        if (is_module) {
+            JSPromiseStateEnum state = JS_PromiseState(ctx, promise);
+            if (state == JS_PROMISE_REJECTED) {
+                JS_Throw(ctx, JS_PromiseResult(ctx, promise));
+                js_std_dump_error(ctx);
+                ret_code = 1;
+            }
+        }
+        JS_FreeValue(ctx, promise);
     }
     free(buf);
 #ifdef CONFIG_AGENT
