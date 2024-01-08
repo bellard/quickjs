@@ -536,6 +536,28 @@ function test_function_expr_name()
     assert_throws(TypeError, f);
 }
 
+function test_parse_semicolon()
+{
+    /* 'yield' or 'await' may not be considered as a token if the
+       previous ';' is missing */
+    function *f()
+    {
+        function func() {
+        }
+        yield 1;
+        var h = x => x + 1
+        yield 2;
+    }
+    async function g()
+    {
+        function func() {
+        }
+        await 1;
+        var h = x => x + 1
+        await 2;
+    }
+}
+
 test_op1();
 test_cvt();
 test_eq();
@@ -555,3 +577,4 @@ test_spread();
 test_function_length();
 test_argument_scope();
 test_function_expr_name();
+test_parse_semicolon();

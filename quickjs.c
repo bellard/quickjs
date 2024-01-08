@@ -20485,6 +20485,48 @@ static __exception int ident_realloc(JSContext *ctx, char **pbuf, size_t *psize,
     return 0;
 }
 
+/* convert a TOK_IDENT to a keyword when needed */
+static void update_token_ident(JSParseState *s)
+{
+    if (s->token.u.ident.atom <= JS_ATOM_LAST_KEYWORD ||
+        (s->token.u.ident.atom <= JS_ATOM_LAST_STRICT_KEYWORD &&
+         (s->cur_func->js_mode & JS_MODE_STRICT)) ||
+        (s->token.u.ident.atom == JS_ATOM_yield &&
+         ((s->cur_func->func_kind & JS_FUNC_GENERATOR) ||
+          (s->cur_func->func_type == JS_PARSE_FUNC_ARROW &&
+           !s->cur_func->in_function_body && s->cur_func->parent &&
+           (s->cur_func->parent->func_kind & JS_FUNC_GENERATOR)))) ||
+        (s->token.u.ident.atom == JS_ATOM_await &&
+         (s->is_module ||
+          (s->cur_func->func_kind & JS_FUNC_ASYNC) ||
+          s->cur_func->func_type == JS_PARSE_FUNC_CLASS_STATIC_INIT ||
+          (s->cur_func->func_type == JS_PARSE_FUNC_ARROW &&
+           !s->cur_func->in_function_body && s->cur_func->parent &&
+           ((s->cur_func->parent->func_kind & JS_FUNC_ASYNC) ||
+            s->cur_func->parent->func_type == JS_PARSE_FUNC_CLASS_STATIC_INIT))))) {
+        if (s->token.u.ident.has_escape) {
+            s->token.u.ident.is_reserved = TRUE;
+            s->token.val = TOK_IDENT;
+        } else {
+            /* The keywords atoms are pre allocated */
+            s->token.val = s->token.u.ident.atom - 1 + TOK_FIRST_KEYWORD;
+        }
+    }
+}
+
+/* if the current token is an identifier or keyword, reparse it
+   according to the current function type */
+static void reparse_ident_token(JSParseState *s)
+{
+    if (s->token.val == TOK_IDENT ||
+        (s->token.val >= TOK_FIRST_KEYWORD &&
+         s->token.val <= TOK_LAST_KEYWORD)) {
+        s->token.val = TOK_IDENT;
+        s->token.u.ident.is_reserved = FALSE;
+        update_token_ident(s);
+    }
+}
+
 /* 'c' is the first character. Return JS_ATOM_NULL in case of error */
 static JSAtom parse_ident(JSParseState *s, const uint8_t **pp,
                           BOOL *pident_has_escape, int c, BOOL is_private)
@@ -20691,32 +20733,8 @@ static __exception int next_token(JSParseState *s)
         s->token.u.ident.atom = atom;
         s->token.u.ident.has_escape = ident_has_escape;
         s->token.u.ident.is_reserved = FALSE;
-        if (s->token.u.ident.atom <= JS_ATOM_LAST_KEYWORD ||
-            (s->token.u.ident.atom <= JS_ATOM_LAST_STRICT_KEYWORD &&
-             (s->cur_func->js_mode & JS_MODE_STRICT)) ||
-            (s->token.u.ident.atom == JS_ATOM_yield &&
-             ((s->cur_func->func_kind & JS_FUNC_GENERATOR) ||
-              (s->cur_func->func_type == JS_PARSE_FUNC_ARROW &&
-               !s->cur_func->in_function_body && s->cur_func->parent &&
-               (s->cur_func->parent->func_kind & JS_FUNC_GENERATOR)))) ||
-            (s->token.u.ident.atom == JS_ATOM_await &&
-             (s->is_module ||
-              (s->cur_func->func_kind & JS_FUNC_ASYNC) ||
-              s->cur_func->func_type == JS_PARSE_FUNC_CLASS_STATIC_INIT ||
-              (s->cur_func->func_type == JS_PARSE_FUNC_ARROW &&
-               !s->cur_func->in_function_body && s->cur_func->parent &&
-               ((s->cur_func->parent->func_kind & JS_FUNC_ASYNC) ||
-                s->cur_func->parent->func_type == JS_PARSE_FUNC_CLASS_STATIC_INIT))))) {
-            if (ident_has_escape) {
-                s->token.u.ident.is_reserved = TRUE;
-                s->token.val = TOK_IDENT;
-            } else {
-                /* The keywords atoms are pre allocated */
-                s->token.val = s->token.u.ident.atom - 1 + TOK_FIRST_KEYWORD;
-            }
-        } else {
-            s->token.val = TOK_IDENT;
-        }
+        s->token.val = TOK_IDENT;
+        update_token_ident(s);
         break;
     case '#':
         /* private name */
@@ -33893,9 +33911,15 @@ static __exception int js_parse_function_decl2(JSParseState *s,
     if (js_is_live_code(s)) {
         emit_return(s, FALSE);
     }
-done:
+ done:
     s->cur_func = fd->parent;
 
+    /* Reparse identifiers after the function is terminated so that
+       the token is parsed in the englobing function. It could be done
+       by just using next_token() here for normal functions, but it is
+       necessary for arrow functions with an expression body. */
+    reparse_ident_token(s);
+    
     /* create the function object */
     {
         int idx;
