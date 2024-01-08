@@ -10,6 +10,7 @@ function handle_msg(e) {
     switch(ev.type) {
     case "abort":
         parent.postMessage({ type: "done" });
+        parent.onMessage = null; /* terminate the worker */
         break;
     case "sab":
         /* modify the SharedArrayBuffer */
