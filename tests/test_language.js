@@ -326,6 +326,15 @@ function test_class()
     /* test class name scope */
     var E1 = class E { static F() { return E; } };
     assert(E1 === E1.F());
+
+    class S {
+        static x = 42;
+        static y = S.x;
+        static z = this.x;
+    }
+    assert(S.x === 42);
+    assert(S.y === 42);
+    assert(S.z === 42);
 };
 
 function test_template()

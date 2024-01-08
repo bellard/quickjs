@@ -22951,14 +22951,6 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
                 emit_atom(s, JS_ATOM_this);
                 emit_u16(s, 0);
                 // stack is now: fclosure this
-                /* XXX: should do it only once */
-                if (class_name != JS_ATOM_NULL) {
-                    // TODO(bnoordhuis) pass as argument to init method?
-                    emit_op(s, OP_dup);
-                    emit_op(s, OP_scope_put_var_init);
-                    emit_atom(s, class_name);
-                    emit_u16(s, s->cur_func->scope_level);
-                }
                 emit_op(s, OP_swap);
                 // stack is now: this fclosure
                 emit_op(s, OP_call_method);
@@ -23279,6 +23271,16 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
         emit_op(s, OP_add_brand);
     }
 
+    if (class_name != JS_ATOM_NULL) {
+        /* store the class name in the scoped class name variable (it
+           is independent from the class statement variable
+           definition) */
+        emit_op(s, OP_dup);
+        emit_op(s, OP_scope_put_var_init);
+        emit_atom(s, class_name);
+        emit_u16(s, fd->scope_level);
+    }
+
     /* initialize the static fields */
     if (class_fields[1].fields_init_fd != NULL) {
         ClassFieldsDef *cf = &class_fields[1];
@@ -23289,15 +23291,6 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
         emit_op(s, OP_drop);
     }
     
-    if (class_name != JS_ATOM_NULL) {
-        /* store the class name in the scoped class name variable (it
-           is independent from the class statement variable
-           definition) */
-        emit_op(s, OP_dup);
-        emit_op(s, OP_scope_put_var_init);
-        emit_atom(s, class_name);
-        emit_u16(s, fd->scope_level);
-    }
     pop_scope(s);
     pop_scope(s);
 
