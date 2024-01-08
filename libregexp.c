@@ -34,9 +34,6 @@
 /*
   TODO:
 
-  - Add full unicode canonicalize rules for character ranges (not
-    really useful but needed for exact "ignorecase" compatibility).
-
   - Add a lock step execution mode (=linear time execution guaranteed)
     when the regular expression is "simple" i.e. no backreference nor
     complicated lookahead. The opcodes are designed for this execution
@@ -118,33 +115,6 @@ static int dbuf_insert(DynBuf *s, int pos, int len)
     memmove(s->buf + pos + len, s->buf + pos, s->size - pos);
     s->size += len;
     return 0;
-}
-
-/* canonicalize with the specific JS regexp rules */
-static uint32_t lre_canonicalize(uint32_t c, BOOL is_utf16)
-{
-    uint32_t res[LRE_CC_RES_LEN_MAX];
-    int len;
-    if (is_utf16) {
-        if (likely(c < 128)) {
-            if (c >= 'A' && c <= 'Z')
-                c = c - 'A' + 'a';
-        } else {
-            lre_case_conv(res, c, 2);
-            c = res[0];
-        }
-    } else {
-        if (likely(c < 128)) {
-            if (c >= 'a' && c <= 'z')
-                c = c - 'a' + 'A';
-        } else {
-            /* legacy regexp: to upper case if single char >= 128 */
-            len = lre_case_conv(res, c, FALSE);
-            if (len == 1 && res[0] >= 128)
-                c = res[0];
-        }
-    }
-    return c;
 }
 
 static const uint16_t char_range_d[] = {
@@ -243,31 +213,6 @@ static int cr_init_char_range(REParseState *s, CharRange *cr, uint32_t c)
  fail:
     cr_free(cr);
     return -1;
-}
-
-static int cr_canonicalize(CharRange *cr)
-{
-    CharRange a;
-    uint32_t pt[2];
-    int i, ret;
-
-    cr_init(&a, cr->mem_opaque, lre_realloc);
-    pt[0] = 'a';
-    pt[1] = 'z' + 1;
-    ret = cr_op(&a, cr->points, cr->len, pt, 2, CR_OP_INTER);
-    if (ret)
-        goto fail;
-    /* convert to upper case */
-    /* XXX: the generic unicode case would be much more complicated
-       and not really useful */
-    for(i = 0; i < a.len; i++) {
-        a.points[i] += 'A' - 'a';
-    }
-    /* Note: for simplicity we keep the lower case ranges */
-    ret = cr_union1(cr, a.points, a.len);
- fail:
-    cr_free(&a);
-    return ret;
 }
 
 #ifdef DUMP_REOP
@@ -922,7 +867,7 @@ static int re_parse_char_class(REParseState *s, const uint8_t **pp)
         }
     }
     if (s->ignore_case) {
-        if (cr_canonicalize(cr))
+        if (cr_regexp_canonicalize(cr, s->is_utf16))
             goto memory_error;
     }
     if (invert) {
