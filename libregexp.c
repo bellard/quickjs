@@ -280,7 +280,6 @@ static __maybe_unused void lre_dump_bytecode(const uint8_t *buf,
         case REOP_loop:
         case REOP_lookahead:
         case REOP_negative_lookahead:
-        case REOP_bne_char_pos:
             val = get_u32(buf + pos + 1);
             val += (pos + 5);
             printf(" %u", val);
@@ -888,22 +887,17 @@ static int re_parse_char_class(REParseState *s, const uint8_t **pp)
 }
 
 /* Return:
-   1 if the opcodes in bc_buf[] always advance the character pointer.
-   0 if the character pointer may not be advanced.
-   -1 if the code may depend on side effects of its previous execution (backreference)
+   - true if the opcodes may not advance the char pointer
+   - false if the opcodes always advance the char pointer
 */
-static int re_check_advance(const uint8_t *bc_buf, int bc_buf_len)
+static BOOL re_need_check_advance(const uint8_t *bc_buf, int bc_buf_len)
 {
-    int pos, opcode, ret, len, i;
-    uint32_t val, last;
-    BOOL has_back_reference;
-    uint8_t capture_bitmap[CAPTURE_COUNT_MAX];
+    int pos, opcode, len;
+    uint32_t val;
+    BOOL ret;
     
-    ret = -2; /* not known yet */
+    ret = TRUE;
     pos = 0;
-    has_back_reference = FALSE;
-    memset(capture_bitmap, 0, sizeof(capture_bitmap));
-    
     while (pos < bc_buf_len) {
         opcode = bc_buf[pos];
         len = reopcode_info[opcode].size;
@@ -921,8 +915,7 @@ static int re_check_advance(const uint8_t *bc_buf, int bc_buf_len)
         case REOP_dot:
         case REOP_any:
         simple_char:
-            if (ret == -2)
-                ret = 1;
+            ret = FALSE;
             break;
         case REOP_line_start:
         case REOP_line_end:
@@ -936,41 +929,16 @@ static int re_check_advance(const uint8_t *bc_buf, int bc_buf_len)
             break;
         case REOP_save_start:
         case REOP_save_end:
-            val = bc_buf[pos + 1];
-            capture_bitmap[val] |= 1;
-            break;
         case REOP_save_reset:
-            {
-                val = bc_buf[pos + 1];
-                last = bc_buf[pos + 2];
-                while (val < last)
-                    capture_bitmap[val++] |= 1;
-            }
-            break;
         case REOP_back_reference:
         case REOP_backward_back_reference:
-            val = bc_buf[pos + 1];
-            capture_bitmap[val] |= 2;
-            has_back_reference = TRUE;
             break;
         default:
             /* safe behvior: we cannot predict the outcome */
-            if (ret == -2)
-                ret = 0;
-            break;
+            return TRUE;
         }
         pos += len;
     }
-    if (has_back_reference) {
-        /* check if there is back reference which references a capture
-           made in the some code */
-        for(i = 0; i < CAPTURE_COUNT_MAX; i++) {
-            if (capture_bitmap[i] == 3)
-                return -1;
-        }
-    }
-    if (ret == -2)
-        ret = 0;
     return ret;
 }
 
@@ -1541,8 +1509,12 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                 
                 if (dbuf_error(&s->byte_code))
                     goto out_of_memory;
-                add_zero_advance_check = (re_check_advance(s->byte_code.buf + last_atom_start,
-                                                           s->byte_code.size - last_atom_start) == 0);
+                /* the spec tells that if there is no advance when
+                   running the atom after the first quant_min times,
+                   then there is no match. We remove this test when we
+                   are sure the atom always advances the position. */
+                add_zero_advance_check = re_need_check_advance(s->byte_code.buf + last_atom_start,
+                                                               s->byte_code.size - last_atom_start);
             } else {
                 add_zero_advance_check = FALSE;
             }
@@ -1562,38 +1534,34 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     }
                     if (quant_max == 0) {
                         s->byte_code.size = last_atom_start;
-                    } else if (quant_max == 1) {
-                        if (dbuf_insert(&s->byte_code, last_atom_start, 5))
-                            goto out_of_memory;
-                        s->byte_code.buf[last_atom_start] = REOP_split_goto_first +
-                            greedy;
-                        put_u32(s->byte_code.buf + last_atom_start + 1, len);
-                    } else if (quant_max == INT32_MAX) {
+                    } else if (quant_max == 1 || quant_max == INT32_MAX) {
+                        BOOL has_goto = (quant_max == INT32_MAX);
                         if (dbuf_insert(&s->byte_code, last_atom_start, 5 + add_zero_advance_check))
                             goto out_of_memory;
                         s->byte_code.buf[last_atom_start] = REOP_split_goto_first +
                             greedy;
                         put_u32(s->byte_code.buf + last_atom_start + 1,
-                                len + 5 + add_zero_advance_check);
+                                len + 5 * has_goto + add_zero_advance_check * 2);
                         if (add_zero_advance_check) {
-                            /* avoid infinite loop by stoping the
-                               recursion if no advance was made in the
-                               atom (only works if the atom has no
-                               side effect) */
                             s->byte_code.buf[last_atom_start + 1 + 4] = REOP_push_char_pos;
-                            re_emit_goto(s, REOP_bne_char_pos, last_atom_start); 
-                        } else {
-                            re_emit_goto(s, REOP_goto, last_atom_start);
+                            re_emit_op(s, REOP_check_advance); 
                         }
+                        if (has_goto)
+                            re_emit_goto(s, REOP_goto, last_atom_start);
                     } else {
-                        if (dbuf_insert(&s->byte_code, last_atom_start, 10))
+                        if (dbuf_insert(&s->byte_code, last_atom_start, 10 + add_zero_advance_check))
                             goto out_of_memory;
                         pos = last_atom_start;
                         s->byte_code.buf[pos++] = REOP_push_i32;
                         put_u32(s->byte_code.buf + pos, quant_max);
                         pos += 4;
                         s->byte_code.buf[pos++] = REOP_split_goto_first + greedy;
-                        put_u32(s->byte_code.buf + pos, len + 5);
+                        put_u32(s->byte_code.buf + pos, len + 5 + add_zero_advance_check * 2);
+                        pos += 4;
+                        if (add_zero_advance_check) {
+                            s->byte_code.buf[pos++] = REOP_push_char_pos;
+                            re_emit_op(s, REOP_check_advance); 
+                        }
                         re_emit_goto(s, REOP_loop, last_atom_start + 5);
                         re_emit_op(s, REOP_drop);
                     }
@@ -1617,22 +1585,25 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                     if (quant_max == INT32_MAX) {
                         pos = s->byte_code.size;
                         re_emit_op_u32(s, REOP_split_goto_first + greedy,
-                                       len + 5 + add_zero_advance_check);
+                                       len + 5 + add_zero_advance_check * 2);
                         if (add_zero_advance_check)
                             re_emit_op(s, REOP_push_char_pos);
                         /* copy the atom */
                         dbuf_put_self(&s->byte_code, last_atom_start, len);
                         if (add_zero_advance_check)
-                            re_emit_goto(s, REOP_bne_char_pos, pos);
-                        else
-                            re_emit_goto(s, REOP_goto, pos);
+                            re_emit_op(s, REOP_check_advance);
+                        re_emit_goto(s, REOP_goto, pos);
                     } else if (quant_max > quant_min) {
                         re_emit_op_u32(s, REOP_push_i32, quant_max - quant_min);
                         pos = s->byte_code.size;
-                        re_emit_op_u32(s, REOP_split_goto_first + greedy, len + 5);
+                        re_emit_op_u32(s, REOP_split_goto_first + greedy,
+                                       len + 5 + add_zero_advance_check * 2);
+                        if (add_zero_advance_check)
+                            re_emit_op(s, REOP_push_char_pos);
                         /* copy the atom */
                         dbuf_put_self(&s->byte_code, last_atom_start, len);
-                        
+                        if (add_zero_advance_check)
+                            re_emit_op(s, REOP_check_advance);
                         re_emit_goto(s, REOP_loop, pos);
                         re_emit_op(s, REOP_drop);
                     }
@@ -1746,7 +1717,7 @@ static int compute_stack_size(const uint8_t *bc_buf, int bc_buf_len)
             }
             break;
         case REOP_drop:
-        case REOP_bne_char_pos:
+        case REOP_check_advance:
             assert(stack_size > 0);
             stack_size--;
             break;
@@ -2242,11 +2213,9 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
         case REOP_push_char_pos:
             stack[stack_len++] = (uintptr_t)cptr;
             break;
-        case REOP_bne_char_pos:
-            val = get_u32(pc);
-            pc += 4;
-            if (stack[--stack_len] != (uintptr_t)cptr)
-                pc += (int)val;
+        case REOP_check_advance:
+            if (stack[--stack_len] == (uintptr_t)cptr)
+                goto no_match;
             break;
         case REOP_word_boundary:
         case REOP_not_word_boundary:
