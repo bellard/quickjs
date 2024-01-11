@@ -757,6 +757,9 @@ object containing optional parameters:
 
   @end table
 
+@item getpid()
+Return the current process ID.
+
 @item waitpid(pid, options)
 @code{waitpid} Unix system call. Return the array @code{[ret,
 status]}. @code{ret} contains @code{-errno} in case of error.
