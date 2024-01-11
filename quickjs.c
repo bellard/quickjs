@@ -43165,14 +43165,11 @@ static const JSCFunctionListEntry js_math_obj[] = {
 
 /* OS dependent. d = argv[0] is in ms from 1970. Return the difference
    between UTC time and local time 'd' in minutes */
-static int getTimezoneOffset(int64_t time) {
-#if defined(_WIN32)
-    /* XXX: TODO */
-    return 0;
-#else
+static int getTimezoneOffset(int64_t time)
+{
     time_t ti;
-    struct tm tm;
-
+    int res;
+    
     time /= 1000; /* convert to seconds */
     if (sizeof(time_t) == 4) {
         /* on 32-bit systems, we need to clamp the time value to the
@@ -43195,9 +43192,27 @@ static int getTimezoneOffset(int64_t time) {
         }
     }
     ti = time;
-    localtime_r(&ti, &tm);
-    return -tm.tm_gmtoff / 60;
+#if defined(_WIN32)
+    {
+        struct tm *tm;
+        time_t gm_ti, loc_ti;
+        
+        tm = gmtime(&ti);
+        gm_ti = mktime(tm);
+        
+        tm = localtime(&ti);
+        loc_ti = mktime(tm);
+
+        res = (gm_ti - loc_ti) / 60;
+    }
+#else
+    {
+        struct tm tm;
+        localtime_r(&ti, &tm);
+        res = -tm.tm_gmtoff / 60;
+    }
 #endif
+    return res;
 }
 
 #if 0
