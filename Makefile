@@ -33,15 +33,11 @@ CONFIG_LTO=y
 #CONFIG_WERROR=y
 # force 32 bit build for some utilities
 #CONFIG_M32=y
-
-ifdef CONFIG_DARWIN
-# use clang instead of gcc
-CONFIG_CLANG=y
-CONFIG_DEFAULT_AR=y
-endif
+# cosmopolitan build (see https://github.com/jart/cosmopolitan)
+#CONFIG_COSMO=y
 
 # installation directory
-prefix=/usr/local
+PREFIX?=/usr/local
 
 # use the gprof profiler
 #CONFIG_PROFILE=y
@@ -52,21 +48,28 @@ CONFIG_BIGNUM=y
 
 OBJDIR=.obj
 
+ifdef CONFIG_DARWIN
+# use clang instead of gcc
+CONFIG_CLANG=y
+CONFIG_DEFAULT_AR=y
+endif
+
 ifdef CONFIG_WIN32
   ifdef CONFIG_M32
-    CROSS_PREFIX=i686-w64-mingw32-
+    CROSS_PREFIX?=i686-w64-mingw32-
   else
-    CROSS_PREFIX=x86_64-w64-mingw32-
+    CROSS_PREFIX?=x86_64-w64-mingw32-
   endif
   EXE=.exe
 else
-  CROSS_PREFIX=
+  CROSS_PREFIX?=
   EXE=
 endif
+
 ifdef CONFIG_CLANG
   HOST_CC=clang
   CC=$(CROSS_PREFIX)clang
-  CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
+  CFLAGS+=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
   CFLAGS += -Wextra
   CFLAGS += -Wno-sign-compare
   CFLAGS += -Wno-missing-field-initializers
@@ -84,10 +87,18 @@ ifdef CONFIG_CLANG
       AR=$(CROSS_PREFIX)ar
     endif
   endif
+else ifdef CONFIG_COSMO
+  CONFIG_LTO=
+  HOST_CC=gcc
+  CC=cosmocc
+  # cosmocc does not correct support -MF
+  CFLAGS=-g -Wall #-MMD -MF $(OBJDIR)/$(@F).d
+  CFLAGS += -Wno-array-bounds -Wno-format-truncation
+  AR=cosmoar
 else
   HOST_CC=gcc
   CC=$(CROSS_PREFIX)gcc
-  CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
+  CFLAGS+=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
   CFLAGS += -Wno-array-bounds -Wno-format-truncation
   ifdef CONFIG_LTO
     AR=$(CROSS_PREFIX)gcc-ar
@@ -113,7 +124,11 @@ CFLAGS_DEBUG=$(CFLAGS) -O0
 CFLAGS_SMALL=$(CFLAGS) -Os
 CFLAGS_OPT=$(CFLAGS) -O2
 CFLAGS_NOLTO:=$(CFLAGS_OPT)
-LDFLAGS=-g
+ifdef CONFIG_COSMO
+LDFLAGS+=-s # better to strip by default
+else
+LDFLAGS+=-g
+endif
 ifdef CONFIG_LTO
 CFLAGS_SMALL+=-flto
 CFLAGS_OPT+=-flto
@@ -131,6 +146,12 @@ ifdef CONFIG_WIN32
 LDEXPORT=
 else
 LDEXPORT=-rdynamic
+endif
+
+ifndef CONFIG_COSMO
+ifndef CONFIG_DARWIN
+CONFIG_SHARED_LIBS=y # building shared libraries is supported
+endif
 endif
 
 PROGS=qjs$(EXE) qjsc$(EXE) run-test262
@@ -155,13 +176,12 @@ endif
 
 # examples
 ifeq ($(CROSS_PREFIX),)
-ifdef CONFIG_ASAN
-PROGS+=
-else
-PROGS+=examples/hello examples/hello_module examples/test_fib
-ifndef CONFIG_DARWIN
-PROGS+=examples/fib.so examples/point.so
+PROGS+=examples/hello
+ifndef CONFIG_ASAN
+PROGS+=examples/hello_module
 endif
+ifdef CONFIG_SHARED_LIBS
+PROGS+=examples/test_fib examples/fib.so examples/point.so
 endif
 endif
 
@@ -201,11 +221,11 @@ $(QJSC): $(OBJDIR)/qjsc.host.o \
 
 endif #CROSS_PREFIX
 
-QJSC_DEFINES:=-DCONFIG_CC=\"$(QJSC_CC)\" -DCONFIG_PREFIX=\"$(prefix)\"
+QJSC_DEFINES:=-DCONFIG_CC=\"$(QJSC_CC)\" -DCONFIG_PREFIX=\"$(PREFIX)\"
 ifdef CONFIG_LTO
 QJSC_DEFINES+=-DCONFIG_LTO
 endif
-QJSC_HOST_DEFINES:=-DCONFIG_CC=\"$(HOST_CC)\" -DCONFIG_PREFIX=\"$(prefix)\"
+QJSC_HOST_DEFINES:=-DCONFIG_CC=\"$(HOST_CC)\" -DCONFIG_PREFIX=\"$(PREFIX)\"
 
 $(OBJDIR)/qjsc.o: CFLAGS+=$(QJSC_DEFINES)
 $(OBJDIR)/qjsc.host.o: CFLAGS+=$(QJSC_HOST_DEFINES)
@@ -298,17 +318,17 @@ clean:
 	rm -rf run-test262-debug run-test262-32
 
 install: all
-	mkdir -p "$(DESTDIR)$(prefix)/bin"
+	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
 	$(STRIP) qjs qjsc
-	install -m755 qjs qjsc "$(DESTDIR)$(prefix)/bin"
-	ln -sf qjs "$(DESTDIR)$(prefix)/bin/qjscalc"
-	mkdir -p "$(DESTDIR)$(prefix)/lib/quickjs"
-	install -m644 libquickjs.a "$(DESTDIR)$(prefix)/lib/quickjs"
+	install -m755 qjs qjsc "$(DESTDIR)$(PREFIX)/bin"
+	ln -sf qjs "$(DESTDIR)$(PREFIX)/bin/qjscalc"
+	mkdir -p "$(DESTDIR)$(PREFIX)/lib/quickjs"
+	install -m644 libquickjs.a "$(DESTDIR)$(PREFIX)/lib/quickjs"
 ifdef CONFIG_LTO
-	install -m644 libquickjs.lto.a "$(DESTDIR)$(prefix)/lib/quickjs"
+	install -m644 libquickjs.lto.a "$(DESTDIR)$(PREFIX)/lib/quickjs"
 endif
-	mkdir -p "$(DESTDIR)$(prefix)/include/quickjs"
-	install -m644 quickjs.h quickjs-libc.h "$(DESTDIR)$(prefix)/include/quickjs"
+	mkdir -p "$(DESTDIR)$(PREFIX)/include/quickjs"
+	install -m644 quickjs.h quickjs-libc.h "$(DESTDIR)$(PREFIX)/include/quickjs"
 
 ###############################################################################
 # examples
@@ -374,7 +394,7 @@ doc/%.html: doc/%.html.pre
 ###############################################################################
 # tests
 
-ifndef CONFIG_DARWIN
+ifdef CONFIG_SHARED_LIBS
 test: tests/bjson.so examples/point.so
 endif
 ifdef CONFIG_M32
@@ -388,7 +408,7 @@ test: qjs
 	./qjs tests/test_loop.js
 	./qjs tests/test_std.js
 	./qjs tests/test_worker.js
-ifndef CONFIG_DARWIN
+ifdef CONFIG_SHARED_LIBS
 ifdef CONFIG_BIGNUM
 	./qjs --bignum tests/test_bjson.js
 else

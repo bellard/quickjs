@@ -120,6 +120,7 @@ function test_cvt()
     assert((Infinity >>> 0) === 0);
     assert(((-Infinity) >>> 0) === 0);
     assert(((4294967296 * 3 - 4) >>> 0) === (4294967296 - 4));
+    assert((19686109595169230000).toString() === "19686109595169230000");
 }
 
 function test_eq()
@@ -325,6 +326,15 @@ function test_class()
     /* test class name scope */
     var E1 = class E { static F() { return E; } };
     assert(E1 === E1.F());
+
+    class S {
+        static x = 42;
+        static y = S.x;
+        static z = this.x;
+    }
+    assert(S.x === 42);
+    assert(S.y === 42);
+    assert(S.z === 42);
 };
 
 function test_template()
@@ -526,6 +536,53 @@ function test_function_expr_name()
     assert_throws(TypeError, f);
 }
 
+function test_parse_semicolon()
+{
+    /* 'yield' or 'await' may not be considered as a token if the
+       previous ';' is missing */
+    function *f()
+    {
+        function func() {
+        }
+        yield 1;
+        var h = x => x + 1
+        yield 2;
+    }
+    async function g()
+    {
+        function func() {
+        }
+        await 1;
+        var h = x => x + 1
+        await 2;
+    }
+}
+
+/* optional chaining tests not present in test262 */
+function test_optional_chaining()
+{
+    var a, z;
+    z = null;
+    a = { b: { c: 2 } };
+    assert(delete z?.b.c, true);
+    assert(delete a?.b.c, true);
+    assert(JSON.stringify(a), '{"b":{}}', "optional chaining delete");
+
+    a = { b: { c: 2 } };
+    assert(delete z?.b["c"], true);
+    assert(delete a?.b["c"], true);
+    assert(JSON.stringify(a), '{"b":{}}');
+    
+    a = {
+        b() { return this._b; },
+        _b: { c: 42 }
+    };
+
+    assert((a?.b)().c, 42);
+
+    assert((a?.["b"])().c, 42);
+}
+
 test_op1();
 test_cvt();
 test_eq();
@@ -545,3 +602,5 @@ test_spread();
 test_function_length();
 test_argument_scope();
 test_function_expr_name();
+test_parse_semicolon();
+test_optional_chaining();

@@ -538,7 +538,17 @@ function test_regexp()
 
     assert(/{1a}/.toString(), "/{1a}/");
     a = /a{1+/.exec("a{11");
-    assert(a, ["a{11"] );
+    assert(a, ["a{11"]);
+
+    /* test zero length matches */
+    a = /(?:(?=(abc)))a/.exec("abc");
+    assert(a, ["a", "abc"]);
+    a = /(?:(?=(abc)))?a/.exec("abc");
+    assert(a, ["a", undefined]);
+    a = /(?:(?=(abc))){0,2}a/.exec("abc");
+    assert(a, ["a", undefined]);
+    a = /(?:|[\w])+([0-9])/.exec("123a23");
+    assert(a, ["123a23", "3"]);
 }
 
 function test_symbol()

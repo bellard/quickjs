@@ -82,6 +82,7 @@ DEF(length, "length")
 DEF(fileName, "fileName")
 DEF(lineNumber, "lineNumber")
 DEF(message, "message")
+DEF(cause, "cause")
 DEF(errors, "errors")
 DEF(stack, "stack")
 DEF(name, "name")
@@ -166,6 +167,7 @@ DEF(revoke, "revoke")
 DEF(async, "async")
 DEF(exec, "exec")
 DEF(groups, "groups")
+DEF(indices, "indices")
 DEF(status, "status")
 DEF(reason, "reason")
 DEF(globalThis, "globalThis")
@@ -177,11 +179,11 @@ DEF(roundingMode, "roundingMode")
 DEF(maximumSignificantDigits, "maximumSignificantDigits")
 DEF(maximumFractionDigits, "maximumFractionDigits")
 #endif
-#ifdef CONFIG_ATOMICS
+/* the following 3 atoms are only used with CONFIG_ATOMICS */
 DEF(not_equal, "not-equal")
 DEF(timed_out, "timed-out")
 DEF(ok, "ok")
-#endif
+/* */
 DEF(toJSON, "toJSON")
 /* class names */
 DEF(Object, "Object")
