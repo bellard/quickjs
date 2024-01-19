@@ -13,7 +13,7 @@ TypedArray.prototype.{with,toReversed,toSorted}
 - added RegExp 'd' flag
 - fixed RegExp zero length match logic
 - fixed RegExp case insensitive flag
-- added os.getpid() and os.now()
+- added os.sleepAsync(), os.getpid() and os.now()
 - added cosmopolitan build
 - misc bug fixes
 
