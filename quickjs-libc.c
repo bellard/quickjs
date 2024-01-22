@@ -3974,6 +3974,7 @@ JSValue js_std_await(JSContext *ctx, JSValue obj)
         } else {
             /* not a promise */
             ret = obj;
+            break;
         }
     }
     return ret;
