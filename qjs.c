@@ -34,7 +34,7 @@
 #include <time.h>
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__NetBSD__)
 #include <malloc.h>
 #endif
 
