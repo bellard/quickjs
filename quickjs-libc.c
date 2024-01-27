@@ -57,6 +57,10 @@ typedef sig_t sighandler_t;
 
 #endif
 
+#if defined(__NetBSD__)
+extern char **environ;
+#endif
+
 #if !defined(_WIN32)
 /* enable the os.Worker API. IT relies on POSIX threads */
 #define USE_WORKER
@@ -1919,7 +1923,7 @@ static void os_signal_handler(int sig_num)
     os_pending_signals |= ((uint64_t)1 << sig_num);
 }
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__NetBSD__)
 typedef void (*sighandler_t)(int sig_num);
 #endif
 

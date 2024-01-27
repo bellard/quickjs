@@ -449,8 +449,13 @@ static int output_executable(const char *out_filename, const char *cfilename,
              lib_dir, bn_suffix, lto_suffix);
     *arg++ = libjsname;
     *arg++ = "-lm";
+#ifdef CONFIG_LDL
     *arg++ = "-ldl";
+#endif
     *arg++ = "-lpthread";
+#ifdef CONFIG_JEMALLOC
+    *arg++ = "-ljemalloc";
+#endif
     *arg = NULL;
     
     if (verbose) {

@@ -25,10 +25,19 @@
 ifeq ($(shell uname -s),Darwin)
 CONFIG_DARWIN=y
 endif
+ifeq ($(shell uname -s),NetBSD)
+CONFIG_NETBSD=y
+endif
 # Windows cross compilation from Linux
 #CONFIG_WIN32=y
 # use link time optimization (smaller and faster executables but slower build)
-CONFIG_LTO=y
+#ifndef
+ifndef CONFIG_NETBSD
+  CONFIG_LTO=y
+  CONFIG_LDL=y
+else
+  CONFIG_JEMALLOC=y
+endif
 # consider warnings as errors (for development)
 #CONFIG_WERROR=y
 # force 32 bit build for some utilities
@@ -197,7 +206,12 @@ endif
 HOST_LIBS=-lm -ldl -lpthread
 LIBS=-lm
 ifndef CONFIG_WIN32
-LIBS+=-ldl -lpthread
+LIBS+=-lpthread
+endif
+ifndef CONFIG_NETBSD
+LIBS+=-ldl
+else
+LIBS+=-ljemalloc
 endif
 LIBS+=$(EXTRA_LIBS)
 
@@ -224,6 +238,12 @@ endif #CROSS_PREFIX
 QJSC_DEFINES:=-DCONFIG_CC=\"$(QJSC_CC)\" -DCONFIG_PREFIX=\"$(PREFIX)\"
 ifdef CONFIG_LTO
 QJSC_DEFINES+=-DCONFIG_LTO
+endif
+ifdef CONFIG_LDL
+QJSC_DEFINES+=-DCONFIG_LDL
+endif
+ifdef CONFIG_JEMALLOC
+QJSC_DEFINES+=-DCONFIG_JEMALLOC
 endif
 QJSC_HOST_DEFINES:=-DCONFIG_CC=\"$(HOST_CC)\" -DCONFIG_PREFIX=\"$(PREFIX)\"
 

@@ -38,6 +38,8 @@
 #include <malloc.h>
 #elif defined(__FreeBSD__)
 #include <malloc_np.h>
+#elif defined(__NetBSD__)
+#include <malloc.h>
 #endif
 
 #include "cutils.h"
