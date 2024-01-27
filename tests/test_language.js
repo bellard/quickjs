@@ -558,6 +558,15 @@ function test_parse_semicolon()
     }
 }
 
+function test_parse_arrow_function()
+{
+    assert(typeof eval("() => {}\n() => {}"), "function");
+    assert(eval("() => {}\n+1"), 1);
+    assert(typeof eval("x => {}\n() => {}"), "function");
+    assert(typeof eval("async () => {}\n() => {}"), "function");
+    assert(typeof eval("async x => {}\n() => {}"), "function");
+}
+
 /* optional chaining tests not present in test262 */
 function test_optional_chaining()
 {
@@ -604,3 +613,4 @@ test_argument_scope();
 test_function_expr_name();
 test_parse_semicolon();
 test_optional_chaining();
+test_parse_arrow_function();

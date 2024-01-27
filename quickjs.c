@@ -22682,12 +22682,10 @@ static __exception int js_parse_object_literal(JSParseState *s)
 #define PF_IN_ACCEPTED  (1 << 0) 
 /* allow function calls parsing in js_parse_postfix_expr() */
 #define PF_POSTFIX_CALL (1 << 1) 
-/* allow arrow functions parsing in js_parse_postfix_expr() */
-#define PF_ARROW_FUNC   (1 << 2) 
 /* allow the exponentiation operator in js_parse_unary() */
-#define PF_POW_ALLOWED  (1 << 3) 
+#define PF_POW_ALLOWED  (1 << 2) 
 /* forbid the exponentiation operator in js_parse_unary() */
-#define PF_POW_FORBIDDEN (1 << 4) 
+#define PF_POW_FORBIDDEN (1 << 3) 
 
 static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags);
 
@@ -24299,7 +24297,7 @@ static void optional_chain_test(JSParseState *s, int *poptional_chaining_label,
     emit_label(s, label_next);
 }
 
-/* allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC */
+/* allowed parse_flags: PF_POSTFIX_CALL */
 static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
 {
     FuncCallType call_type;
@@ -24402,16 +24400,8 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
         }
         break;
     case '(':
-        if ((parse_flags & PF_ARROW_FUNC) &&
-            js_parse_skip_parens_token(s, NULL, TRUE) == TOK_ARROW) {
-            if (js_parse_function_decl(s, JS_PARSE_FUNC_ARROW,
-                                       JS_FUNC_NORMAL, JS_ATOM_NULL,
-                                       s->token.ptr, s->token.line_num))
-                return -1;
-        } else {
-            if (js_parse_expr_paren(s))
-                return -1;
-        }
+        if (js_parse_expr_paren(s))
+            return -1;
         break;
     case TOK_FUNCTION:
         if (js_parse_function_decl(s, JS_PARSE_FUNC_EXPR,
@@ -24451,14 +24441,8 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
             if (s->token.u.ident.is_reserved) {
                 return js_parse_error_reserved_identifier(s);
             }
-            if ((parse_flags & PF_ARROW_FUNC) &&
-                peek_token(s, TRUE) == TOK_ARROW) {
-                if (js_parse_function_decl(s, JS_PARSE_FUNC_ARROW,
-                                           JS_FUNC_NORMAL, JS_ATOM_NULL,
-                                           s->token.ptr, s->token.line_num))
-                    return -1;
-            } else if (token_is_pseudo_keyword(s, JS_ATOM_async) &&
-                       peek_token(s, TRUE) != '\n') {
+            if (token_is_pseudo_keyword(s, JS_ATOM_async) &&
+                peek_token(s, TRUE) != '\n') {
                 const uint8_t *source_ptr;
                 int source_line_num;
 
@@ -24468,15 +24452,6 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
                     return -1;
                 if (s->token.val == TOK_FUNCTION) {
                     if (js_parse_function_decl(s, JS_PARSE_FUNC_EXPR,
-                                               JS_FUNC_ASYNC, JS_ATOM_NULL,
-                                               source_ptr, source_line_num))
-                        return -1;
-                } else if ((parse_flags & PF_ARROW_FUNC) &&
-                           ((s->token.val == '(' &&
-                             js_parse_skip_parens_token(s, NULL, TRUE) == TOK_ARROW) ||
-                            (s->token.val == TOK_IDENT && !s->token.u.ident.is_reserved &&
-                             peek_token(s, TRUE) == TOK_ARROW))) {
-                    if (js_parse_function_decl(s, JS_PARSE_FUNC_ARROW,
                                                JS_FUNC_ASYNC, JS_ATOM_NULL,
                                                source_ptr, source_line_num))
                         return -1;
@@ -25083,7 +25058,7 @@ static __exception int js_parse_delete(JSParseState *s)
     return 0;
 }
 
-/* allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN */
+/* allowed parse_flags: PF_POW_ALLOWED, PF_POW_FORBIDDEN */
 static __exception int js_parse_unary(JSParseState *s, int parse_flags)
 {
     int op;
@@ -25174,8 +25149,7 @@ static __exception int js_parse_unary(JSParseState *s, int parse_flags)
         parse_flags = 0;
         break;
     default:
-        if (js_parse_postfix_expr(s, (parse_flags & PF_ARROW_FUNC) |
-                                  PF_POSTFIX_CALL))
+        if (js_parse_postfix_expr(s, PF_POSTFIX_CALL))
             return -1;
         if (!s->got_lf &&
             (s->token.val == TOK_DEC || s->token.val == TOK_INC)) {
@@ -25232,15 +25206,14 @@ static __exception int js_parse_unary(JSParseState *s, int parse_flags)
     return 0;
 }
 
-/* allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED */
+/* allowed parse_flags: PF_IN_ACCEPTED */
 static __exception int js_parse_expr_binary(JSParseState *s, int level,
                                             int parse_flags)
 {
     int op, opcode;
 
     if (level == 0) {
-        return js_parse_unary(s, (parse_flags & PF_ARROW_FUNC) |
-                              PF_POW_ALLOWED);
+        return js_parse_unary(s, PF_POW_ALLOWED);
     } else if (s->token.val == TOK_PRIVATE_NAME &&
                (parse_flags & PF_IN_ACCEPTED) && level == 4 &&
                peek_token(s, FALSE) == TOK_IN) {
@@ -25253,7 +25226,7 @@ static __exception int js_parse_expr_binary(JSParseState *s, int level,
             goto fail_private_in;
         if (next_token(s))
             goto fail_private_in;
-        if (js_parse_expr_binary(s, level - 1, parse_flags & ~PF_ARROW_FUNC)) {
+        if (js_parse_expr_binary(s, level - 1, parse_flags)) {
         fail_private_in:
             JS_FreeAtom(s->ctx, atom);
             return -1;
@@ -25395,14 +25368,14 @@ static __exception int js_parse_expr_binary(JSParseState *s, int level,
         }
         if (next_token(s))
             return -1;
-        if (js_parse_expr_binary(s, level - 1, parse_flags & ~PF_ARROW_FUNC))
+        if (js_parse_expr_binary(s, level - 1, parse_flags))
             return -1;
         emit_op(s, opcode);
     }
     return 0;
 }
 
-/* allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED */
+/* allowed parse_flags: PF_IN_ACCEPTED */
 static __exception int js_parse_logical_and_or(JSParseState *s, int op,
                                                int parse_flags)
 {
@@ -25426,11 +25399,11 @@ static __exception int js_parse_logical_and_or(JSParseState *s, int op,
             emit_op(s, OP_drop);
 
             if (op == TOK_LAND) {
-                if (js_parse_expr_binary(s, 8, parse_flags & ~PF_ARROW_FUNC))
+                if (js_parse_expr_binary(s, 8, parse_flags))
                     return -1;
             } else {
                 if (js_parse_logical_and_or(s, TOK_LAND,
-                                            parse_flags & ~PF_ARROW_FUNC))
+                                            parse_flags))
                     return -1;
             }
             if (s->token.val != op) {
@@ -25462,7 +25435,7 @@ static __exception int js_parse_coalesce_expr(JSParseState *s, int parse_flags)
             emit_goto(s, OP_if_false, label1);
             emit_op(s, OP_drop);
             
-            if (js_parse_expr_binary(s, 8, parse_flags & ~PF_ARROW_FUNC))
+            if (js_parse_expr_binary(s, 8, parse_flags))
                 return -1;
             if (s->token.val != TOK_DOUBLE_QUESTION_MARK)
                 break;
@@ -25472,7 +25445,7 @@ static __exception int js_parse_coalesce_expr(JSParseState *s, int parse_flags)
     return 0;
 }
 
-/* allowed parse_flags: PF_ARROW_FUNC, PF_IN_ACCEPTED */
+/* allowed parse_flags: PF_IN_ACCEPTED */
 static __exception int js_parse_cond_expr(JSParseState *s, int parse_flags)
 {
     int label1, label2;
@@ -25647,12 +25620,50 @@ static __exception int js_parse_assign_expr2(JSParseState *s, int parse_flags)
             emit_label(s, label_next);
         }
         return 0;
+    } else if (s->token.val == '(' && 
+               js_parse_skip_parens_token(s, NULL, TRUE) == TOK_ARROW) {
+        return js_parse_function_decl(s, JS_PARSE_FUNC_ARROW,
+                                      JS_FUNC_NORMAL, JS_ATOM_NULL,
+                                      s->token.ptr, s->token.line_num);
+    } else if (token_is_pseudo_keyword(s, JS_ATOM_async)) {
+        const uint8_t *source_ptr;
+        int source_line_num, tok;
+        JSParsePos pos;
+
+        /* fast test */
+        tok = peek_token(s, TRUE);
+        if (tok == TOK_FUNCTION || tok == '\n')
+            goto next;
+
+        source_ptr = s->token.ptr;
+        source_line_num = s->token.line_num;
+        js_parse_get_pos(s, &pos);
+        if (next_token(s))
+            return -1;
+        if ((s->token.val == '(' &&
+             js_parse_skip_parens_token(s, NULL, TRUE) == TOK_ARROW) ||
+            (s->token.val == TOK_IDENT && !s->token.u.ident.is_reserved &&
+             peek_token(s, TRUE) == TOK_ARROW)) {
+            return js_parse_function_decl(s, JS_PARSE_FUNC_ARROW,
+                                          JS_FUNC_ASYNC, JS_ATOM_NULL,
+                                          source_ptr, source_line_num);
+        } else {
+            /* undo the token parsing */
+            if (js_parse_seek_token(s, &pos))
+                return -1;
+        }
+    } else if (s->token.val == TOK_IDENT &&
+               peek_token(s, TRUE) == TOK_ARROW) {
+        return js_parse_function_decl(s, JS_PARSE_FUNC_ARROW,
+                                      JS_FUNC_NORMAL, JS_ATOM_NULL,
+                                      s->token.ptr, s->token.line_num);
     }
+ next:
     if (s->token.val == TOK_IDENT) {
         /* name0 is used to check for OP_set_name pattern, not duplicated */
         name0 = s->token.u.ident.atom;
     }
-    if (js_parse_cond_expr(s, parse_flags | PF_ARROW_FUNC))
+    if (js_parse_cond_expr(s, parse_flags))
         return -1;
 
     op = s->token.val;
