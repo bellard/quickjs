@@ -19,6 +19,7 @@
               (self: super: {
                 quickjs = super.quickjs.overrideAttrs (old: {
                   # LTO support must be disabled on macos
+                  makeFlags = [ "PREFIX=${placeholder "out"}" ];
                   buildFlags = if (system == "aarch64-darwin" || system == "x86_64-darwin") then [ "CONFIG_LTO=" ] else (old.buildFlags or [ ]);
                   installCheckPhase = "";
                   src = ./.;
