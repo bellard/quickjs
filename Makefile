@@ -106,7 +106,7 @@ else
     AR=$(CROSS_PREFIX)ar
   endif
 endif
-STRIP=$(CROSS_PREFIX)strip
+STRIP?=$(CROSS_PREFIX)strip
 CFLAGS+=-fwrapv # ensure that signed overflows behave as expected
 ifdef CONFIG_WERROR
 CFLAGS+=-Werror
@@ -319,9 +319,9 @@ clean:
 
 install: all
 	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
-	$(STRIP) qjs qjsc
-	install -m755 qjs qjsc "$(DESTDIR)$(PREFIX)/bin"
-	ln -sf qjs "$(DESTDIR)$(PREFIX)/bin/qjscalc"
+	$(STRIP) qjs$(EXE) qjsc$(EXE)
+	install -m755 qjs$(EXE) qjsc$(EXE) "$(DESTDIR)$(PREFIX)/bin"
+	ln -sf qjs$(EXE) "$(DESTDIR)$(PREFIX)/bin/qjscalc$(EXE)"
 	mkdir -p "$(DESTDIR)$(PREFIX)/lib/quickjs"
 	install -m644 libquickjs.a "$(DESTDIR)$(PREFIX)/lib/quickjs"
 ifdef CONFIG_LTO
