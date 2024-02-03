@@ -379,7 +379,9 @@ optional properties:
   stack frames below the evalScript.
   @item async
   Boolean (default = false). If true, @code{await} is accepted in the
-  script and a promise is returned.
+  script and a promise is returned. The promise is resolved with an
+  object whose @code{value} property holds the value returned by the
+  script.
   @end table
 
 @item loadScript(filename)
