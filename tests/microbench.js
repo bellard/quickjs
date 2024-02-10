@@ -61,7 +61,7 @@ function toPrec(n, prec) {
         s = s.substring(0, i) + "." + s.substring(i);
     return s;
 }
-                
+
 var ref_data;
 var log_data;
 
@@ -987,7 +987,7 @@ function main(argc, argv, g)
     ];
     var tests = [];
     var i, j, n, f, name;
-    
+
     if (typeof BigInt == "function") {
         /* BigInt test */
         test_list.push(bigint64_arith);
@@ -997,7 +997,7 @@ function main(argc, argv, g)
         /* BigFloat test */
         test_list.push(float256_arith);
     }
-    
+
     for (i = 1; i < argc;) {
         name = argv[i++];
         if (name == "-a") {
@@ -1047,7 +1047,7 @@ function main(argc, argv, g)
         log_line("total", "", total[2], total[3], total_score * 100 / total_scale);
     else
         log_line("total", "", total[2]);
-        
+
     if (tests == test_list)
         save_result("microbench-new.txt", log_data);
 }

@@ -1,6 +1,6 @@
 /*
  * QuickJS opcode definitions
- * 
+ *
  * Copyright (c) 2017-2018 Fabrice Bellard
  * Copyright (c) 2017-2018 Charlie Gordon
  *
@@ -165,7 +165,7 @@ DEF(        set_loc, 3, 1, 1, loc) /* must come after put_loc */
 DEF(        get_arg, 3, 0, 1, arg)
 DEF(        put_arg, 3, 1, 0, arg) /* must come after get_arg */
 DEF(        set_arg, 3, 1, 1, arg) /* must come after put_arg */
-DEF(    get_var_ref, 3, 0, 1, var_ref) 
+DEF(    get_var_ref, 3, 0, 1, var_ref)
 DEF(    put_var_ref, 3, 1, 0, var_ref) /* must come after get_var_ref */
 DEF(    set_var_ref, 3, 1, 1, var_ref) /* must come after put_var_ref */
 DEF(set_loc_uninitialized, 3, 0, 0, loc)
@@ -173,7 +173,7 @@ DEF(  get_loc_check, 3, 0, 1, loc)
 DEF(  put_loc_check, 3, 1, 0, loc) /* must come after get_loc_check */
 DEF(  put_loc_check_init, 3, 1, 0, loc)
 DEF(get_loc_checkthis, 3, 0, 1, loc)
-DEF(get_var_ref_check, 3, 0, 1, var_ref) 
+DEF(get_var_ref_check, 3, 0, 1, var_ref)
 DEF(put_var_ref_check, 3, 1, 0, var_ref) /* must come after get_var_ref_check */
 DEF(put_var_ref_check_init, 3, 1, 0, var_ref)
 DEF(      close_loc, 3, 0, 0, loc)
@@ -263,7 +263,7 @@ DEF(      mul_pow10, 1, 2, 1, none)
 DEF(       math_mod, 1, 2, 1, none)
 #endif
 /* must be the last non short and non temporary opcode */
-DEF(            nop, 1, 0, 0, none) 
+DEF(            nop, 1, 0, 0, none)
 
 /* temporary opcodes: never emitted in the final bytecode */
 
@@ -289,7 +289,7 @@ def(scope_in_private_field, 7, 1, 1, atom_u16) /* obj -> res emitted in phase 1,
 def(get_field_opt_chain, 5, 1, 1, atom) /* emitted in phase 1, removed in phase 2 */
 def(get_array_el_opt_chain, 1, 2, 1, none) /* emitted in phase 1, removed in phase 2 */
 def( set_class_name, 5, 1, 1, u32) /* emitted in phase 1, removed in phase 2 */
-    
+
 def(       line_num, 5, 0, 0, u32) /* emitted in phase 1, removed in phase 3 */
 
 #if SHORT_OPCODES

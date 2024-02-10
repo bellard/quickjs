@@ -1,6 +1,6 @@
 /*
  * Unicode utilities
- * 
+ *
  * Copyright (c) 2017-2018 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -149,9 +149,9 @@ static int lre_case_conv_entry(uint32_t *res, uint32_t c, int conv_type, uint32_
 }
 
 /* conv_type:
-   0 = to upper 
+   0 = to upper
    1 = to lower
-   2 = case folding (= to lower with modifications) 
+   2 = case folding (= to lower with modifications)
 */
 int lre_case_conv(uint32_t *res, uint32_t c, int conv_type)
 {
@@ -168,7 +168,7 @@ int lre_case_conv(uint32_t *res, uint32_t c, int conv_type)
     } else {
         uint32_t v, code, len;
         int idx, idx_min, idx_max;
-        
+
         idx_min = 0;
         idx_max = countof(case_conv_table1) - 1;
         while (idx_min <= idx_max) {
@@ -240,7 +240,7 @@ int lre_canonicalize(uint32_t c, BOOL is_unicode)
     } else {
         uint32_t v, code, len;
         int idx, idx_min, idx_max;
-        
+
         idx_min = 0;
         idx_max = countof(case_conv_table1) - 1;
         while (idx_min <= idx_max) {
@@ -311,7 +311,7 @@ static BOOL lre_is_in_table(uint32_t c, const uint8_t *table,
     uint32_t code, b, bit;
     int pos;
     const uint8_t *p;
-    
+
     pos = get_index_pos(&code, c, index_table, index_table_len);
     if (pos < 0)
         return FALSE; /* outside the table */
@@ -344,7 +344,7 @@ BOOL lre_is_cased(uint32_t c)
 {
     uint32_t v, code, len;
     int idx, idx_min, idx_max;
-        
+
     idx_min = 0;
     idx_max = countof(case_conv_table1) - 1;
     while (idx_min <= idx_max) {
@@ -403,7 +403,7 @@ int cr_realloc(CharRange *cr, int size)
 {
     int new_size;
     uint32_t *new_buf;
-    
+
     if (size > cr->size) {
         new_size = max_int(size, cr->size * 3 / 2);
         new_buf = cr->realloc_func(cr->mem_opaque, cr->points,
@@ -430,7 +430,7 @@ static void cr_compress(CharRange *cr)
 {
     int i, j, k, len;
     uint32_t *pt;
-    
+
     pt = cr->points;
     len = cr->len;
     i = 0;
@@ -460,7 +460,7 @@ int cr_op(CharRange *cr, const uint32_t *a_pt, int a_len,
 {
     int a_idx, b_idx, is_in;
     uint32_t v;
-    
+
     a_idx = 0;
     b_idx = 0;
     for(;;) {
@@ -761,7 +761,7 @@ static int unicode_decomp_char(uint32_t *res, uint32_t c, BOOL is_compat1)
 {
     uint32_t v, type, is_compat, code, len;
     int idx_min, idx_max, idx;
-    
+
     idx_min = 0;
     idx_max = countof(unicode_decomp_table1) - 1;
     while (idx_min <= idx_max) {
@@ -791,7 +791,7 @@ static int unicode_compose_pair(uint32_t c0, uint32_t c1)
     uint32_t code, len, type, v, idx1, d_idx, d_offset, ch;
     int idx_min, idx_max, idx, d;
     uint32_t pair[2];
-    
+
     idx_min = 0;
     idx_max = countof(unicode_comp_table) - 1;
     while (idx_min <= idx_max) {
@@ -827,7 +827,7 @@ static int unicode_get_cc(uint32_t c)
     uint32_t code, n, type, cc, c1, b;
     int pos;
     const uint8_t *p;
-    
+
     pos = get_index_pos(&code, c,
                         unicode_cc_index, sizeof(unicode_cc_index) / 3);
     if (pos < 0)
@@ -876,7 +876,7 @@ static int unicode_get_cc(uint32_t c)
 static void sort_cc(int *buf, int len)
 {
     int i, j, k, cc, cc1, start, ch1;
-    
+
     for(i = 0; i < len; i++) {
         cc = unicode_get_cc(buf[i]);
         if (cc != 0) {
@@ -915,7 +915,7 @@ static void to_nfd_rec(DynBuf *dbuf,
     uint32_t c, v;
     int i, l;
     uint32_t res[UNICODE_DECOMP_LEN_MAX];
-    
+
     for(i = 0; i < src_len; i++) {
         c = src[i];
         if (c >= 0xac00 && c < 0xd7a4) {
@@ -960,7 +960,7 @@ int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
     int *buf, buf_len, i, p, starter_pos, cc, last_cc, out_len;
     BOOL is_compat;
     DynBuf dbuf_s, *dbuf = &dbuf_s;
-    
+
     is_compat = n_type >> 1;
 
     dbuf_init2(dbuf, opaque, realloc_func);
@@ -988,15 +988,15 @@ int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
     }
     buf = (int *)dbuf->buf;
     buf_len = dbuf->size / sizeof(int);
-        
+
     sort_cc(buf, buf_len);
-    
+
     if (buf_len <= 1 || (n_type & 1) != 0) {
         /* NFD / NFKD */
         *pdst = (uint32_t *)buf;
         return buf_len;
     }
-    
+
     i = 1;
     out_len = 1;
     while (i < buf_len) {
@@ -1033,7 +1033,7 @@ static int unicode_find_name(const char *name_table, const char *name)
     const char *p, *r;
     int pos;
     size_t name_len, len;
-    
+
     p = name_table;
     pos = 0;
     name_len = strlen(name);
@@ -1066,13 +1066,13 @@ int unicode_script(CharRange *cr,
     CharRange cr1_s, *cr1;
     CharRange cr2_s, *cr2 = &cr2_s;
     BOOL is_common;
-    
+
     script_idx = unicode_find_name(unicode_script_name_table, script_name);
     if (script_idx < 0)
         return -2;
     /* Note: we remove the "Unknown" Script */
     script_idx += UNICODE_SCRIPT_Unknown + 1;
-        
+
     is_common = (script_idx == UNICODE_SCRIPT_Common ||
                  script_idx == UNICODE_SCRIPT_Inherited);
     if (is_ext) {
@@ -1350,7 +1350,7 @@ static int point_cmp(const void *p1, const void *p2, void *arg)
 static void cr_sort_and_remove_overlap(CharRange *cr)
 {
     uint32_t start, end, start1, end1, i, j;
-    
+
     /* the resulting ranges are not necessarily sorted and may overlap */
     rqsort(cr->points, cr->len / 2, sizeof(cr->points[0]) * 2, point_cmp, NULL);
     j = 0;
@@ -1389,7 +1389,7 @@ int cr_regexp_canonicalize(CharRange *cr, BOOL is_unicode)
 {
     CharRange cr_inter, cr_mask, cr_result, cr_sub;
     uint32_t v, code, len, i, idx, start, end, c, d_start, d_end, d;
-    
+
     cr_init(&cr_mask, cr->mem_opaque, cr->realloc_func);
     cr_init(&cr_inter, cr->mem_opaque, cr->realloc_func);
     cr_init(&cr_result, cr->mem_opaque, cr->realloc_func);
@@ -1404,7 +1404,7 @@ int cr_regexp_canonicalize(CharRange *cr, BOOL is_unicode)
         goto fail;
     if (cr_op(&cr_sub, cr_mask.points, cr_mask.len, cr->points, cr->len, CR_OP_INTER))
         goto fail;
-    
+
     /* cr_inter = cr & cr_mask */
     /* cr_sub = cr & ~cr_mask */
 
@@ -1488,7 +1488,7 @@ static int unicode_prop_ops(CharRange *cr, ...)
     CharRange stack[POP_STACK_LEN_MAX];
     int stack_len, op, ret, i;
     uint32_t a;
-    
+
     va_start(ap, cr);
     stack_len = 0;
     for(;;) {
@@ -1574,7 +1574,7 @@ int unicode_general_category(CharRange *cr, const char *gc_name)
 {
     int gc_idx;
     uint32_t gc_mask;
-    
+
     gc_idx = unicode_find_name(unicode_gc_name_table, gc_name);
     if (gc_idx < 0)
         return -2;
@@ -1592,7 +1592,7 @@ int unicode_general_category(CharRange *cr, const char *gc_name)
 int unicode_prop(CharRange *cr, const char *prop_name)
 {
     int prop_idx, ret;
-    
+
     prop_idx = unicode_find_name(unicode_prop_name_table, prop_name);
     if (prop_idx < 0)
         return -2;

@@ -15,5 +15,5 @@ for f in $files; do
     g="${url}/${f}"
     wget $g -O unicode/$f
 done
-    
+
 wget $emoji_url -O unicode/emoji-data.txt
