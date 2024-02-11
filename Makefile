@@ -440,10 +440,10 @@ stats: qjs qjs32
 	./qjs32 -qd
 
 microbench: qjs
-	./qjs tests/microbench.js
+	./qjs --std tests/microbench.js
 
 microbench-32: qjs32
-	./qjs32 tests/microbench.js
+	./qjs32 --std tests/microbench.js
 
 # ES5 tests (obsolete)
 test2o: run-test262
