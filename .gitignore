@@ -1,5 +1,7 @@
 *.a
 .obj/
+examples/test_fib
+test_fib.c
 examples/hello
 examples/hello_module
 hello.c

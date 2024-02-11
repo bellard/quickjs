@@ -18937,10 +18937,10 @@ static JSValue js_generator_next(JSContext *ctx, JSValueConst this_val,
     *pdone = TRUE;
     if (!s)
         return JS_ThrowTypeError(ctx, "not a generator");
-    sf = &s->func_state->frame;
     switch(s->state) {
     default:
     case JS_GENERATOR_STATE_SUSPENDED_START:
+        sf = &s->func_state->frame;
         if (magic == GEN_MAGIC_NEXT) {
             goto exec_no_arg;
         } else {
@@ -18950,6 +18950,7 @@ static JSValue js_generator_next(JSContext *ctx, JSValueConst this_val,
         break;
     case JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR:
     case JS_GENERATOR_STATE_SUSPENDED_YIELD:
+        sf = &s->func_state->frame;
         /* cur_sp[-1] was set to JS_UNDEFINED in the previous call */
         ret = JS_DupValue(ctx, argv[0]);
         if (magic == GEN_MAGIC_THROW &&
@@ -41297,7 +41298,7 @@ static JSValue js_string_fromCodePoint(JSContext *ctx, JSValueConst this_val,
         } else {
             if (JS_ToFloat64(ctx, &d, argv[i]))
                 goto fail;
-            if (d < 0 || d > 0x10ffff || (c = (int)d) != d)
+            if (isnan(d) || d < 0 || d > 0x10ffff || (c = (int)d) != d)
                 goto range_error;
         }
         if (string_buffer_putc(b, c))
@@ -53692,6 +53693,7 @@ static JSValue js_typed_array_indexOf(JSContext *ctx, JSValueConst this_val,
     } else
     if (tag == JS_TAG_FLOAT64) {
         d = JS_VALUE_GET_FLOAT64(argv[0]);
+        // XXX: should fix UB
         v64 = d;
         is_int = (v64 == d);
     } else if (tag == JS_TAG_BIG_INT) {
