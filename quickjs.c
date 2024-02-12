@@ -49431,7 +49431,8 @@ static double time_clip(double t) {
    of the operations */
 static double set_date_fields(double fields[], int is_local) {
     int64_t y;
-    double days, d, h, m1;
+    double days, h, m1;
+    volatile double d;  /* enforce evaluation order */
     int i, m, md;
 
     m1 = fields[1];
@@ -49448,9 +49449,14 @@ static double set_date_fields(double fields[], int is_local) {
         days += md;
     }
     days += fields[2] - 1;
+    /* made d volatile to ensure order of evaluation as specified in ECMA.
+     * this fixes a test262 error on
+     * test262/test/built-ins/Date/UTC/fp-evaluation-order.js
+     */
     h = fields[3] * 3600000 + fields[4] * 60000 +
         fields[5] * 1000 + fields[6];
-    d = days * 86400000 + h;
+    d = days * 86400000;
+    d = d + h;
     if (is_local)
         d += getTimezoneOffset(d) * 60000;
     return time_clip(d);
