@@ -1,6 +1,6 @@
 /*
  * Linux klist like system
- * 
+ *
  * Copyright (c) 2016-2017 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -36,8 +36,7 @@ struct list_head {
 #define LIST_HEAD_INIT(el) { &(el), &(el) }
 
 /* return the pointer of type 'type *' containing 'el' as field 'member' */
-#define list_entry(el, type, member) \
-    ((type *)((uint8_t *)(el) - offsetof(type, member)))
+#define list_entry(el, type, member) container_of(el, type, member)
 
 static inline void init_list_head(struct list_head *head)
 {
@@ -46,7 +45,7 @@ static inline void init_list_head(struct list_head *head)
 }
 
 /* insert 'el' between 'prev' and 'next' */
-static inline void __list_add(struct list_head *el, 
+static inline void __list_add(struct list_head *el,
                               struct list_head *prev, struct list_head *next)
 {
     prev->next = el;

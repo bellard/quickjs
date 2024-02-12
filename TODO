@@ -1,6 +1,3 @@
-Bugs:
-- modules: better error handling with cyclic module references
-
 Misc ideas:
 - use custom printf to avoid compatibility issues with floating point numbers
 - consistent naming for preprocessor defines
@@ -66,5 +63,5 @@ Optimization ideas:
 Test262o:   0/11262 errors, 463 excluded
 Test262o commit: 7da91bceb9ce7613f87db47ddd1292a2dda58b42 (es5-tests branch)
 
-Result: 35/75280 errors, 909 excluded, 585 skipped
-Test262 commit: 31126581e7290f9233c29cefd93f66c6ac78f1c9
+Result: 8/76947 errors, 1497 excluded, 8117 skipped
+Test262 commit: 6cbb6da9473c56d95358d8e679c5a6d2b4574efb

@@ -167,6 +167,29 @@ function test_for_in2()
     assert(tab.toString() == "x,y");
 }
 
+function test_for_in_proxy() {
+    let removed_key = "";
+    let target = {}
+    let proxy = new Proxy(target, {
+        ownKeys: function() {
+            return ["a", "b", "c"];
+        },
+        getOwnPropertyDescriptor: function(target, key) {
+            if (removed_key != "" && key == removed_key)
+                return undefined;
+            else
+                return { enumerable: true, configurable: true, value: this[key] };
+        }
+    });
+    let str = "";
+    for(let o in proxy) {
+        str += " " + o;
+        if (o == "a")
+            removed_key = "b";
+    }
+    assert(str == " a c");
+}
+
 function test_for_break()
 {
     var i, c;
@@ -333,7 +356,7 @@ function test_try_catch7()
 function test_try_catch8()
 {
     var i, s;
-    
+
     s = "";
     for(var i in {x:1, y:2}) {
         try {
@@ -357,6 +380,7 @@ test_switch1();
 test_switch2();
 test_for_in();
 test_for_in2();
+test_for_in_proxy();
 
 test_try_catch1();
 test_try_catch2();

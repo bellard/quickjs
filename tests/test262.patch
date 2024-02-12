@@ -28,7 +28,7 @@ index be7039fda0..7b38abf8df 100644
 @@ -6,24 +6,27 @@ description: |
  defines: [buildString, testPropertyEscapes, matchValidator]
  ---*/
- 
+
 +if ($262 && typeof $262.codePointRange === "function") {
 +    /* use C function to build the codePointRange (much faster with
 +       slow JS engines) */
@@ -67,5 +67,5 @@ index be7039fda0..7b38abf8df 100644
 -  return result;
 +    return result;
  }
- 
+
  function testPropertyEscapes(regex, string, expression) {

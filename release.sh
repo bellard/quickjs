@@ -9,7 +9,7 @@ if [ "$1" = "-h" ] ; then
     echo "release.sh [release_list]"
     echo ""
     echo "release_list: extras binary win_binary quickjs"
-    
+
     exit 1
 fi
 
@@ -29,7 +29,7 @@ name="quickjs-extras-${version}"
 outdir="/tmp/${d}"
 
 rm -rf $outdir
-mkdir -p $outdir $outdir/unicode $outdir/tests 
+mkdir -p $outdir $outdir/unicode $outdir/tests
 
 cp unicode/* $outdir/unicode
 cp -a tests/bench-v8 $outdir/tests
@@ -83,7 +83,7 @@ cp $dlldir/libwinpthread-1.dll $outdir
 ( cd /tmp/$d && rm -f ../${d}.zip && zip -r ../${d}.zip . )
 
 fi
-    
+
 #################################################"
 # Linux binary release
 
@@ -151,7 +151,7 @@ cp examples/*.js examples/*.c $outdir/examples
 
 cp doc/quickjs.texi doc/quickjs.pdf doc/quickjs.html \
    doc/jsbignum.texi doc/jsbignum.html doc/jsbignum.pdf \
-   $outdir/doc 
+   $outdir/doc
 
 ( cd /tmp && tar Jcvf /tmp/${d}.tar.xz ${d} )
 

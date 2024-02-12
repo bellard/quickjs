@@ -1,6 +1,6 @@
 /*
  * QuickJS command line compiler
- * 
+ *
  * Copyright (c) 2018-2021 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -76,9 +76,7 @@ static const FeatureEntry feature_list[] = {
     { "promise", "Promise" },
 #define FE_MODULE_LOADER 9
     { "module-loader", NULL },
-#ifdef CONFIG_BIGNUM
     { "bigint", "BigInt" },
-#endif
 };
 
 void namelist_add(namelist_t *lp, const char *name, const char *short_name,
@@ -131,7 +129,7 @@ static void get_c_name(char *buf, size_t buf_size, const char *file)
     size_t len, i;
     int c;
     char *q;
-    
+
     p = strrchr(file, '/');
     if (!p)
         p = file;
@@ -189,8 +187,8 @@ static void output_object_code(JSContext *ctx,
     }
 
     namelist_add(&cname_list, c_name, NULL, load_only);
-    
-    fprintf(fo, "const uint32_t %s_size = %u;\n\n", 
+
+    fprintf(fo, "const uint32_t %s_size = %u;\n\n",
             c_name, (unsigned int)out_buf_len);
     fprintf(fo, "const uint8_t %s[%u] = {\n",
             c_name, (unsigned int)out_buf_len);
@@ -253,14 +251,14 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
         uint8_t *buf;
         JSValue func_val;
         char cname[1024];
-        
+
         buf = js_load_file(ctx, &buf_len, module_name);
         if (!buf) {
             JS_ThrowReferenceError(ctx, "could not load module filename '%s'",
                                    module_name);
             return NULL;
         }
-        
+
         /* compile the module */
         func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
                            JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -272,7 +270,7 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
             find_unique_cname(cname, sizeof(cname));
         }
         output_object_code(ctx, outfile, func_val, cname, TRUE);
-        
+
         /* the module is already referenced, so we must free it */
         m = JS_VALUE_GET_PTR(func_val);
         JS_FreeValue(ctx, func_val);
@@ -290,7 +288,7 @@ static void compile_file(JSContext *ctx, FILE *fo,
     int eval_flags;
     JSValue obj;
     size_t buf_len;
-    
+
     buf = js_load_file(ctx, &buf_len, filename);
     if (!buf) {
         fprintf(stderr, "Could not load '%s'\n", filename);
@@ -332,6 +330,7 @@ static const char main_c_template1[] =
 
 static const char main_c_template2[] =
     "  js_std_loop(ctx);\n"
+    "  js_std_free_handlers(rt);\n"
     "  JS_FreeContext(ctx);\n"
     "  JS_FreeRuntime(rt);\n"
     "  return 0;\n"
@@ -345,8 +344,8 @@ void help(void)
            "usage: " PROG_NAME " [options] [files]\n"
            "\n"
            "options are:\n"
-           "-c          only output bytecode in a C file\n"
-           "-e          output main() and bytecode in a C file (default = executable output)\n"
+           "-c          only output bytecode to a C file\n"
+           "-e          output main() and bytecode to a C file (default = executable output)\n"
            "-o output   set the output filename\n"
            "-N cname    set the C name of the generated data\n"
            "-m          compile as Javascript module (default=autodetect)\n"
@@ -384,7 +383,7 @@ int exec_cmd(char **argv)
     if (pid == 0) {
         execvp(argv[0], argv);
         exit(1);
-    } 
+    }
 
     for(;;) {
         ret = waitpid(pid, &status, 0);
@@ -402,7 +401,7 @@ static int output_executable(const char *out_filename, const char *cfilename,
     char libjsname[1024];
     char exe_dir[1024], inc_dir[1024], lib_dir[1024], buf[1024], *p;
     int ret;
-    
+
     /* get the directory of the executable */
     pstrcpy(exe_dir, sizeof(exe_dir), exename);
     p = strrchr(exe_dir, '/');
@@ -422,10 +421,10 @@ static int output_executable(const char *out_filename, const char *cfilename,
         snprintf(inc_dir, sizeof(inc_dir), "%s/include/quickjs", CONFIG_PREFIX);
         snprintf(lib_dir, sizeof(lib_dir), "%s/lib/quickjs", CONFIG_PREFIX);
     }
-    
+
     lto_suffix = "";
     bn_suffix = "";
-    
+
     arg = argv;
     *arg++ = CONFIG_CC;
     *arg++ = "-O2";
@@ -453,13 +452,13 @@ static int output_executable(const char *out_filename, const char *cfilename,
     *arg++ = "-ldl";
     *arg++ = "-lpthread";
     *arg = NULL;
-    
+
     if (verbose) {
         for(arg = argv; *arg != NULL; arg++)
             printf("%s ", *arg);
         printf("\n");
     }
-    
+
     ret = exec_cmd((char **)argv);
     unlink(cfilename);
     return ret;
@@ -497,7 +496,7 @@ int main(int argc, char **argv)
     BOOL bignum_ext = FALSE;
 #endif
     namelist_t dynamic_module_list;
-    
+
     out_filename = NULL;
     output_type = OUTPUT_EXECUTABLE;
     cname = NULL;
@@ -508,7 +507,7 @@ int main(int argc, char **argv)
     use_lto = FALSE;
     stack_size = 0;
     memset(&dynamic_module_list, 0, sizeof(dynamic_module_list));
-    
+
     /* add system modules */
     namelist_add(&cmodule_list, "std", "std", 0);
     namelist_add(&cmodule_list, "os", "os", 0);
@@ -621,14 +620,14 @@ int main(int argc, char **argv)
     } else {
         pstrcpy(cfilename, sizeof(cfilename), out_filename);
     }
-    
+
     fo = fopen(cfilename, "w");
     if (!fo) {
         perror(cfilename);
         exit(1);
     }
     outfile = fo;
-    
+
     rt = JS_NewRuntime();
     ctx = JS_NewContext(rt);
 #ifdef CONFIG_BIGNUM
@@ -639,14 +638,14 @@ int main(int argc, char **argv)
         JS_EnableBignumExt(ctx, TRUE);
     }
 #endif
-    
+
     /* loader for ES6 modules */
     JS_SetModuleLoaderFunc(rt, NULL, jsc_module_loader, NULL);
 
     fprintf(fo, "/* File generated automatically by the QuickJS compiler. */\n"
             "\n"
             );
-    
+
     if (output_type != OUTPUT_C) {
         fprintf(fo, "#include \"quickjs-libc.h\"\n"
                 "\n"
@@ -670,7 +669,7 @@ int main(int argc, char **argv)
             exit(1);
         }
     }
-    
+
     if (output_type != OUTPUT_C) {
         fprintf(fo,
                 "static JSContext *JS_NewCustomContext(JSRuntime *rt)\n"
@@ -701,7 +700,7 @@ int main(int argc, char **argv)
         for(i = 0; i < init_module_list.count; i++) {
             namelist_entry_t *e = &init_module_list.array[i];
             /* initialize the static C modules */
-            
+
             fprintf(fo,
                     "  {\n"
                     "    extern JSModuleDef *js_init_module_%s(JSContext *ctx, const char *name);\n"
@@ -719,19 +718,19 @@ int main(int argc, char **argv)
         fprintf(fo,
                 "  return ctx;\n"
                 "}\n\n");
-        
+
         fputs(main_c_template1, fo);
 
         if (stack_size != 0) {
             fprintf(fo, "  JS_SetMaxStackSize(rt, %u);\n",
                     (unsigned int)stack_size);
         }
-        
+
         /* add the module loader if necessary */
         if (feature_bitmap & (1 << FE_MODULE_LOADER)) {
             fprintf(fo, "  JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);\n");
         }
-        
+
         fprintf(fo,
                 "  ctx = JS_NewCustomContext(rt);\n"
                 "  js_std_add_helpers(ctx, argc, argv);\n");
@@ -745,7 +744,7 @@ int main(int argc, char **argv)
         }
         fputs(main_c_template2, fo);
     }
-    
+
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
 

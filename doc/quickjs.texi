@@ -19,9 +19,9 @@
 
 @chapter Introduction
 
-QuickJS is a small and embeddable Javascript engine. It supports the
-ES2020 specification
-@footnote{@url{https://tc39.es/ecma262/}}
+QuickJS is a small and embeddable Javascript engine. It supports most of the
+ES2023 specification
+@footnote{@url{https://tc39.es/ecma262/2023 }}
 including modules, asynchronous generators, proxies and BigInt.
 
 It supports mathematical extensions such as big decimal float float
@@ -34,14 +34,14 @@ and operator overloading.
 
 @item Small and easily embeddable: just a few C files, no external dependency, 210 KiB of x86 code for a simple ``hello world'' program.
 
-@item Fast interpreter with very low startup time: runs the 69000 tests of the ECMAScript Test Suite@footnote{@url{https://github.com/tc39/test262}} in about 95 seconds on a single core of a desktop PC. The complete life cycle of a runtime instance completes in less than 300 microseconds.
+@item Fast interpreter with very low startup time: runs the 77000 tests of the ECMAScript Test Suite@footnote{@url{https://github.com/tc39/test262}} in less than 2 minutes on a single core of a desktop PC. The complete life cycle of a runtime instance completes in less than 300 microseconds.
 
-@item Almost complete ES2020 support including modules, asynchronous
-generators and full Annex B support (legacy web compatibility). Many
-features from the upcoming ES2021 specification
-@footnote{@url{https://tc39.github.io/ecma262/}} are also supported.
+@item Almost complete ES2023 support including modules, asynchronous
+generators and full Annex B support (legacy web compatibility). Some
+features from the upcoming ES2024 specification
+@footnote{@url{https://tc39.es/ecma262/}} are also supported.
 
-@item Passes nearly 100% of the ECMAScript Test Suite tests when selecting the ES2020 features.
+@item Passes nearly 100% of the ECMAScript Test Suite tests when selecting the ES2023 features.
 
 @item Compile Javascript sources to executables with no external dependency.
 
@@ -68,6 +68,11 @@ options then run @code{make}.
 
 You can type @code{make install} as root if you wish to install the binaries and support files to
 @code{/usr/local} (this is not necessary to use QuickJS).
+
+Note: On some OSes atomic operations are not available or need a
+specific library. If you get related errors, you should either add
+@code{-latomics} in the Makefile @code{LIBS} variable or disable
+@code{CONFIG_ATOMICS} in @file{quickjs.c}.
 
 @section Quick start
 
@@ -155,7 +160,7 @@ Options are:
 @table @code
 @item -c
 Only output bytecode in a C file. The default is to output an executable file.
-@item -e 
+@item -e
 Output @code{main()} and bytecode in a C file. The default is to output an
 executable file.
 @item -o output
@@ -265,9 +270,9 @@ about 100 seconds).
 
 @section Language support
 
-@subsection ES2020 support
+@subsection ES2023 support
 
-The ES2020 specification is almost fully supported including the Annex
+The ES2023 specification is almost fully supported including the Annex
 B (legacy web compatibility) and the Unicode related features.
 
 The following features are not supported yet:
@@ -275,6 +280,10 @@ The following features are not supported yet:
 @itemize
 
 @item Tail calls@footnote{We believe the current specification of tails calls is too complicated and presents limited practical interests.}
+
+@item WeakRef and FinalizationRegistry objects
+
+@item Symbols as WeakMap keys
 
 @end itemize
 
@@ -368,6 +377,11 @@ optional properties:
   @item backtrace_barrier
   Boolean (default = false). If true, error backtraces do not list the
   stack frames below the evalScript.
+  @item async
+  Boolean (default = false). If true, @code{await} is accepted in the
+  script and a promise is returned. The promise is resolved with an
+  object whose @code{value} property holds the value returned by the
+  script.
   @end table
 
 @item loadScript(filename)
@@ -475,7 +489,7 @@ optional properties:
   to be UTF-8 encoded.
 
   @item full
-  
+
   Boolean (default = false). If true, return the an object contains
   the properties @code{response} (response content),
   @code{responseHeaders} (headers separated by CRLF), @code{status}
@@ -582,7 +596,7 @@ Available exports:
 Open a file. Return a handle or < 0 if error.
 
 @item O_RDONLY
-@item O_WRONLY        
+@item O_WRONLY
 @item O_RDWR
 @item O_APPEND
 @item O_CREAT
@@ -720,7 +734,7 @@ object containing optional parameters:
   terminated. In this case, @code{exec} return the exit code if positive
   or the negated signal number if the process was interrupted by a
   signal. If false, do not block and return the process id of the child.
-  
+
   @item usePath
   Boolean (default = true). If true, the file is searched in the
   @code{PATH} environment variable.
@@ -744,10 +758,13 @@ object containing optional parameters:
   @item uid
   Integer. If present, the process uid with @code{setuid}.
 
-  @item gid 
+  @item gid
   Integer. If present, the process gid with @code{setgid}.
 
   @end table
+
+@item getpid()
+Return the current process ID.
 
 @item waitpid(pid, options)
 @code{waitpid} Unix system call. Return the array @code{[ret,
@@ -768,6 +785,17 @@ write_fd]} or null in case of error.
 
 @item sleep(delay_ms)
 Sleep during @code{delay_ms} milliseconds.
+
+@item sleepAsync(delay_ms)
+Asynchronouse sleep during @code{delay_ms} milliseconds. Returns a promise. Example:
+@example
+await os.sleepAsync(500);
+@end example
+
+@item now()
+Return a timestamp in milliseconds with more precision than
+@code{Date.now()}. The time origin is unspecified and is normally not
+impacted by system clock adjustments.
 
 @item setTimeout(func, delay)
 Call the function @code{func} after @code{delay} ms. Return a handle
@@ -801,7 +829,7 @@ The worker instances have the following properties:
 
   @table @code
   @item postMessage(msg)
-  
+
   Send a message to the corresponding worker. @code{msg} is cloned in
   the destination worker using an algorithm similar to the @code{HTML}
   structured clone algorithm. @code{SharedArrayBuffer} are shared
@@ -944,7 +972,7 @@ The compiler generates bytecode directly with no intermediate
 representation such as a parse tree, hence it is very fast. Several
 optimizations passes are done over the generated bytecode.
 
-A stack-based bytecode was chosen because it is simple and generates 
+A stack-based bytecode was chosen because it is simple and generates
 compact code.
 
 For each function, the maximum stack size is computed at compile time so that
@@ -1053,16 +1081,13 @@ stack holds the Javascript parameters and local variables.
 @section RegExp
 
 A specific regular expression engine was developed. It is both small
-and efficient and supports all the ES2020 features including the
+and efficient and supports all the ES2023 features including the
 Unicode properties. As the Javascript compiler, it directly generates
 bytecode without a parse tree.
 
 Backtracking with an explicit stack is used so that there is no
 recursion on the system stack. Simple quantifiers are specifically
 optimized to avoid recursions.
-
-Infinite recursions coming from quantifiers with empty terms are
-avoided.
 
 The full regexp library weights about 15 KiB (x86 code), excluding the
 Unicode library.

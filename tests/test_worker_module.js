@@ -10,6 +10,7 @@ function handle_msg(e) {
     switch(ev.type) {
     case "abort":
         parent.postMessage({ type: "done" });
+        parent.onMessage = null; /* terminate the worker */
         break;
     case "sab":
         /* modify the SharedArrayBuffer */
@@ -21,10 +22,10 @@ function handle_msg(e) {
 
 function worker_main() {
     var i;
-    
+
     parent.onmessage = handle_msg;
     for(i = 0; i < 10; i++) {
-        parent.postMessage({ type: "num", num: i }); 
+        parent.postMessage({ type: "num", num: i });
     }
 }
 
