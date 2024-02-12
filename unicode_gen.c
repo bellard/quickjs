@@ -1621,7 +1621,9 @@ void build_general_category_table(FILE *f)
 {
     int i, v, j, n, n1;
     DynBuf dbuf_s, *dbuf = &dbuf_s;
+#ifdef DUMP_TABLE_SIZE
     int cw_count, cw_len_count[4], cw_start;
+#endif
 
     fprintf(f, "typedef enum {\n");
     for(i = 0; i < GCAT_COUNT; i++)
@@ -1635,9 +1637,11 @@ void build_general_category_table(FILE *f)
 
 
     dbuf_init(dbuf);
+#ifdef DUMP_TABLE_SIZE
     cw_count = 0;
     for(i = 0; i < 4; i++)
         cw_len_count[i] = 0;
+#endif
     for(i = 0; i <= CHARCODE_MAX;) {
         v = unicode_db[i].general_category;
         j = i + 1;
@@ -1656,9 +1660,11 @@ void build_general_category_table(FILE *f)
             }
         }
         //        printf("%05x %05x %d\n", i, n, v);
-        cw_count++;
         n--;
+#ifdef DUMP_TABLE_SIZE
+        cw_count++;
         cw_start = dbuf->size;
+#endif
         if (n < 7) {
             dbuf_putc(dbuf, (n << 5) | v);
         } else if (n < 7 + 128) {
@@ -1680,12 +1686,13 @@ void build_general_category_table(FILE *f)
             dbuf_putc(dbuf, n1 >> 8);
             dbuf_putc(dbuf, n1);
         }
+#ifdef DUMP_TABLE_SIZE
         cw_len_count[dbuf->size - cw_start - 1]++;
+#endif
         i += n + 1;
     }
 #ifdef DUMP_TABLE_SIZE
-    printf("general category: %d entries [",
-           cw_count);
+    printf("general category: %d entries [", cw_count);
     for(i = 0; i < 4; i++)
         printf(" %d", cw_len_count[i]);
     printf(" ], length=%d bytes\n", (int)dbuf->size);
@@ -1700,7 +1707,9 @@ void build_script_table(FILE *f)
 {
     int i, v, j, n, n1, type;
     DynBuf dbuf_s, *dbuf = &dbuf_s;
+#ifdef DUMP_TABLE_SIZE
     int cw_count, cw_len_count[4], cw_start;
+#endif
 
     fprintf(f, "typedef enum {\n");
     for(i = 0; i < SCRIPT_COUNT; i++)
@@ -1714,9 +1723,11 @@ void build_script_table(FILE *f)
                     unicode_script_short_name + i);
 
     dbuf_init(dbuf);
+#ifdef DUMP_TABLE_SIZE
     cw_count = 0;
     for(i = 0; i < 4; i++)
         cw_len_count[i] = 0;
+#endif
     for(i = 0; i <= CHARCODE_MAX;) {
         v = unicode_db[i].script;
         j = i + 1;
@@ -1726,9 +1737,11 @@ void build_script_table(FILE *f)
         if (v == 0 && j == (CHARCODE_MAX + 1))
             break;
         //        printf("%05x %05x %d\n", i, n, v);
-        cw_count++;
         n--;
+#ifdef DUMP_TABLE_SIZE
+        cw_count++;
         cw_start = dbuf->size;
+#endif
         if (v == 0)
             type = 0;
         else
@@ -1750,12 +1763,13 @@ void build_script_table(FILE *f)
         if (type != 0)
             dbuf_putc(dbuf, v);
 
+#ifdef DUMP_TABLE_SIZE
         cw_len_count[dbuf->size - cw_start - 1]++;
+#endif
         i += n + 1;
     }
-#if defined(DUMP_TABLE_SIZE)
-    printf("script: %d entries [",
-           cw_count);
+#ifdef DUMP_TABLE_SIZE
+    printf("script: %d entries [", cw_count);
     for(i = 0; i < 4; i++)
         printf(" %d", cw_len_count[i]);
     printf(" ], length=%d bytes\n", (int)dbuf->size);
@@ -1770,10 +1784,11 @@ void build_script_ext_table(FILE *f)
 {
     int i, j, n, n1, script_ext_len;
     DynBuf dbuf_s, *dbuf = &dbuf_s;
-    int cw_count;
+#if defined(DUMP_TABLE_SIZE)
+    int cw_count = 0;
+#endif
 
     dbuf_init(dbuf);
-    cw_count = 0;
     for(i = 0; i <= CHARCODE_MAX;) {
         script_ext_len = unicode_db[i].script_ext_len;
         j = i + 1;
@@ -1784,7 +1799,9 @@ void build_script_ext_table(FILE *f)
             j++;
         }
         n = j - i;
+#if defined(DUMP_TABLE_SIZE)
         cw_count++;
+#endif
         n--;
         if (n < 128) {
             dbuf_putc(dbuf, n);
@@ -1806,8 +1823,7 @@ void build_script_ext_table(FILE *f)
         i += n + 1;
     }
 #ifdef DUMP_TABLE_SIZE
-    printf("script_ext: %d entries",
-           cw_count);
+    printf("script_ext: %d entries", cw_count);
     printf(", length=%d bytes\n", (int)dbuf->size);
 #endif
 
@@ -1981,17 +1997,21 @@ void check_flags(void)
 
 void build_cc_table(FILE *f)
 {
-    int i, cc, n, cc_table_len, type, n1;
+    int i, cc, n, type, n1, block_end_pos;
     DynBuf dbuf_s, *dbuf = &dbuf_s;
     DynBuf dbuf1_s, *dbuf1 = &dbuf1_s;
-    int cw_len_tab[3], cw_start, block_end_pos;
+#if defined(DUMP_CC_TABLE) || defined(DUMP_TABLE_SIZE)
+    int cw_len_tab[3], cw_start, cc_table_len;
+#endif
     uint32_t v;
 
     dbuf_init(dbuf);
     dbuf_init(dbuf1);
+#if defined(DUMP_CC_TABLE) || defined(DUMP_TABLE_SIZE)
     cc_table_len = 0;
     for(i = 0; i < countof(cw_len_tab); i++)
         cw_len_tab[i] = 0;
+#endif
     block_end_pos = CC_BLOCK_LEN;
     for(i = 0; i <= CHARCODE_MAX;) {
         cc = unicode_db[i].combining_class;
@@ -2032,7 +2052,9 @@ void build_cc_table(FILE *f)
             dbuf_putc(dbuf1, v >> 16);
             block_end_pos += CC_BLOCK_LEN;
         }
+#if defined(DUMP_CC_TABLE) || defined(DUMP_TABLE_SIZE)
         cw_start = dbuf->size;
+#endif
         if (n1 < 48) {
             dbuf_putc(dbuf, n1 | (type << 6));
         } else if (n1 < 48 + (1 << 11)) {
@@ -2046,10 +2068,12 @@ void build_cc_table(FILE *f)
             dbuf_putc(dbuf, n1 >> 8);
             dbuf_putc(dbuf, n1);
         }
+#if defined(DUMP_CC_TABLE) || defined(DUMP_TABLE_SIZE)
         cw_len_tab[dbuf->size - cw_start - 1]++;
+        cc_table_len++;
+#endif
         if (type == 0 || type == 1)
             dbuf_putc(dbuf, cc);
-        cc_table_len++;
         i += n;
     }
 
