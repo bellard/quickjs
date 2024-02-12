@@ -1335,7 +1335,7 @@ static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
     DynBuf header_buf_s, *header_buf = &header_buf_s;
     char *buf;
     size_t i, len;
-    int c, status;
+    int status;
     JSValue response = JS_UNDEFINED, ret_obj;
     JSValueConst options_obj;
     FILE *f;
@@ -1363,17 +1363,20 @@ static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
 
     js_std_dbuf_init(ctx, &cmd_buf);
     dbuf_printf(&cmd_buf, "%s '", URL_GET_PROGRAM);
-    len = strlen(url);
-    for(i = 0; i < len; i++) {
-        switch (c = url[i]) {
+    for(i = 0; url[i] != '\0'; i++) {
+        unsigned char c = url[i];
+        switch (c) {
         case '\'':
+            /* shell single quoted string does not support \' */
             dbuf_putstr(&cmd_buf, "'\\''");
             break;
         case '[': case ']': case '{': case '}': case '\\':
+            /* prevent interpretation by curl as range or set specification */
             dbuf_putc(&cmd_buf, '\\');
             /* FALLTHROUGH */
         default:
             dbuf_putc(&cmd_buf, c);
+            break;
         }
     }
     JS_FreeCString(ctx, url);
