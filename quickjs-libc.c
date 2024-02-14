@@ -3026,6 +3026,13 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
             }
         }
 
+/*
+    Use closefrom if possible
+ */
+#if defined(__GLIBC__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+        closefrom(4);
+#else
+
 #if defined(__linux__)
         int pid = getpid();
         int max_fd = 0;
@@ -3058,6 +3065,8 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
 #endif
         for(i = 3; i < fd_max; i++)
             close(i);
+#endif
+        
         if (cwd) {
             if (chdir(cwd) < 0)
                 _exit(127);
