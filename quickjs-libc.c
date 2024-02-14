@@ -3016,7 +3016,6 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     }
     if (pid == 0) {
         /* child */
-        int fd_max = sysconf(_SC_OPEN_MAX);
 
         /* remap the stdin/stdout/stderr handles if necessary */
         for(i = 0; i < 3; i++) {
@@ -3032,8 +3031,9 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
 #if defined(__GLIBC__) || defined(__FreeBSD__) || defined(__OpenBSD__)
         closefrom(4);
 #else
+        int fd_max = sysconf(_SC_OPEN_MAX);
 
-#if defined(__linux__)
+    #if defined(__linux__)
         int pid = getpid();
         int max_fd = 0;
         char path[32];
@@ -3062,11 +3062,11 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                 }
             }
         }
-#endif
+    #endif
         for(i = 3; i < fd_max; i++)
             close(i);
 #endif
-        
+
         if (cwd) {
             if (chdir(cwd) < 0)
                 _exit(127);
