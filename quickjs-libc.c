@@ -2890,9 +2890,21 @@ static int my_execvpe(const char *filename, char **argv, char **envp)
     return -1;
 }
 
+/*
+    This method is called from the child process, after forking
+    and returns the maximum number of open file descriptors on
+    the system.
+ */
 int get_fd_max() {
     int fd_max = sysconf(_SC_OPEN_MAX);
 #if defined(__linux__)
+    /*
+        Under linux, check /proc to find the highest open file descriptor
+        This will improve performances on systems where the maximum number
+        of open file descriptor is high (such as in a Docker container).
+
+        Close any open file descriptor > 3.
+     */
     int pid = getpid();
     int max_fd = 0;
     char path[32];
@@ -2911,12 +2923,14 @@ int get_fd_max() {
                     }
                     fd = atoi(subdir->d_name);
                     if (fd > 3) {
-                        max_fd = 3;
                         close(fd);
+                    }
+                    if (fd > max_fd) {
+                        max_fd = fd;
                     }
                 }
                 if (max_fd > 0) {
-                    fd_max = max_fd;
+                    fd_max = 3;
                 }
                 closedir(dir);
             }
