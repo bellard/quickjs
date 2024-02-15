@@ -3038,7 +3038,7 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
         int max_fd = 0;
         char path[32];
         struct stat statbuf;
-        sprintf(path, "/proc/%d/fd", pid);
+        snprintf(path, sizeof(path), "/proc/%d/fd", pid);
         if (stat(path, &statbuf) == 0) {
             if (S_ISDIR(statbuf.st_mode)) {
                 DIR *dir = opendir(path);
@@ -3055,7 +3055,7 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                             max_fd = fd;
                         }
                     }
-                    if (max_fd  > 0) {
+                    if (max_fd > 0) {
                         fd_max = max_fd;
                     }
                     closedir(dir);
