@@ -1136,6 +1136,9 @@ function main(argc, argv, g)
         save_result("microbench-new.txt", log_data);
 }
 
-if (typeof scriptArgs === "undefined")
+if (typeof scriptArgs === "undefined") {
     scriptArgs = [];
+    if (typeof process.argv === "object")
+        scriptArgs = process.argv.slice(1);
+}
 main(scriptArgs.length, scriptArgs, this);
