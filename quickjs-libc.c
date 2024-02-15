@@ -3064,7 +3064,7 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
 /*
     Use closefrom if possible
  */
-#if defined(__GLIBC__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+#if defined(__FreeBSD__) || defined(__OpenBSD__)
         closefrom(4);
 #else
         int fd_max = get_fd_max();
