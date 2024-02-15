@@ -2890,6 +2890,42 @@ static int my_execvpe(const char *filename, char **argv, char **envp)
     return -1;
 }
 
+int get_fd_max() {
+    int fd_max = sysconf(_SC_OPEN_MAX);
+#if defined(__linux__)
+    int pid = getpid();
+    int max_fd = 0;
+    char path[32];
+    struct stat statbuf;
+    snprintf(path, sizeof(path), "/proc/%d/fd", pid);
+    if (stat(path, &statbuf) == 0) {
+        if (S_ISDIR(statbuf.st_mode)) {
+            DIR *dir = opendir(path);
+            if (dir) {
+                struct dirent *subdir;
+                int fd;
+                for(;;) {
+                    subdir = readdir(dir);
+                    if (!subdir) {
+                        break;
+                    }
+                    fd = atoi(subdir->d_name);
+                    if (fd > 3) {
+                        max_fd = 3;
+                        close(fd);
+                    }
+                }
+                if (max_fd > 0) {
+                    fd_max = max_fd;
+                }
+                closedir(dir);
+            }
+        }
+    }
+#endif
+    return fd_max;
+}
+
 /* exec(args[, options]) -> exitcode */
 static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv)
@@ -3031,38 +3067,7 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
 #if defined(__GLIBC__) || defined(__FreeBSD__) || defined(__OpenBSD__)
         closefrom(4);
 #else
-        int fd_max = sysconf(_SC_OPEN_MAX);
-
-    #if defined(__linux__)
-        int pid = getpid();
-        int max_fd = 0;
-        char path[32];
-        struct stat statbuf;
-        snprintf(path, sizeof(path), "/proc/%d/fd", pid);
-        if (stat(path, &statbuf) == 0) {
-            if (S_ISDIR(statbuf.st_mode)) {
-                DIR *dir = opendir(path);
-                if (dir) {
-                    struct dirent *subdir;
-                    int fd;
-                    for(;;) {
-                        subdir = readdir(dir);
-                        if (!subdir) {
-                            break;
-                        }
-                        fd = atoi(subdir->d_name);
-                        if (fd > max_fd) {
-                            max_fd = fd;
-                        }
-                    }
-                    if (max_fd > 0) {
-                        fd_max = max_fd;
-                    }
-                    closedir(dir);
-                }
-            }
-        }
-    #endif
+        int fd_max = get_fd_max();
         for(i = 3; i < fd_max; i++)
             close(i);
 #endif
