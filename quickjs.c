@@ -6242,7 +6242,7 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
             "BigNum "
 #endif
             CONFIG_VERSION " version, %d-bit, malloc limit: %"PRId64"\n\n",
-            (int)sizeof(void *) * 8, (int64_t)(ssize_t)s->malloc_limit);
+            (int)sizeof(void *) * 8, s->malloc_limit);
 #if 1
     if (rt) {
         static const struct {
