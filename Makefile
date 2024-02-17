@@ -56,6 +56,16 @@ CONFIG_BIGNUM=y
 
 OBJDIR=.obj
 
+ifdef CONFIG_ASAN
+OBJDIR:=$(OBJDIR)/asan
+endif
+ifdef CONFIG_MSAN
+OBJDIR:=$(OBJDIR)/msan
+endif
+ifdef CONFIG_UBSAN
+OBJDIR:=$(OBJDIR)/ubsan
+endif
+
 ifdef CONFIG_DARWIN
 # use clang instead of gcc
 CONFIG_CLANG=y
