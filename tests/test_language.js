@@ -420,8 +420,12 @@ function test_argument_scope()
     var f;
     var c = "global";
 
-    f = function(a = eval("var arguments")) {};
-    assert_throws(SyntaxError, f);
+    (function() {
+        "use strict";
+        // XXX: node only throws in strict mode
+        f = function(a = eval("var arguments")) {};
+        assert_throws(SyntaxError, f);
+    })();
 
     f = function(a = eval("1"), b = arguments[0]) { return b; };
     assert(f(12), 12);

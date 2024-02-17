@@ -316,9 +316,9 @@ function test_math()
     assert(Math.imul((-2)**31, (-2)**31), 0);
     assert(Math.imul(2**31-1, 2**31-1), 1);
     assert(Math.fround(0.1), 0.10000000149011612);
-    assert(Math.hypot() == 0);
-    assert(Math.hypot(-2) == 2);
-    assert(Math.hypot(3, 4) == 5);
+    assert(Math.hypot(), 0);
+    assert(Math.hypot(-2), 2);
+    assert(Math.hypot(3, 4), 5);
     assert(Math.abs(Math.hypot(3, 4, 5) - 7.0710678118654755) <= 1e-15);
 }
 
@@ -491,20 +491,31 @@ function test_date()
     assert(d.toISOString(), "2017-09-22T18:10:11.091Z");
     a = Date.parse(d.toISOString());
     assert((new Date(a)).toISOString(), d.toISOString());
+    // Date Time String format is YYYY-MM-DDTHH:mm:ss.sssZ
+    // accepted date formats are: YYYY, YYYY-MM and YYYY-MM-DD
+    // accepted time formats are: THH:mm, THH:mm:ss, THH:mm:ss.sss
+    // A string containing out-of-bounds or nonconforming elements
+    //   is not a valid instance of this format.
+    // expanded years are represented with 6 digits prefixed by + or -
+    // -000000 is invalid.
+    // Hence the fractional part after . should have 3 digits and how
+    // a different number of digits is handled is implementation defined.
     s = new Date("2020-01-01T01:01:01.1Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.100Z");
+    assert(s,    "2020-01-01T01:01:01.100Z");
     s = new Date("2020-01-01T01:01:01.12Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.120Z");
+    assert(s,    "2020-01-01T01:01:01.120Z");
     s = new Date("2020-01-01T01:01:01.123Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.123Z");
+    assert(s,    "2020-01-01T01:01:01.123Z");
     s = new Date("2020-01-01T01:01:01.1234Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.123Z");
+    assert(s,    "2020-01-01T01:01:01.123Z");
     s = new Date("2020-01-01T01:01:01.12345Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.123Z");
+    assert(s,    "2020-01-01T01:01:01.123Z");
     s = new Date("2020-01-01T01:01:01.1235Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.124Z");
+    assert(s ==  "2020-01-01T01:01:01.124Z" ||      // QuickJS
+           s ==  "2020-01-01T01:01:01.123Z");       // nodeJS
     s = new Date("2020-01-01T01:01:01.9999Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:02.000Z");
+    assert(s ==  "2020-01-01T01:01:02.000Z" ||      // QuickJS
+           s ==  "2020-01-01T01:01:01.999Z");       // nodeJS
 }
 
 function test_regexp()
