@@ -28,9 +28,6 @@
 #include <stdlib.h>
 #include <inttypes.h>
 
-/* set if CPU is big endian */
-#undef WORDS_BIGENDIAN
-
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 #define force_inline inline __attribute__((always_inline))
