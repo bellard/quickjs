@@ -351,6 +351,7 @@ clean:
 	rm -f examples/*.so tests/*.so
 	rm -rf $(OBJDIR)/ *.dSYM/ qjs-debug
 	rm -rf run-test262-debug run-test262-32
+	rm -f run_octane run_sunspider_like
 
 install: all
 	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
@@ -530,5 +531,19 @@ bench-v8: qjs
 
 tests/bjson.so: $(OBJDIR)/tests/bjson.pic.o
 	$(CC) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+
+BENCHMARKDIR=../quickjs-benchmarks
+
+run_sunspider_like: $(BENCHMARKDIR)/run_sunspider_like.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -DNO_INCLUDE_DIR -I. -o $@ $< libquickjs$(LTOEXT).a $(LIBS)
+
+run_octane: $(BENCHMARKDIR)/run_octane.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -DNO_INCLUDE_DIR -I. -o $@ $< libquickjs$(LTOEXT).a $(LIBS)
+
+benchmarks: run_sunspider_like run_octane
+	./run_sunspider_like $(BENCHMARKDIR)/kraken-1.0/
+	./run_sunspider_like $(BENCHMARKDIR)/kraken-1.1/
+	./run_sunspider_like $(BENCHMARKDIR)/sunspider-1.0/
+	./run_octane $(BENCHMARKDIR)/
 
 -include $(wildcard $(OBJDIR)/*.d)

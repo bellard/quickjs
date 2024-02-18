@@ -20,3 +20,5 @@ test262o
 test262o_*.txt
 unicode
 unicode_gen
+run_octane
+run_sunspider_like
