@@ -63,6 +63,8 @@ enum test_mode_t {
     TEST_STRICT,           /* run tests as strict, skip nostrict tests */
     TEST_ALL,              /* run tests in both strict and nostrict, unless restricted by spec */
 } test_mode = TEST_DEFAULT_NOSTRICT;
+int compact;
+int show_timings;
 int skip_async;
 int skip_module;
 int new_style;
@@ -530,6 +532,7 @@ static JSValue js_agent_start(JSContext *ctx, JSValue this_val,
 {
     const char *script;
     Test262Agent *agent;
+    pthread_attr_t attr;
 
     if (JS_GetContextOpaque(ctx) != NULL)
         return JS_ThrowTypeError(ctx, "cannot be called inside an agent");
@@ -544,7 +547,12 @@ static JSValue js_agent_start(JSContext *ctx, JSValue this_val,
     agent->script = strdup(script);
     JS_FreeCString(ctx, script);
     list_add_tail(&agent->link, &agent_list);
-    pthread_create(&agent->tid, NULL, agent_start, agent);
+    pthread_attr_init(&attr);
+    // musl libc gives threads 80 kb stacks, much smaller than
+    // JS_DEFAULT_STACK_SIZE (256 kb)
+    pthread_attr_setstacksize(&attr, 2 << 20); // 2 MB, glibc default
+    pthread_create(&agent->tid, &attr, agent_start, agent);
+    pthread_attr_destroy(&attr);
     return JS_UNDEFINED;
 }
 
@@ -813,6 +821,19 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
     uint8_t *buf;
     JSModuleDef *m;
     JSValue func_val;
+    char *filename, *slash, path[1024];
+
+    // interpret import("bar.js") from path/to/foo.js as
+    // import("path/to/bar.js") but leave import("./bar.js") untouched
+    filename = opaque;
+    if (!strchr(module_name, '/')) {
+        slash = strrchr(filename, '/');
+        if (slash) {
+            snprintf(path, sizeof(path), "%.*s/%s",
+                     (int)(slash - filename), filename, module_name);
+            module_name = path;
+        }
+    }
 
     buf = js_load_file(ctx, &buf_len, module_name);
     if (!buf) {
@@ -910,7 +931,7 @@ void update_exclude_dirs(void)
     lp->count = count;
 }
 
-void load_config(const char *filename)
+void load_config(const char *filename, const char *ignore)
 {
     char buf[1024];
     FILE *f;
@@ -963,6 +984,10 @@ void load_config(const char *filename)
         case SECTION_CONFIG:
             if (!q) {
                 printf("%s:%d: syntax error\n", filename, lineno);
+                continue;
+            }
+            if (strstr(ignore, p)) {
+                printf("%s:%d: ignoring %s=%s\n", filename, lineno, p, q);
                 continue;
             }
             if (str_equal(p, "style")) {
@@ -1540,7 +1565,7 @@ int run_test_buf(const char *filename, const char *harness, namelist_t *ip,
     JS_SetCanBlock(rt, can_block);
 
     /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader_test, NULL);
+    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader_test, (void *)filename);
 
     add_helpers(ctx);
 
@@ -1656,7 +1681,7 @@ int run_test(const char *filename, int index)
                 /* XXX: should extract the phase */
                 char *q = find_tag(p, "type:", &state);
                 if (q) {
-                    while (isspace(*q))
+                    while (isspace((unsigned char)*q))
                         q++;
                     error_type = strdup_len(q, strcspn(q, " \n"));
                 }
@@ -1841,7 +1866,7 @@ int run_test262_harness_test(const char *filename, BOOL is_module)
     JS_SetCanBlock(rt, can_block);
 
     /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader_test, NULL);
+    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader_test, (void *)filename);
 
     add_helpers(ctx);
 
@@ -1900,9 +1925,27 @@ void show_progress(int force) {
     clock_t t = clock();
     if (force || !last_clock || (t - last_clock) > CLOCKS_PER_SEC / 20) {
         last_clock = t;
-        /* output progress indicator: erase end of line and return to col 0 */
-        fprintf(stderr, "%d/%d/%d\033[K\r",
-                test_failed, test_count, test_skipped);
+        if (compact) {
+            static int last_test_skipped;
+            static int last_test_failed;
+            static int dots;
+            char c = '.';
+            if (test_skipped > last_test_skipped)
+                c = '-';
+            if (test_failed > last_test_failed)
+                c = '!';
+            last_test_skipped = test_skipped;
+            last_test_failed = test_failed;
+            fputc(c, stderr);
+            if (force || ++dots % 60 == 0) {
+                fprintf(stderr, " %d/%d/%d\n",
+                        test_failed, test_count, test_skipped);
+            }
+        } else {
+            /* output progress indicator: erase end of line and return to col 0 */
+            fprintf(stderr, "%d/%d/%d\033[K\r",
+                    test_failed, test_count, test_skipped);
+        }
         fflush(stderr);
     }
 }
@@ -1953,6 +1996,8 @@ void help(void)
            "-N             run test prepared by test262-harness+eshost\n"
            "-s             run tests in strict mode, skip @nostrict tests\n"
            "-E             only run tests from the error file\n"
+           "-C             use compact progress indicator\n"
+           "-t             show timings\n"
            "-u             update error file\n"
            "-v             verbose: output error messages\n"
            "-T duration    display tests taking more than 'duration' ms\n"
@@ -1979,13 +2024,28 @@ int main(int argc, char **argv)
     BOOL is_dir_list;
     BOOL only_check_errors = FALSE;
     const char *filename;
+    const char *ignore = "";
     BOOL is_test262_harness = FALSE;
     BOOL is_module = FALSE;
+    clock_t clocks;
 
 #if !defined(_WIN32)
+    compact = !isatty(STDERR_FILENO);
     /* Date tests assume California local time */
     setenv("TZ", "America/Los_Angeles", 1);
 #endif
+
+    optind = 1;
+    while (optind < argc) {
+        char *arg = argv[optind];
+        if (*arg != '-')
+            break;
+        optind++;
+        if (strstr("-c -d -e -x -f -r -E -T", arg))
+            optind++;
+        if (strstr("-d -f", arg))
+            ignore = "testdir"; // run only the tests from -d or -f
+    }
 
     /* cannot use getopt because we want to pass the command line to
        the script */
@@ -2006,12 +2066,16 @@ int main(int argc, char **argv)
             test_mode = TEST_STRICT;
         } else if (str_equal(arg, "-a")) {
             test_mode = TEST_ALL;
+        } else if (str_equal(arg, "-t")) {
+            show_timings++;
         } else if (str_equal(arg, "-u")) {
             update_errors++;
         } else if (str_equal(arg, "-v")) {
             verbose++;
+        } else if (str_equal(arg, "-C")) {
+            compact = 1;
         } else if (str_equal(arg, "-c")) {
-            load_config(get_opt_arg(arg, argv[optind++]));
+            load_config(get_opt_arg(arg, argv[optind++]), ignore);
         } else if (str_equal(arg, "-d")) {
             enumerate_tests(get_opt_arg(arg, argv[optind++]));
         } else if (str_equal(arg, "-e")) {
@@ -2042,7 +2106,7 @@ int main(int argc, char **argv)
     if (is_test262_harness) {
         return run_test262_harness_test(argv[optind], is_module);
     }
-			
+
     error_out = stdout;
     if (error_filename) {
         error_file = load_file(error_filename, NULL);
@@ -2062,8 +2126,10 @@ int main(int argc, char **argv)
 
     update_exclude_dirs();
 
+    clocks = clock();
+
     if (is_dir_list) {
-        if (optind < argc && !isdigit(argv[optind][0])) {
+        if (optind < argc && !isdigit((unsigned char)argv[optind][0])) {
             filename = argv[optind++];
             namelist_load(&test_list, filename);
         }
@@ -2098,6 +2164,8 @@ int main(int argc, char **argv)
         }
     }
 
+    clocks = clock() - clocks;
+
     if (dump_memory) {
         if (dump_memory > 1 && stats_count > 1) {
             printf("\nMininum memory statistics for %s:\n\n", stats_min_filename);
@@ -2126,6 +2194,8 @@ int main(int argc, char **argv)
                 fprintf(stderr, ", %d fixed", fixed_errors);
         }
         fprintf(stderr, "\n");
+        if (show_timings)
+            fprintf(stderr, "Total time: %.3fs\n", (double)clocks / CLOCKS_PER_SEC);
     }
 
     if (error_out && error_out != stdout) {
@@ -2141,5 +2211,6 @@ int main(int argc, char **argv)
     free(harness_exclude);
     free(error_file);
 
-    return 0;
+    /* Signal that the error file is out of date. */
+    return new_errors || changed_errors || fixed_errors;
 }

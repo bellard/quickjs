@@ -488,13 +488,13 @@ test2o test2o-32 test2o-update:
 else
 # ES5 tests (obsolete)
 test2o: run-test262
-	time ./run-test262 -m -c test262o.conf
+	time ./run-test262 -t -m -c test262o.conf
 
 test2o-32: run-test262-32
-	time ./run-test262-32 -m -c test262o.conf
+	time ./run-test262-32 -t -m -c test262o.conf
 
 test2o-update: run-test262
-	./run-test262 -u -c test262o.conf
+	./run-test262 -t -u -c test262o.conf
 endif
 
 ifeq ($(wildcard test262o/tests.txt),)
@@ -503,19 +503,19 @@ test2 test2-32 test2-update test2-default test2-check:
 else
 # Test262 tests
 test2-default: run-test262
-	time ./run-test262 -m -c test262.conf
+	time ./run-test262 -t -m -c test262.conf
 
 test2: run-test262
-	time ./run-test262 -m -c test262.conf -a
+	time ./run-test262 -t -m -c test262.conf -a
 
 test2-32: run-test262-32
-	time ./run-test262-32 -m -c test262.conf -a
+	time ./run-test262-32 -t -m -c test262.conf -a
 
 test2-update: run-test262
-	./run-test262 -u -c test262.conf -a
+	./run-test262 -t -u -c test262.conf -a
 
 test2-check: run-test262
-	time ./run-test262 -m -c test262.conf -E -a
+	time ./run-test262 -t -m -c test262.conf -E -a
 endif
 
 testall: all test microbench test2o test2
