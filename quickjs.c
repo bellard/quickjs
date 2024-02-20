@@ -3391,6 +3391,15 @@ JSClassID JS_NewClassID(JSClassID *pclass_id)
     return class_id;
 }
 
+JSClassID JS_GetClassID(JSValue v)
+{
+    JSObject *p;
+    if (JS_VALUE_GET_TAG(v) != JS_TAG_OBJECT)
+        return JS_INVALID_CLASS_ID;
+    p = JS_VALUE_GET_OBJ(v);
+    return p->class_id;
+}
+
 BOOL JS_IsRegisteredClass(JSRuntime *rt, JSClassID class_id)
 {
     return (class_id < rt->class_count &&
