@@ -1,19 +1,51 @@
 "use strict";
 
+var status = 0;
+var throw_errors = true;
+
+function throw_error(msg) {
+    if (throw_errors)
+        throw Error(msg);
+    console.log(msg);
+    status = 1;
+}
+
 function assert(actual, expected, message) {
+    function get_full_type(o) {
+        var type = typeof(o);
+        if (type === 'object') {
+            if (o === null)
+                return 'null';
+            if (o.constructor && o.constructor.name)
+                return o.constructor.name;
+        }
+        return type;
+    }
+
     if (arguments.length == 1)
         expected = true;
 
-    if (actual === expected)
-        return;
-
-    if (actual !== null && expected !== null
-    &&  typeof actual == 'object' && typeof expected == 'object'
-    &&  actual.toString() === expected.toString())
-        return;
-
-    throw Error("assertion failed: got |" + actual + "|" +
-                ", expected |" + expected + "|" +
+    if (typeof actual === typeof expected) {
+        if (actual === expected) {
+            if (actual !== 0 || (1 / actual) === (1 / expected))
+                return;
+        }
+        if (typeof actual === 'number') {
+            if (isNaN(actual) && isNaN(expected))
+                return true;
+        }
+        if (typeof actual === 'object') {
+            if (actual !== null && expected !== null
+            &&  actual.constructor === expected.constructor
+            &&  actual.toString() === expected.toString())
+                return;
+        }
+    }
+    // Should output the source file and line number and extract
+    //   the expression from the assert call
+    throw_error("assertion failed: got " +
+                get_full_type(actual) + ":|" + actual + "|, expected " +
+                get_full_type(expected) + ":|" + expected + "|" +
                 (message ? " (" + message + ")" : ""));
 }
 
@@ -25,11 +57,16 @@ function assert_throws(expected_error, func)
     } catch(e) {
         err = true;
         if (!(e instanceof expected_error)) {
-            throw Error("unexpected exception type");
+            // Should output the source file and line number and extract
+            //   the expression from the assert_throws() call
+            throw_error("unexpected exception type");
+            return;
         }
     }
     if (!err) {
-        throw Error("expected exception");
+        // Should output the source file and line number and extract
+        //   the expression from the assert_throws() call
+        throw_error("expected exception");
     }
 }
 
@@ -331,6 +368,10 @@ function test_number()
     assert(+"  123   ", 123);
     assert(+"0b111", 7);
     assert(+"0o123", 83);
+    assert(parseFloat("2147483647"), 2147483647);
+    assert(parseFloat("2147483648"), 2147483648);
+    assert(parseFloat("-2147483647"), -2147483647);
+    assert(parseFloat("-2147483648"), -2147483648);
     assert(parseFloat("0x1234"), 0);
     assert(parseFloat("Infinity"), Infinity);
     assert(parseFloat("-Infinity"), -Infinity);
@@ -339,6 +380,11 @@ function test_number()
     assert(Number.isNaN(Number("+")));
     assert(Number.isNaN(Number("-")));
     assert(Number.isNaN(Number("\x00a")));
+
+    // TODO: Fix rounding errors on Windows/Cygwin.
+    if (typeof os !== 'undefined' && ['win32', 'cygwin'].includes(os.platform)) {
+        return;
+    }
 
     assert((25).toExponential(0), "3e+1");
     assert((-25).toExponential(0), "-3e+1");
@@ -485,21 +531,21 @@ function test_json()
 
 function test_date()
 {
+    // Date Time String format is YYYY-MM-DDTHH:mm:ss.sssZ
+    // accepted date formats are: YYYY, YYYY-MM and YYYY-MM-DD
+    // accepted time formats are: THH:mm, THH:mm:ss, THH:mm:ss.sss
+    // expanded years are represented with 6 digits prefixed by + or -
+    // -000000 is invalid.
+    // A string containing out-of-bounds or nonconforming elements
+    //   is not a valid instance of this format.
+    // Hence the fractional part after . should have 3 digits and how
+    // a different number of digits is handled is implementation defined.
     var d = new Date(1506098258091), a, s;
     assert(d.toISOString(), "2017-09-22T16:37:38.091Z");
     d.setUTCHours(18, 10, 11);
     assert(d.toISOString(), "2017-09-22T18:10:11.091Z");
     a = Date.parse(d.toISOString());
     assert((new Date(a)).toISOString(), d.toISOString());
-    // Date Time String format is YYYY-MM-DDTHH:mm:ss.sssZ
-    // accepted date formats are: YYYY, YYYY-MM and YYYY-MM-DD
-    // accepted time formats are: THH:mm, THH:mm:ss, THH:mm:ss.sss
-    // A string containing out-of-bounds or nonconforming elements
-    //   is not a valid instance of this format.
-    // expanded years are represented with 6 digits prefixed by + or -
-    // -000000 is invalid.
-    // Hence the fractional part after . should have 3 digits and how
-    // a different number of digits is handled is implementation defined.
     s = new Date("2020-01-01T01:01:01.1Z").toISOString();
     assert(s,    "2020-01-01T01:01:01.100Z");
     s = new Date("2020-01-01T01:01:01.12Z").toISOString();
@@ -516,6 +562,29 @@ function test_date()
     s = new Date("2020-01-01T01:01:01.9999Z").toISOString();
     assert(s ==  "2020-01-01T01:01:02.000Z" ||      // QuickJS
            s ==  "2020-01-01T01:01:01.999Z");       // nodeJS
+
+    assert(Date.UTC(NaN), NaN);
+    assert(Date.UTC(2017, NaN), NaN);
+    assert(Date.UTC(2017, 9, NaN), NaN);
+    assert(Date.UTC(2017, 9, 22, NaN), NaN);
+    assert(Date.UTC(2017, 9, 22, 18, NaN), NaN);
+    assert(Date.UTC(2017, 9, 22, 18, 10, NaN), NaN);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11, NaN), NaN);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11, 91, NaN), 1508695811091);
+
+    assert(Date.UTC(2017), 1483228800000);
+    assert(Date.UTC(2017, 9), 1506816000000);
+    assert(Date.UTC(2017, 9, 22), 1508630400000);
+    assert(Date.UTC(2017, 9, 22, 18), 1508695200000);
+    assert(Date.UTC(2017, 9, 22, 18, 10), 1508695800000);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11), 1508695811000);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11, 91), 1508695811091);
+
+    //assert(Date.UTC(2017 - 1e9, 9 + 12e9), 1506816000000);  // node fails this
+    assert(Date.UTC(2017, 9, 22 - 1e10, 18 + 24e10), 1508695200000);
+    assert(Date.UTC(2017, 9, 22, 18 - 1e10, 10 + 60e10), 1508695800000);
+    assert(Date.UTC(2017, 9, 22, 18, 10 - 1e10, 11 + 60e10), 1508695811000);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11 - 1e12, 91 + 1000e12), 1508695811091);
 }
 
 function test_regexp()

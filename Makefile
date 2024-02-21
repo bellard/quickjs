@@ -440,7 +440,7 @@ endif
 test: qjs
 	./qjs tests/test_closure.js
 	./qjs tests/test_language.js
-	./qjs tests/test_builtin.js
+	./qjs --std tests/test_builtin.js
 	./qjs tests/test_loop.js
 	./qjs tests/test_bignum.js
 	./qjs tests/test_std.js
@@ -461,7 +461,7 @@ endif
 ifdef CONFIG_M32
 	./qjs32 tests/test_closure.js
 	./qjs32 tests/test_language.js
-	./qjs32 tests/test_builtin.js
+	./qjs32 --std tests/test_builtin.js
 	./qjs32 tests/test_loop.js
 	./qjs32 tests/test_bignum.js
 	./qjs32 tests/test_std.js

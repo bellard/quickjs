@@ -49452,39 +49452,63 @@ static double time_clip(double t) {
         return NAN;
 }
 
-/* The spec mandates the use of 'double' and it fixes the order
+/* The spec mandates the use of 'double' and it specifies the order
    of the operations */
 static double set_date_fields(double fields[], int is_local) {
-    int64_t y;
-    double days, h, m1;
-    volatile double d;  /* enforce evaluation order */
-    int i, m, md;
+    double y, m, dt, ym, mn, day, h, s, milli, time, tv;
+    int yi, mi, i;
+    int64_t days;
+    volatile double temp;  /* enforce evaluation order */
 
-    m1 = fields[1];
-    m = fmod(m1, 12);
-    if (m < 0)
-        m += 12;
-    y = (int64_t)(fields[0] + floor(m1 / 12));
-    days = days_from_year(y);
+    /* emulate 21.4.1.15 MakeDay ( year, month, date ) */
+    y = fields[0];
+    m = fields[1];
+    dt = fields[2];
+    ym = y + floor(m / 12);
+    mn = fmod(m, 12);
+    if (mn < 0)
+        mn += 12;
+    if (ym < -271821 || ym > 275760)
+        return NAN;
 
-    for(i = 0; i < m; i++) {
-        md = month_days[i];
+    yi = ym;
+    mi = mn;
+    days = days_from_year(yi);
+    for(i = 0; i < mi; i++) {
+        days += month_days[i];
         if (i == 1)
-            md += days_in_year(y) - 365;
-        days += md;
+            days += days_in_year(yi) - 365;
     }
-    days += fields[2] - 1;
-    /* made d volatile to ensure order of evaluation as specified in ECMA.
-     * this fixes a test262 error on
-     * test262/test/built-ins/Date/UTC/fp-evaluation-order.js
+    day = days + dt - 1;
+
+    /* emulate 21.4.1.14 MakeTime ( hour, min, sec, ms ) */
+    h = fields[3];
+    m = fields[4];
+    s = fields[5];
+    milli = fields[6];
+    /* Use a volatile intermediary variable to ensure order of evaluation
+     * as specified in ECMA. This fixes a test262 error on
+     * test262/test/built-ins/Date/UTC/fp-evaluation-order.js.
+     * Without the volatile qualifier, the compile can generate code
+     * that performs the computation in a different order or with instructions
+     * that produce a different result such as FMA (float multiply and add).
      */
-    h = fields[3] * 3600000 + fields[4] * 60000 +
-        fields[5] * 1000 + fields[6];
-    d = days * 86400000;
-    d = d + h;
-    if (is_local)
-        d += getTimezoneOffset(d) * 60000;
-    return time_clip(d);
+    time = h * 3600000;
+    time += (temp = m * 60000);
+    time += (temp = s * 1000);
+    time += milli;
+
+    /* emulate 21.4.1.16 MakeDate ( day, time ) */
+    tv = (temp = day * 86400000) + time;   /* prevent generation of FMA */
+    if (!isfinite(tv))
+        return NAN;
+
+    /* adjust for local time and clip */
+    if (is_local) {
+        int64_t ti = tv < INT64_MIN ? INT64_MIN : tv >= 0x1p63 ? INT64_MAX : (int64_t)tv;
+        tv += getTimezoneOffset(ti) * 60000;
+    }
+    return time_clip(tv);
 }
 
 static JSValue get_date_field(JSContext *ctx, JSValueConst this_val,
