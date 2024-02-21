@@ -2912,6 +2912,7 @@ void close_fds() {
         This will improve performances on systems where the maximum number
         of open file descriptor is high (such as in a Docker container).
     */
+    uint32_t i;
     int pid = getpid();
     char path[32];
     struct stat statbuf;
