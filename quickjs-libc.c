@@ -2891,22 +2891,27 @@ static int my_execvpe(const char *filename, char **argv, char **envp)
 }
 
 /*
-    This method is called from the child process, after forking
-    and returns the maximum number of open file descriptors on
-    the system.
+    This method is called from the child process (after forking)
+    and closes all open file descriptors > 2
  */
-int get_fd_max() {
+void close_fds() {
+/*
+    Use closefrom if possible
+ */
+#if defined(HAVE_CLOSEFROM)
+    closefrom(3);
+#else
     int fd_max = sysconf(_SC_OPEN_MAX);
 #if defined(__linux__)
     /*
         Under linux
 
-          - check /proc to find all open file descriptors > 3 and close them
-          - return fd_max = 3 if at least one fd was found in /proc
+        - check /proc to find all open file descriptors > 2 and close them
+        - set fd_max = 3 if at least one fd was found in /proc
 
         This will improve performances on systems where the maximum number
         of open file descriptor is high (such as in a Docker container).
-     */
+    */
     int pid = getpid();
     char path[32];
     struct stat statbuf;
@@ -2918,8 +2923,8 @@ int get_fd_max() {
                 struct dirent *subdir;
                 int fd;
                 /*
-                    Close all open file descriptors >3 and set fd_max to 3
-                 */
+                    Close all open file descriptors > 2 and set fd_max to 3
+                */
                 for(;;) {
                     subdir = readdir(dir);
                     if (!subdir) {
@@ -2928,7 +2933,7 @@ int get_fd_max() {
                     fd = atoi(subdir->d_name);
                     if (fd > 0) {
                         fd_max = 3;
-                        if (fd > 3) {
+                        if (fd > 2) {
                             close(fd);
                         }
                     }
@@ -2938,7 +2943,9 @@ int get_fd_max() {
         }
     }
 #endif
-    return fd_max;
+    for(i = 3; i < fd_max; i++)
+        close(i);
+#endif
 }
 
 /* exec(args[, options]) -> exitcode */
@@ -3076,16 +3083,8 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
             }
         }
 
-/*
-    Use closefrom if possible
- */
-#if defined(HAVE_CLOSEFROM)
-        closefrom(4);
-#else
-        int fd_max = get_fd_max();
-        for(i = 3; i < fd_max; i++)
-            close(i);
-#endif
+        /* close all file descriptors > 2 */
+        close_fds();
 
         if (cwd) {
             if (chdir(cwd) < 0)
