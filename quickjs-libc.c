@@ -2908,7 +2908,6 @@ int get_fd_max() {
         of open file descriptor is high (such as in a Docker container).
      */
     int pid = getpid();
-    int max_fd = 0;
     char path[32];
     struct stat statbuf;
     snprintf(path, sizeof(path), "/proc/%d/fd", pid);
