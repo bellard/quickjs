@@ -2899,11 +2899,13 @@ int get_fd_max() {
     int fd_max = sysconf(_SC_OPEN_MAX);
 #if defined(__linux__)
     /*
-        Under linux, check /proc to find the highest open file descriptor
+        Under linux
+
+          - check /proc to find all open file descriptors > 3 and close them
+          - return fd_max = 3 if at least one fd was found in /proc
+
         This will improve performances on systems where the maximum number
         of open file descriptor is high (such as in a Docker container).
-
-        Close any open file descriptor > 3.
      */
     int pid = getpid();
     int max_fd = 0;
@@ -2916,21 +2918,21 @@ int get_fd_max() {
             if (dir) {
                 struct dirent *subdir;
                 int fd;
+                /*
+                    Close all open file descriptors >3 and set fd_max to 3
+                 */
                 for(;;) {
                     subdir = readdir(dir);
                     if (!subdir) {
                         break;
                     }
                     fd = atoi(subdir->d_name);
-                    if (fd > 3) {
-                        close(fd);
+                    if (fd > 0) {
+                        fd_max = 3;
+                        if (fd > 3) {
+                            close(fd);
+                        }
                     }
-                    if (fd > max_fd) {
-                        max_fd = fd;
-                    }
-                }
-                if (max_fd > 0) {
-                    fd_max = 3;
                 }
                 closedir(dir);
             }
@@ -3078,7 +3080,7 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
 /*
     Use closefrom if possible
  */
-#if defined(__FreeBSD__) || defined(__OpenBSD__)
+#if defined(HAVE_CLOSEFROM)
         closefrom(4);
 #else
         int fd_max = get_fd_max();
