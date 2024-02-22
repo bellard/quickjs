@@ -46963,7 +46963,7 @@ static uint32_t map_hash_key(JSContext *ctx, JSValueConst key)
         h = (uintptr_t)JS_VALUE_GET_PTR(key) * 3163;
         break;
     case JS_TAG_INT:
-        d = JS_VALUE_GET_INT(key) * 3163;
+        d = JS_VALUE_GET_INT(key);
         goto hash_float64;
     case JS_TAG_FLOAT64:
         d = JS_VALUE_GET_FLOAT64(key);
@@ -46973,7 +46973,7 @@ static uint32_t map_hash_key(JSContext *ctx, JSValueConst key)
     hash_float64:
         u.d = d;
         h = (u.u32[0] ^ u.u32[1]) * 3163;
-        break;
+        return h ^= JS_TAG_FLOAT64;
     default:
         h = 0; /* XXX: bignum support */
         break;
