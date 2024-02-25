@@ -540,28 +540,65 @@ function test_date()
     //   is not a valid instance of this format.
     // Hence the fractional part after . should have 3 digits and how
     // a different number of digits is handled is implementation defined.
-    var d = new Date(1506098258091), a, s;
+    assert(Date.parse(""), NaN);
+    assert(Date.parse("2000"), 946684800000);
+    assert(Date.parse("2000-01"), 946684800000);
+    assert(Date.parse("2000-01-01"), 946684800000);
+    //assert(Date.parse("2000-01-01T"), NaN);
+    //assert(Date.parse("2000-01-01T00Z"), NaN);
+    assert(Date.parse("2000-01-01T00:00Z"), 946684800000);
+    assert(Date.parse("2000-01-01T00:00:00Z"), 946684800000);
+    assert(Date.parse("2000-01-01T00:00:00.1Z"), 946684800100);
+    assert(Date.parse("2000-01-01T00:00:00.10Z"), 946684800100);
+    assert(Date.parse("2000-01-01T00:00:00.100Z"), 946684800100);
+    assert(Date.parse("2000-01-01T00:00:00.1000Z"), 946684800100);
+    assert(Date.parse("2000-01-01T00:00:00+00:00"), 946684800000);
+    //assert(Date.parse("2000-01-01T00:00:00+00:30"), 946686600000);
+    var d = new Date("2000T00:00");  // Jan 1st 2000, 0:00:00 local time
+    assert(typeof d === 'object' && d.toString() != 'Invalid Date');
+    assert((new Date('Jan 1 2000')).toISOString(),
+           d.toISOString());
+    assert((new Date('Jan 1 2000 00:00')).toISOString(),
+           d.toISOString());
+    assert((new Date('Jan 1 2000 00:00:00')).toISOString(),
+           d.toISOString());
+    assert((new Date('Jan 1 2000 00:00:00 GMT+0100')).toISOString(),
+           '1999-12-31T23:00:00.000Z');
+    assert((new Date('Jan 1 2000 00:00:00 GMT+0200')).toISOString(),
+           '1999-12-31T22:00:00.000Z');
+    assert((new Date('Sat Jan 1 2000')).toISOString(),
+           d.toISOString());
+    assert((new Date('Sat Jan 1 2000 00:00')).toISOString(),
+           d.toISOString());
+    assert((new Date('Sat Jan 1 2000 00:00:00')).toISOString(),
+           d.toISOString());
+    assert((new Date('Sat Jan 1 2000 00:00:00 GMT+0100')).toISOString(),
+           '1999-12-31T23:00:00.000Z');
+    assert((new Date('Sat Jan 1 2000 00:00:00 GMT+0200')).toISOString(),
+           '1999-12-31T22:00:00.000Z');
+
+    var d = new Date(1506098258091);
     assert(d.toISOString(), "2017-09-22T16:37:38.091Z");
     d.setUTCHours(18, 10, 11);
     assert(d.toISOString(), "2017-09-22T18:10:11.091Z");
-    a = Date.parse(d.toISOString());
+    var a = Date.parse(d.toISOString());
     assert((new Date(a)).toISOString(), d.toISOString());
-    s = new Date("2020-01-01T01:01:01.1Z").toISOString();
-    assert(s,    "2020-01-01T01:01:01.100Z");
-    s = new Date("2020-01-01T01:01:01.12Z").toISOString();
-    assert(s,    "2020-01-01T01:01:01.120Z");
-    s = new Date("2020-01-01T01:01:01.123Z").toISOString();
-    assert(s,    "2020-01-01T01:01:01.123Z");
-    s = new Date("2020-01-01T01:01:01.1234Z").toISOString();
-    assert(s,    "2020-01-01T01:01:01.123Z");
-    s = new Date("2020-01-01T01:01:01.12345Z").toISOString();
-    assert(s,    "2020-01-01T01:01:01.123Z");
-    s = new Date("2020-01-01T01:01:01.1235Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:01.124Z" ||      // QuickJS
-           s ==  "2020-01-01T01:01:01.123Z");       // nodeJS
-    s = new Date("2020-01-01T01:01:01.9999Z").toISOString();
-    assert(s ==  "2020-01-01T01:01:02.000Z" ||      // QuickJS
-           s ==  "2020-01-01T01:01:01.999Z");       // nodeJS
+
+    assert((new Date("2020-01-01T01:01:01.123Z")).toISOString(),
+                     "2020-01-01T01:01:01.123Z");
+    /* implementation defined behavior */
+    assert((new Date("2020-01-01T01:01:01.1Z")).toISOString(),
+                     "2020-01-01T01:01:01.100Z");
+    assert((new Date("2020-01-01T01:01:01.12Z")).toISOString(),
+                     "2020-01-01T01:01:01.120Z");
+    assert((new Date("2020-01-01T01:01:01.1234Z")).toISOString(),
+                     "2020-01-01T01:01:01.123Z");
+    assert((new Date("2020-01-01T01:01:01.12345Z")).toISOString(),
+                     "2020-01-01T01:01:01.123Z");
+    assert((new Date("2020-01-01T01:01:01.1235Z")).toISOString(),
+                     "2020-01-01T01:01:01.123Z");
+    assert((new Date("2020-01-01T01:01:01.9999Z")).toISOString(),
+                     "2020-01-01T01:01:01.999Z");
 
     assert(Date.UTC(NaN), NaN);
     assert(Date.UTC(2017, NaN), NaN);
