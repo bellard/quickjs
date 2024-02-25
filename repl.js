@@ -1005,6 +1005,8 @@ import * as os from "os";
                     std.puts(a);
                 } else if (stack.indexOf(a) >= 0) {
                     std.puts("[circular]");
+                } else if (a instanceof Date) {
+                    std.puts("Date " + a.toGMTString().__quote());
                 } else if (has_jscalc && (a instanceof Fraction ||
                                         a instanceof Complex ||
                                         a instanceof Mod ||
