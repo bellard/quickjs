@@ -67,38 +67,20 @@ import * as os from "os";
         bright_white:   "\x1b[37;1m",
     };
 
-    var styles;
-    if (config_numcalc) {
-        styles = {
-            'default':    'black',
-            'comment':    'white',
-            'string':     'green',
-            'regex':      'cyan',
-            'number':     'green',
-            'keyword':    'blue',
-            'function':   'gray',
-            'type':       'bright_magenta',
-            'identifier': 'yellow',
-            'error':      'bright_red',
-            'result':     'black',
-            'error_msg':  'bright_red',
-        };
-    } else {
-        styles = {
-            'default':    'bright_green',
-            'comment':    'white',
-            'string':     'bright_cyan',
-            'regex':      'cyan',
-            'number':     'green',
-            'keyword':    'bright_white',
-            'function':   'bright_yellow',
-            'type':       'bright_magenta',
-            'identifier': 'bright_green',
-            'error':      'red',
-            'result':     'bright_white',
-            'error_msg':  'bright_red',
-        };
-    }
+    var styles = {
+        'default':    'bright_green',
+        'comment':    'white',
+        'string':     'bright_cyan',
+        'regex':      'cyan',
+        'number':     'green',
+        'keyword':    'bright_white',
+        'function':   'bright_yellow',
+        'type':       'bright_magenta',
+        'identifier': 'bright_green',
+        'error':      'red',
+        'result':     'bright_white',
+        'error_msg':  'bright_red',
+    };
 
     var history = [];
     var clip_board = "";
@@ -109,11 +91,7 @@ import * as os from "os";
     var pstate = "";
     var prompt = "";
     var plen = 0;
-    var ps1;
-    if (config_numcalc)
-        ps1 = "> ";
-    else
-        ps1 = "qjs > ";
+    var ps1 = "qjs > ";
     var ps2 = "  ... ";
     var utf8 = true;
     var show_time = false;
@@ -613,6 +591,9 @@ import * as os from "os";
                     base = get_context_word(line, pos);
                     if (["true", "false", "null", "this"].includes(base) || !isNaN(+base))
                         return eval(base);
+                    // Check if `base` is a set of regexp flags
+                    if (pos - base.length >= 3 && line[pos - base.length - 1] === '/')
+                        return new RegExp('', base);
                     obj = get_context_object(line, pos - base.length);
                     if (obj === null || obj === void 0)
                         return obj;
@@ -1181,6 +1162,23 @@ import * as os from "os";
     }
 
     if (config_numcalc) {
+        styles = {
+            'default':    'black',
+            'comment':    'white',
+            'string':     'green',
+            'regex':      'cyan',
+            'number':     'green',
+            'keyword':    'blue',
+            'function':   'gray',
+            'type':       'bright_magenta',
+            'identifier': 'yellow',
+            'error':      'bright_red',
+            'result':     'black',
+            'error_msg':  'bright_red',
+        };
+
+        ps1 = "> ";
+
         /* called by the GUI */
         g.execCmd = function (cmd) {
             switch(cmd) {
