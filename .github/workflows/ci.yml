@@ -1,0 +1,141 @@
+name: ci
+
+on:
+  pull_request:
+    paths:
+      - '**'
+      - '!.gitignore'
+      - '!LICENSE'
+      - '!TODO'
+      - '!doc/**'
+      - '!examples/**'
+      - '.github/workflows/ci.yml'
+  push:
+    branches:
+      - master
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
+      - name: stats
+        run: |
+          ./qjs -qd
+      - name: test
+        run: |
+          make test
+      - name: microbench
+        run: |
+          make microbench
+
+  linux-asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
+      - name: test
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_ASAN=y test
+
+  linux-msan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: build
+        env:
+          CC: clang
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_MSAN=y CONFIG_CLANG=y
+      - name: test
+        env:
+          MSAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_MSAN=y CONFIG_CLANG=y test
+
+  linux-ubsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
+      - name: test
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_UBSAN=y test
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
+      - name: stats
+        run: |
+          ./qjs -qd
+      - name: test
+        run: |
+          make test
+
+  macos-asan:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
+      - name: test
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_ASAN=y test
+
+  macos-ubsan:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
+      - name: test
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_UBSAN=y test
+
+  freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build + test
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y gmake
+          run: |
+            gmake
+            ./qjs -qd
+            gmake test

@@ -144,7 +144,8 @@ function test_os()
 {
     var fd, fpath, fname, fdir, buf, buf2, i, files, err, fdate, st, link_path;
 
-    assert(os.isatty(0));
+    // XXX(bnoordhuis) disabled because stdio is not a tty on CI
+    //assert(os.isatty(0));
 
     fdir = "test_tmp_dir";
     fname = "tmp_file.txt";
