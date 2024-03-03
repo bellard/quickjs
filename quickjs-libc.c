@@ -2934,7 +2934,7 @@ void close_fds() {
                     fd = atoi(subdir->d_name);
                     if (fd > 0) {
                         fd_max = 3;
-                        if (fd > 2) {
+                        if (fd > 2 && fd != dirfd(dir)) {
                             close(fd);
                         }
                     }
