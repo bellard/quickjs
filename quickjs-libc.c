@@ -2902,6 +2902,7 @@ void close_fds() {
     closefrom(3);
 #else
     int fd_max = sysconf(_SC_OPEN_MAX);
+    uint32_t i;
 #if defined(__linux__)
     /*
         Under linux
@@ -2912,7 +2913,6 @@ void close_fds() {
         This will improve performances on systems where the maximum number
         of open file descriptor is high (such as in a Docker container).
     */
-    uint32_t i;
     int pid = getpid();
     char path[32];
     struct stat statbuf;
