@@ -1134,11 +1134,12 @@ function load_result(filename)
     if (typeof std !== "undefined") {
         // read the file in QuickJS
         var f = std.open(filename, "r");
-        if (!f) {
+        if (f) {
+            str = f.readAsString();
+            f.close();
+        } else {
             has_error = true;
         }
-        str = f.readAsString();
-        f.close();
     } else {
         return null;
     }
