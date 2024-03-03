@@ -144,8 +144,9 @@ function test_os()
 {
     var fd, fpath, fname, fdir, buf, buf2, i, files, err, fdate, st, link_path;
 
-    // XXX(bnoordhuis) disabled because stdio is not a tty on CI
-    //assert(os.isatty(0));
+    const stdinIsTTY = !os.exec(["/bin/sh", "-c", "test -t 0"], { usePath: false });
+
+    assert(os.isatty(0), stdinIsTTY, `isatty(STDIN)`);
 
     fdir = "test_tmp_dir";
     fname = "tmp_file.txt";
@@ -254,10 +255,11 @@ function test_os_exec()
 
     pid = os.exec(["cat"], { block: false } );
     assert(pid >= 0);
-    os.kill(pid, os.SIGQUIT);
+    os.kill(pid, os.SIGTERM);
     [ret, status] = os.waitpid(pid, 0);
     assert(ret, pid);
-    assert(status & 0x7f, os.SIGQUIT);
+    assert(status !== 0, true, `expect nonzero exit code (got ${status})`);
+    assert(status & 0x7f, os.SIGTERM);
 }
 
 function test_timer()
