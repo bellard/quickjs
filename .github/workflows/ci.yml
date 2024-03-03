@@ -12,40 +12,41 @@ on:
       - '.github/workflows/ci.yml'
   push:
     branches:
-      - master
+      - '*'
 
 jobs:
   linux:
+    name: Linux (Ubuntu)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: build
+      - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
-      - name: stats
+      - name: Stats
         run: |
           ./qjs -qd
-      - name: test
+      - name: Run built-in tests
         run: |
           make test
-      - name: microbench
+      - name: Run microbench
         run: |
           make microbench
 
   linux-asan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: build
+      - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
-      - name: test
+      - name: Run built-in tests
         env:
           ASAN_OPTIONS: halt_on_error=1
         run: |
@@ -54,15 +55,15 @@ jobs:
   linux-msan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: build
+      - name: Build
         env:
           CC: clang
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_MSAN=y CONFIG_CLANG=y
-      - name: test
+      - name: Run built-in tests
         env:
           MSAN_OPTIONS: halt_on_error=1
         run: |
@@ -71,42 +72,43 @@ jobs:
   linux-ubsan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: build
+      - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
-      - name: test
+      - name: Run built-in tests
         env:
           UBSAN_OPTIONS: halt_on_error=1
         run: |
           make CONFIG_UBSAN=y test
 
   macos:
+    name: macOS
     runs-on: macos-latest
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v3
-      - name: build
+      - uses: actions/checkout@v4
+      - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
-      - name: stats
+      - name: Stats
         run: |
           ./qjs -qd
-      - name: test
+      - name: Run built-in tests
         run: |
           make test
 
   macos-asan:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: build
+      - uses: actions/checkout@v4
+      - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
-      - name: test
+      - name: Run built-in tests
         env:
           ASAN_OPTIONS: halt_on_error=1
         run: |
@@ -115,11 +117,11 @@ jobs:
   macos-ubsan:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: build
+      - uses: actions/checkout@v4
+      - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
-      - name: test
+      - name: Run built-in tests
         env:
           UBSAN_OPTIONS: halt_on_error=1
         run: |
@@ -128,8 +130,8 @@ jobs:
   freebsd:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: build + test
+      - uses: actions/checkout@v4
+      - name: Build + test
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
@@ -139,3 +141,26 @@ jobs:
             gmake
             ./qjs -qd
             gmake test
+
+  qemu-alpine:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - i386
+          - arm32v6
+          - arm32v7
+          - arm64v8
+          - s390x
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            submodules: recursive
+      - name: Get qemu
+        run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      - name: Run tests on ${{ matrix.platform }}
+        run: docker run --rm --interactive --mount type=bind,source=$(pwd),target=/host ${{ matrix.platform }}/alpine sh -c "apk add git patch make gcc libc-dev && cd /host && make test"
+
