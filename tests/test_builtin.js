@@ -600,6 +600,14 @@ function test_date()
     assert((new Date("2020-01-01T01:01:01.9999Z")).toISOString(),
                      "2020-01-01T01:01:01.999Z");
 
+    assert(Date.UTC(2017), 1483228800000);
+    assert(Date.UTC(2017, 9), 1506816000000);
+    assert(Date.UTC(2017, 9, 22), 1508630400000);
+    assert(Date.UTC(2017, 9, 22, 18), 1508695200000);
+    assert(Date.UTC(2017, 9, 22, 18, 10), 1508695800000);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11), 1508695811000);
+    assert(Date.UTC(2017, 9, 22, 18, 10, 11, 91), 1508695811091);
+
     assert(Date.UTC(NaN), NaN);
     assert(Date.UTC(2017, NaN), NaN);
     assert(Date.UTC(2017, 9, NaN), NaN);
@@ -609,14 +617,14 @@ function test_date()
     assert(Date.UTC(2017, 9, 22, 18, 10, 11, NaN), NaN);
     assert(Date.UTC(2017, 9, 22, 18, 10, 11, 91, NaN), 1508695811091);
 
-    assert(Date.UTC(2017), 1483228800000);
-    assert(Date.UTC(2017, 9), 1506816000000);
-    assert(Date.UTC(2017, 9, 22), 1508630400000);
-    assert(Date.UTC(2017, 9, 22, 18), 1508695200000);
-    assert(Date.UTC(2017, 9, 22, 18, 10), 1508695800000);
-    assert(Date.UTC(2017, 9, 22, 18, 10, 11), 1508695811000);
-    assert(Date.UTC(2017, 9, 22, 18, 10, 11, 91), 1508695811091);
-
+    // TODO: Fix rounding errors on Windows/Cygwin.
+    if (!(typeof os !== 'undefined' && ['win32', 'cygwin'].includes(os.platform))) {
+        // from test262/test/built-ins/Date/UTC/fp-evaluation-order.js
+        assert(Date.UTC(1970, 0, 1, 80063993375, 29, 1, -288230376151711740), 29312,
+               'order of operations / precision in MakeTime');
+        assert(Date.UTC(1970, 0, 213503982336, 0, 0, 0, -18446744073709552000), 34447360,
+               'precision in MakeDate');
+    }
     //assert(Date.UTC(2017 - 1e9, 9 + 12e9), 1506816000000);  // node fails this
     assert(Date.UTC(2017, 9, 22 - 1e10, 18 + 24e10), 1508695200000);
     assert(Date.UTC(2017, 9, 22, 18 - 1e10, 10 + 60e10), 1508695800000);

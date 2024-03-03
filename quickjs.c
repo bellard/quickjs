@@ -49886,23 +49886,28 @@ static BOOL string_skip_char(const uint8_t *sp, int *pp, int c) {
     }
 }
 
-/* skip spaces, update offset */
-static void string_skip_spaces(const uint8_t *sp, int *pp) {
-    while (sp[*pp] == ' ')
+/* skip spaces, update offset, return next char */
+static int string_skip_spaces(const uint8_t *sp, int *pp) {
+    int c;
+    while ((c = sp[*pp]) == ' ')
         *pp += 1;
+    return c;
 }
 
 /* skip dashes dots and commas */
-static void string_skip_separators(const uint8_t *sp, int *pp) {
+static int string_skip_separators(const uint8_t *sp, int *pp) {
     int c;
-    while ((c = sp[*pp]) == '-' || c == '.' || c == ',')
+    while ((c = sp[*pp]) == '-' || c == '/' || c == '.' || c == ',')
         *pp += 1;
+    return c;
 }
 
-/* skip non spaces, update offset */
-static void string_skip_non_spaces(const uint8_t *sp, int *pp) {
-    while (sp[*pp] != '\0' && sp[*pp] != ' ')
+/* skip a word, stop on spaces, digits and separators, update offset */
+static int string_skip_until(const uint8_t *sp, int *pp, const char *stoplist) {
+    int c;
+    while (!strchr(stoplist, c = sp[*pp]))
         *pp += 1;
+    return c;
 }
 
 /* parse a numeric field (max_digits = 0 -> no maximum) */
@@ -49950,26 +49955,37 @@ static BOOL string_get_milliseconds(const uint8_t *sp, int *pp, int *pval) {
     return TRUE;
 }
 
-static BOOL string_get_timezone(const uint8_t *sp, int *pp, int *tzp) {
+static BOOL string_get_timezone(const uint8_t *sp, int *pp, int *tzp, BOOL strict) {
     int tz = 0, sgn, hh, mm, p = *pp;
 
-    sgn = sp[p];
+    sgn = sp[p++];
     if (sgn == '+' || sgn == '-') {
-        p++;
-        if (!string_get_digits(sp, &p, &hh, 2, 2))
+        int n = p;
+        if (!string_get_digits(sp, &p, &hh, 1, 9))
             return FALSE;
-        string_skip_char(sp, &p, ':');  /* optional separator */
-        if (!string_get_digits(sp, &p, &mm, 2, 2))
+        n = p - n;
+        if (strict && n != 2 && n != 4)
             return FALSE;
+        while (n > 4) {
+            n -= 2;
+            hh /= 100;
+        }
+        if (n > 2) {
+            mm = hh % 100;
+            hh = hh / 100;
+        } else {
+            mm = 0;
+            if (string_skip_char(sp, &p, ':')  /* optional separator */
+            &&  !string_get_digits(sp, &p, &mm, 2, 2))
+                return FALSE;
+        }
         if (hh > 23 || mm > 59)
             return FALSE;
         tz = hh * 60 + mm;
         if (sgn != '+')
             tz = -tz;
     } else
-    if (sgn == 'Z') {
-        p++;
-    } else {
+    if (sgn != 'Z') {
         return FALSE;
     }
     *pp = p;
@@ -49977,10 +49993,14 @@ static BOOL string_get_timezone(const uint8_t *sp, int *pp, int *tzp) {
     return TRUE;
 }
 
+static uint8_t upper_ascii(uint8_t c) {
+    return c >= 'a' && c <= 'z' ? c - 'a' + 'Z' : c;
+}
+
 static BOOL string_match(const uint8_t *sp, int *pp, const char *s) {
     int p = *pp;
     while (*s != '\0') {
-        if (sp[p] != (uint8_t)*s++)
+        if (upper_ascii(sp[p]) != upper_ascii(*s++))
             return FALSE;
         p++;
     }
@@ -49993,7 +50013,7 @@ static int find_abbrev(const uint8_t *sp, int p, const char *list, int count) {
 
     for (n = 0; n < count; n++) {
         for (i = 0;; i++) {
-            if (sp[p + i] != (uint8_t)month_names[n * 3 + i])
+            if (upper_ascii(sp[p + i]) != upper_ascii(list[n * 3 + i]))
                 break;
             if (i == 2)
                 return n;
@@ -50056,8 +50076,10 @@ static BOOL js_date_parse_isostring(const uint8_t *sp, int fields[9], BOOL *is_l
         *is_local = TRUE;
         if (!string_get_digits(sp, &p, &fields[3], 2, 2)  /* hour */
         ||  !string_skip_char(sp, &p, ':')
-        ||  !string_get_digits(sp, &p, &fields[4], 2, 2))  /* minute */
-            return FALSE;
+        ||  !string_get_digits(sp, &p, &fields[4], 2, 2)) {  /* minute */
+            fields[3] = 100;  // reject unconditionally
+            return TRUE;
+        }
         if (string_skip_char(sp, &p, ':')) {
             if (!string_get_digits(sp, &p, &fields[5], 2, 2))  /* second */
                 return FALSE;
@@ -50067,7 +50089,7 @@ static BOOL js_date_parse_isostring(const uint8_t *sp, int fields[9], BOOL *is_l
     /* parse the time zone offset if present: [+-]HH:mm or [+-]HHmm */
     if (sp[p]) {
         *is_local = FALSE;
-        if (!string_get_timezone(sp, &p, &fields[8]))
+        if (!string_get_timezone(sp, &p, &fields[8], TRUE))
             return FALSE;
     }
     /* error if extraneous characters */
@@ -50092,11 +50114,10 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
     }
     *is_local = TRUE;
 
-    while (sp[p] != '\0') {
-        string_skip_spaces(sp, &p);
+    while (string_skip_spaces(sp, &p)) {
         p_start = p;
         if ((c = sp[p]) == '+' || c == '-') {
-            if (has_time && string_get_timezone(sp, &p, &fields[8])) {
+            if (has_time && string_get_timezone(sp, &p, &fields[8], FALSE)) {
                 *is_local = FALSE;
             } else {
                 p++;
@@ -50129,7 +50150,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
                     has_year = TRUE;
                 } else
                 if (val < 1 || val > 31) {
-                    fields[0] = val + (val < 100) * 1900;
+                    fields[0] = val + (val < 100) * 1900 + (val < 50) * 100;
                     has_year = TRUE;
                 } else {
                     if (num_index == 3)
@@ -50140,19 +50161,73 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
         } else
         if (string_get_month(sp, &p, &fields[1])) {
             has_mon = TRUE;
+            string_skip_until(sp, &p, "0123456789 -/(");
         } else
         if (c == 'Z') {
             *is_local = FALSE;
             p++;
             continue;
         } else
-        if (string_match(sp, &p, "GMT") || string_match(sp, &p, "UTC")) {
+        if (has_time && string_match(sp, &p, "PM")) {
+            if (fields[3] < 12)
+                fields[3] += 12;
+            continue;
+        } else
+        if (has_time && string_match(sp, &p, "AM")) {
+            if (fields[3] == 12)
+                fields[3] -= 12;
+            continue;
+        } else
+        if (string_match(sp, &p, "GMT")
+        ||  string_match(sp, &p, "UTC")
+        ||  string_match(sp, &p, "UT")) {
             *is_local = FALSE;
             continue;
-        } else {
-            /* skip a word */
-            string_skip_non_spaces(sp, &p);
+        } else
+        if (string_match(sp, &p, "EDT")) {
+            fields[8] = -4 * 60;
+            *is_local = FALSE;
             continue;
+        } else
+        if (string_match(sp, &p, "EST") || string_match(sp, &p, "CDT")) {
+            fields[8] = -5 * 60;
+            *is_local = FALSE;
+            continue;
+        } else
+        if (string_match(sp, &p, "CST") || string_match(sp, &p, "MDT")) {
+            fields[8] = -6 * 60;
+            *is_local = FALSE;
+            continue;
+        } else
+        if (string_match(sp, &p, "MST") || string_match(sp, &p, "PDT")) {
+            fields[8] = -7 * 60;
+            *is_local = FALSE;
+            continue;
+        } else
+        if (string_match(sp, &p, "PST")) {
+            fields[8] = -8 * 60;
+            *is_local = FALSE;
+            continue;
+        } else
+        if (c == '(') {  /* skip parenthesized phrase */
+            int level = 0;
+            while ((c = sp[p]) != '\0') {
+                p++;
+                level += (c == '(');
+                level -= (c == ')');
+                if (!level)
+                    break;
+            }
+            if (level > 0)
+                return FALSE;
+        } else
+        if (c == ')') {
+            return FALSE;
+        } else {
+            if (has_year + has_mon + has_time + num_index)
+                return FALSE;
+            /* skip a word */
+            string_skip_until(sp, &p, " -/(");
         }
         string_skip_separators(sp, &p);
     }
@@ -50176,7 +50251,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
             fields[2] = num[1];
         } else
         if (has_mon) {
-            fields[0] = num[1] + (num[1] < 100) * 1900;
+            fields[0] = num[1] + (num[1] < 100) * 1900 + (num[1] < 50) * 100;
             fields[2] = num[0];
         } else {
             fields[1] = num[0];
@@ -50184,7 +50259,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
         }
         break;
     case 3:
-        fields[0] = num[2] + (num[2] < 100) * 1900;
+        fields[0] = num[2] + (num[2] < 100) * 1900 + (num[2] < 50) * 100;
         fields[1] = num[0];
         fields[2] = num[1];
         break;
