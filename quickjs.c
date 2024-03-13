@@ -43243,11 +43243,10 @@ static uint64_t xorshift64star(uint64_t *pstate)
     return x * 0x2545F4914F6CDD1D;
 }
 
+static int64_t date_now(void);
 static void js_random_init(JSContext *ctx)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    ctx->random_state = ((int64_t)tv.tv_sec * 1000000) + tv.tv_usec;
+    ctx->random_state = date_now();
     /* the state must be non zero */
     if (ctx->random_state == 0)
         ctx->random_state = 1;
