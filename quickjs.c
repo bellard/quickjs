@@ -3994,6 +3994,18 @@ JSValue JS_NewAtomString(JSContext *ctx, const char *str)
     return val;
 }
 
+uint8_t *JS_ToCStringLenRaw(JSContext *ctx, size_t *plen, JSValueConst val)
+{
+    if (JS_VALUE_GET_TAG(val) != JS_TAG_STRING)
+    {
+        if(plen) *plen = 0;
+        return NULL;
+    }
+    JSString *str = JS_VALUE_GET_STRING(val);
+    if(plen) *plen = str->len;
+    return str->u.str8;
+}
+
 /* return (NULL, 0) if exception. */
 /* return pointer into a JSString with a live ref_count */
 /* cesu8 determines if non-BMP1 codepoints are encoded as 1 or 2 utf-8 sequences */
