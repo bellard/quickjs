@@ -3874,6 +3874,20 @@ static JSValue string_buffer_end(StringBuffer *s)
     return JS_MKPTR(JS_TAG_STRING, str);
 }
 
+JSValue JS_NewStringWLen(JSContext *ctx, size_t buf_len)
+{
+    JSString *str;
+    if (buf_len <= 0) {
+        return JS_AtomToString(ctx, JS_ATOM_empty_string);
+    }
+    str = js_alloc_string_rt(ctx->rt, buf_len, 0);
+    if (unlikely(!str)){
+        JS_ThrowOutOfMemory(ctx);
+        return JS_EXCEPTION;
+    }
+    memset(str->u.str8, 0, buf_len+1);
+    return JS_MKPTR(JS_TAG_STRING, str);
+}
 /* create a string from a UTF-8 buffer */
 JSValue JS_NewStringLen(JSContext *ctx, const char *buf, size_t buf_len)
 {

@@ -696,6 +696,7 @@ int JS_ToBigInt64(JSContext *ctx, int64_t *pres, JSValueConst val);
 /* same as JS_ToInt64() but allow BigInt */
 int JS_ToInt64Ext(JSContext *ctx, int64_t *pres, JSValueConst val);
 
+JSValue JS_NewStringWLen(JSContext *ctx, size_t len);
 JSValue JS_NewStringLen(JSContext *ctx, const char *str1, size_t len1);
 JSValue JS_NewString(JSContext *ctx, const char *str);
 JSValue JS_NewAtomString(JSContext *ctx, const char *str);
