@@ -68,7 +68,8 @@ workspace "quickjs"
 		optimize "Speed"
 		inlining "Auto"
 
-	filter { "language:not C#" }
+  	-- Should apply only for Visual C++ 
+	filter { "language:not C#" and "toolset:msc" }
 		defines { "_CRT_SECURE_NO_WARNINGS" }
 		buildoptions { "/std:c++latest" }
 		systemversion "latest"
@@ -103,6 +104,7 @@ project "quickjs"
 		"quickjs-opcode.h",
 		"quickjs-jsx.h",
 	}
+
 
 if _OPTIONS["storage"] then 
   exceptionhandling "On"
