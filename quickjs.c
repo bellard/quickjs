@@ -968,6 +968,7 @@ struct JSObject {
     } u;
     /* byte sizes: 40/48/72 */
 };
+
 enum {
     __JS_ATOM_NULL = JS_ATOM_NULL,
 #define DEF(name, str) JS_ATOM_ ## name,
@@ -1103,6 +1104,12 @@ static void js_operator_set_finalizer(JSRuntime *rt, JSValue val);
 static void js_operator_set_mark(JSRuntime *rt, JSValueConst val,
                                  JS_MarkFunc *mark_func);
 #endif
+
+#define HINT_STRING  0
+#define HINT_NUMBER  1
+#define HINT_NONE    2
+#define HINT_FORCE_ORDINARY (1 << 4) // don't try Symbol.toPrimitive
+static JSValue JS_ToPrimitiveFree(JSContext *ctx, JSValue val, int hint);
 static JSValue JS_ToStringFree(JSContext *ctx, JSValue val);
 static int JS_ToBoolFree(JSContext *ctx, JSValue val);
 static int JS_ToInt32Free(JSContext *ctx, int32_t *pres, JSValue val);
@@ -9847,12 +9854,6 @@ void *JS_GetOpaque2(JSContext *ctx, JSValueConst obj, JSClassID class_id)
     }
     return p;
 }
-
-#define HINT_STRING  0
-#define HINT_NUMBER  1
-#define HINT_NONE    2
-/* don't try Symbol.toPrimitive */
-#define HINT_FORCE_ORDINARY (1 << 4)
 
 static JSValue JS_ToPrimitiveFree(JSContext *ctx, JSValue val, int hint)
 {
@@ -49404,6 +49405,7 @@ static const JSCFunctionListEntry js_global_funcs[] = {
     JS_PROP_DOUBLE_DEF("Infinity", 1.0 / 0.0, 0 ),
     JS_PROP_DOUBLE_DEF("NaN", NAN, 0 ),
     JS_PROP_UNDEFINED_DEF("undefined", 0 ),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "global", JS_PROP_CONFIGURABLE ),
 };
 
 /* Date */
@@ -49484,7 +49486,7 @@ static char const month_names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 static char const day_names[] = "SunMonTueWedThuFriSat";
 
 static __exception int get_date_fields(JSContext *ctx, JSValueConst obj,
-                                       double fields[9], int is_local, int force)
+                                       double fields[minimum_length(9)], int is_local, int force)
 {
     double dval;
     int64_t d, days, wd, y, i, md, h, m, s, ms, tz = 0;
@@ -49497,7 +49499,7 @@ static __exception int get_date_fields(JSContext *ctx, JSValueConst obj,
             return FALSE; /* NaN */
         d = 0;        /* initialize all fields to 0 */
     } else {
-        d = dval;
+        d = dval;     /* assuming -8.64e15 <= dval <= -8.64e15 */
         if (is_local) {
             tz = -getTimezoneOffset(d);
             d += tz * 60000;
@@ -49545,7 +49547,7 @@ static double time_clip(double t) {
 
 /* The spec mandates the use of 'double' and it specifies the order
    of the operations */
-static double set_date_fields(double fields[], int is_local) {
+static double set_date_fields(double fields[minimum_length(7)], int is_local) {
     double y, m, dt, ym, mn, day, h, s, milli, time, tv;
     int yi, mi, i;
     int64_t days;
@@ -49649,9 +49651,9 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
             res = FALSE;
         fields[first_field + i] = trunc(a);
     }
-    if (res && argc > 0) {
+    if (res && argc > 0)
         d = set_date_fields(fields, is_local);
-    }
+
     return JS_SetThisTimeValue(ctx, this_val, d);
 }
 
@@ -49856,7 +49858,7 @@ static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
                            int argc, JSValueConst *argv)
 {
     // UTC(y, mon, d, h, m, s, ms)
-    double fields[9] = { 0, 0, 1, 0, 0, 0, 0, 0, 0 };
+    double fields[] = { 0, 0, 1, 0, 0, 0, 0 };
     int i, n;
     double a;
 
@@ -49936,14 +49938,15 @@ static BOOL string_get_digits(const uint8_t *sp, int *pp, int *pval,
 static BOOL string_get_milliseconds(const uint8_t *sp, int *pp, int *pval) {
     /* parse optional fractional part as milliseconds and truncate. */
     /* spec does not indicate which rounding should be used */
-    int mul = 1000, ms = 0, c, p_start, p = *pp;
+    int mul = 100, ms = 0, c, p_start, p = *pp;
 
     c = sp[p];
     if (c == '.' || c == ',') {
         p++;
         p_start = p;
         while ((c = sp[p]) >= '0' && c <= '9') {
-            ms += (c - '0') * (mul /= 10);
+            ms += (c - '0') * mul;
+            mul /= 10;
             p++;
             if (p - p_start == 9)
                 break;
@@ -49957,7 +49960,11 @@ static BOOL string_get_milliseconds(const uint8_t *sp, int *pp, int *pval) {
     return TRUE;
 }
 
-static BOOL string_get_timezone(const uint8_t *sp, int *pp, int *tzp, BOOL strict) {
+static uint8_t upper_ascii(uint8_t c) {
+    return c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
+}
+
+static BOOL string_get_tzoffset(const uint8_t *sp, int *pp, int *tzp, BOOL strict) {
     int tz = 0, sgn, hh, mm, p = *pp;
 
     sgn = sp[p++];
@@ -49993,10 +50000,6 @@ static BOOL string_get_timezone(const uint8_t *sp, int *pp, int *tzp, BOOL stric
     *pp = p;
     *tzp = tz;
     return TRUE;
-}
-
-static uint8_t upper_ascii(uint8_t c) {
-    return c >= 'a' && c <= 'z' ? c - 'a' + 'Z' : c;
 }
 
 static BOOL string_match(const uint8_t *sp, int *pp, const char *s) {
@@ -50091,15 +50094,51 @@ static BOOL js_date_parse_isostring(const uint8_t *sp, int fields[9], BOOL *is_l
     /* parse the time zone offset if present: [+-]HH:mm or [+-]HHmm */
     if (sp[p]) {
         *is_local = FALSE;
-        if (!string_get_timezone(sp, &p, &fields[8], TRUE))
+        if (!string_get_tzoffset(sp, &p, &fields[8], TRUE))
             return FALSE;
     }
     /* error if extraneous characters */
     return sp[p] == '\0';
 }
 
+static struct {
+    char name[6];
+    int16_t offset;
+} const js_tzabbr[] = {
+    { "GMT",   0 },         // Greenwich Mean Time
+    { "UTC",   0 },         // Coordinated Universal Time
+    { "UT",    0 },         // Universal Time
+    { "Z",     0 },         // Zulu Time
+    { "EDT",  -4 * 60 },    // Eastern Daylight Time
+    { "EST",  -5 * 60 },    // Eastern Standard Time
+    { "CDT",  -5 * 60 },    // Central Daylight Time
+    { "CST",  -6 * 60 },    // Central Standard Time
+    { "MDT",  -6 * 60 },    // Mountain Daylight Time
+    { "MST",  -7 * 60 },    // Mountain Standard Time
+    { "PDT",  -7 * 60 },    // Pacific Daylight Time
+    { "PST",  -8 * 60 },    // Pacific Standard Time
+    { "WET",  +0 * 60 },    // Western European Time
+    { "WEST", +1 * 60 },    // Western European Summer Time
+    { "CET",  +1 * 60 },    // Central European Time
+    { "CEST", +2 * 60 },    // Central European Summer Time
+    { "EET",  +2 * 60 },    // Eastern European Time
+    { "EEST", +3 * 60 },    // Eastern European Summer Time
+};
+
+static BOOL string_get_tzabbr(const uint8_t *sp, int *pp, int *offset) {
+    for (size_t i = 0; i < countof(js_tzabbr); i++) {
+        if (string_match(sp, pp, js_tzabbr[i].name)) {
+            *offset = js_tzabbr[i].offset;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 /* parse toString, toUTCString and other formats */
-static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is_local) {
+static BOOL js_date_parse_otherstring(const uint8_t *sp,
+                                      int fields[minimum_length(9)],
+                                      BOOL *is_local) {
     int c, i, val, p = 0, p_start;
     int num[3];
     BOOL has_year = FALSE;
@@ -50119,7 +50158,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
     while (string_skip_spaces(sp, &p)) {
         p_start = p;
         if ((c = sp[p]) == '+' || c == '-') {
-            if (has_time && string_get_timezone(sp, &p, &fields[8], FALSE)) {
+            if (has_time && string_get_tzoffset(sp, &p, &fields[8], FALSE)) {
                 *is_local = FALSE;
             } else {
                 p++;
@@ -50165,11 +50204,6 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
             has_mon = TRUE;
             string_skip_until(sp, &p, "0123456789 -/(");
         } else
-        if (c == 'Z') {
-            *is_local = FALSE;
-            p++;
-            continue;
-        } else
         if (has_time && string_match(sp, &p, "PM")) {
             if (fields[3] < 12)
                 fields[3] += 12;
@@ -50180,34 +50214,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp, int fields[9], BOOL *is
                 fields[3] -= 12;
             continue;
         } else
-        if (string_match(sp, &p, "GMT")
-        ||  string_match(sp, &p, "UTC")
-        ||  string_match(sp, &p, "UT")) {
-            *is_local = FALSE;
-            continue;
-        } else
-        if (string_match(sp, &p, "EDT")) {
-            fields[8] = -4 * 60;
-            *is_local = FALSE;
-            continue;
-        } else
-        if (string_match(sp, &p, "EST") || string_match(sp, &p, "CDT")) {
-            fields[8] = -5 * 60;
-            *is_local = FALSE;
-            continue;
-        } else
-        if (string_match(sp, &p, "CST") || string_match(sp, &p, "MDT")) {
-            fields[8] = -6 * 60;
-            *is_local = FALSE;
-            continue;
-        } else
-        if (string_match(sp, &p, "MST") || string_match(sp, &p, "PDT")) {
-            fields[8] = -7 * 60;
-            *is_local = FALSE;
-            continue;
-        } else
-        if (string_match(sp, &p, "PST")) {
-            fields[8] = -8 * 60;
+        if (string_get_tzabbr(sp, &p, &fields[8])) {
             *is_local = FALSE;
             continue;
         } else
@@ -50350,9 +50357,7 @@ static JSValue js_date_Symbol_toPrimitive(JSContext *ctx, JSValueConst this_val,
     }
     switch (hint) {
     case JS_ATOM_number:
-#ifdef CONFIG_BIGNUM
     case JS_ATOM_integer:
-#endif
         hint_num = HINT_NUMBER;
         break;
     case JS_ATOM_string:
@@ -50376,6 +50381,7 @@ static JSValue js_date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val,
     if (isnan(v))
         return JS_NAN;
     else
+        /* assuming -8.64e15 <= v <= -8.64e15 */
         return JS_NewInt64(ctx, getTimezoneOffset((int64_t)trunc(v)));
 }
 
@@ -50513,6 +50519,15 @@ static const JSCFunctionListEntry js_date_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("setUTCFullYear", 3, set_date_field, 0x030 ),
     JS_CFUNC_DEF("toJSON", 1, js_date_toJSON ),
 };
+
+JSValue JS_NewDate(JSContext *ctx, double epoch_ms)
+{
+    JSValue obj = js_create_from_ctor(ctx, JS_UNDEFINED, JS_CLASS_DATE);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    JS_SetObjectData(ctx, obj, __JS_NewFloat64(ctx, time_clip(epoch_ms)));
+    return obj;
+}
 
 void JS_AddIntrinsicDate(JSContext *ctx)
 {
@@ -52733,7 +52748,7 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
     /* XXX: create auto_initializer */
     {
         /* initialize Array.prototype[Symbol.unscopables] */
-        char const unscopables[] =
+        static const char unscopables[] =
             "copyWithin" "\0"
             "entries" "\0"
             "fill" "\0"
