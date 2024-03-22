@@ -136,6 +136,7 @@ static inline slimb_t ceil_div(slimb_t a, slimb_t b)
         return a / b;
 }
 
+#ifdef USE_BF_DEC
 /* b must be >= 1 */
 static inline slimb_t floor_div(slimb_t a, slimb_t b)
 {
@@ -145,6 +146,7 @@ static inline slimb_t floor_div(slimb_t a, slimb_t b)
         return (a - b + 1) / b;
     }
 }
+#endif
 
 /* return r = a modulo b (0 <= r <= b - 1. b must be >= 1 */
 static inline limb_t smod(slimb_t a, slimb_t b)

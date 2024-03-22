@@ -35896,11 +35896,10 @@ static JSValue JS_ReadBigNum(BCReaderState *s, int tag)
     uint8_t v8;
     int32_t e;
     uint32_t len;
-    limb_t l, i, n, j;
+    limb_t l, i, n;
     JSBigFloat *p;
     limb_t v;
     bf_t *a;
-    int bpos, d;
 
     p = js_new_bf(s->ctx);
     if (!p)
@@ -35950,39 +35949,23 @@ static JSValue JS_ReadBigNum(BCReaderState *s, int tag)
             JS_ThrowInternalError(s->ctx, "invalid bignum length");
             goto fail;
         }
-        if (tag != BC_TAG_BIG_DECIMAL)
-            l = (len + sizeof(limb_t) - 1) / sizeof(limb_t);
-        else
+#ifdef CONFIG_BIGNUM
+        if (tag == BC_TAG_BIG_DECIMAL) {
             l = (len + LIMB_DIGITS - 1) / LIMB_DIGITS;
+        } else
+#endif
+        {
+            l = (len + sizeof(limb_t) - 1) / sizeof(limb_t);
+        }
         if (bf_resize(a, l)) {
             JS_ThrowOutOfMemory(s->ctx);
             goto fail;
         }
-        if (tag != BC_TAG_BIG_DECIMAL) {
-            n = len & (sizeof(limb_t) - 1);
-            if (n != 0) {
-                v = 0;
-                for(i = 0; i < n; i++) {
-                    if (bc_get_u8(s, &v8))
-                        goto fail;
-                    v |= (limb_t)v8 << ((sizeof(limb_t) - n + i) * 8);
-                }
-                a->tab[0] = v;
-                i = 1;
-            } else {
-                i = 0;
-            }
-            for(; i < l; i++) {
-#if LIMB_BITS == 32
-                if (bc_get_u32(s, &v))
-                    goto fail;
-#else
-                if (bc_get_u64(s, &v))
-                    goto fail;
-#endif
-                a->tab[i] = v;
-            }
-        } else {
+#ifdef CONFIG_BIGNUM
+        if (tag == BC_TAG_BIG_DECIMAL) {
+            limb_t j;
+            int bpos, d;
+
             bpos = 0;
             for(i = 0; i < l; i++) {
                 if (i == 0 && (n = len % LIMB_DIGITS) != 0) {
@@ -36007,6 +35990,32 @@ static JSValue JS_ReadBigNum(BCReaderState *s, int tag)
                     }
                     v += mp_pow_dec[j] * d;
                 }
+                a->tab[i] = v;
+            }
+        } else
+#endif  /* CONFIG_BIGNUM */
+        {
+            n = len & (sizeof(limb_t) - 1);
+            if (n != 0) {
+                v = 0;
+                for(i = 0; i < n; i++) {
+                    if (bc_get_u8(s, &v8))
+                        goto fail;
+                    v |= (limb_t)v8 << ((sizeof(limb_t) - n + i) * 8);
+                }
+                a->tab[0] = v;
+                i = 1;
+            } else {
+                i = 0;
+            }
+            for(; i < l; i++) {
+#if LIMB_BITS == 32
+                if (bc_get_u32(s, &v))
+                    goto fail;
+#else
+                if (bc_get_u64(s, &v))
+                    goto fail;
+#endif
                 a->tab[i] = v;
             }
         }
@@ -50879,7 +50888,7 @@ static JSValue JS_ToBigIntCtorFree(JSContext *ctx, JSValue val)
             }
             if (!bf_is_finite(a)) {
                 JS_FreeValue(ctx, val);
-                val = JS_ThrowRangeError(ctx, "cannot convert NaN or Infinity to bigint");
+                val = JS_ThrowRangeError(ctx, "cannot convert NaN or Infinity to BigInt");
             } else {
                 JSValue val1 = JS_NewBigInt(ctx);
                 bf_t *r;
@@ -50897,7 +50906,7 @@ static JSValue JS_ToBigIntCtorFree(JSContext *ctx, JSValue val)
                     val = JS_ThrowOutOfMemory(ctx);
                 } else if (ret & BF_ST_INEXACT) {
                     JS_FreeValue(ctx, val1);
-                    val = JS_ThrowRangeError(ctx, "cannot convert to bigint: not an integer");
+                    val = JS_ThrowRangeError(ctx, "cannot convert to BigInt: not an integer");
                 } else {
                     val = JS_CompactBigInt(ctx, val1);
                 }
