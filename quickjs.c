@@ -45088,7 +45088,7 @@ static JSValue json_parse_value(JSParseState *s)
     default:
     def_token:
         if (s->token.val == TOK_EOF) {
-            js_parse_error(s, "unexpected end of input");
+            js_parse_error(s, "Unexpected end of JSON input");
         } else {
             js_parse_error(s, "unexpected token: '%.*s'",
                            (int)(s->buf_ptr - s->token.ptr), s->token.ptr);
@@ -45255,22 +45255,27 @@ static JSValue js_json_check(JSContext *ctx, JSONStringifyContext *jsc,
     JSValue v;
     JSValueConst args[2];
 
-    if (JS_IsObject(val) ||
-        JS_IsBigInt(ctx, val)   /* XXX: probably useless */
+    /* check for object.toJSON method */
+    /* ECMA specifies this is done only for Object and BigInt */
+    /* we do it for BigFloat and BigDecimal as an extension */
+    if (JS_IsObject(val) || JS_IsBigInt(ctx, val)
+#ifdef CONFIG_BIGNUM
+    ||  JS_IsBigFloat(val) || JS_IsBigDecimal(val)
+#endif
         ) {
-            JSValue f = JS_GetProperty(ctx, val, JS_ATOM_toJSON);
-            if (JS_IsException(f))
+        JSValue f = JS_GetProperty(ctx, val, JS_ATOM_toJSON);
+        if (JS_IsException(f))
+            goto exception;
+        if (JS_IsFunction(ctx, f)) {
+            v = JS_CallFree(ctx, f, val, 1, &key);
+            JS_FreeValue(ctx, val);
+            val = v;
+            if (JS_IsException(val))
                 goto exception;
-            if (JS_IsFunction(ctx, f)) {
-                v = JS_CallFree(ctx, f, val, 1, &key);
-                JS_FreeValue(ctx, val);
-                val = v;
-                if (JS_IsException(val))
-                    goto exception;
-            } else {
-                JS_FreeValue(ctx, f);
-            }
+        } else {
+            JS_FreeValue(ctx, f);
         }
+    }
 
     if (!JS_IsUndefined(jsc->replacer_func)) {
         args[0] = key;
@@ -45289,12 +45294,13 @@ static JSValue js_json_check(JSContext *ctx, JSONStringifyContext *jsc,
     case JS_TAG_STRING:
     case JS_TAG_INT:
     case JS_TAG_FLOAT64:
-#ifdef CONFIG_BIGNUM
-    case JS_TAG_BIG_FLOAT:
-#endif
     case JS_TAG_BOOL:
     case JS_TAG_NULL:
     case JS_TAG_BIG_INT:
+#ifdef CONFIG_BIGNUM
+    case JS_TAG_BIG_FLOAT:
+    case JS_TAG_BIG_DECIMAL:
+#endif
     case JS_TAG_EXCEPTION:
         return val;
     default:
@@ -45324,36 +45330,29 @@ static int js_json_to_str(JSContext *ctx, JSONStringifyContext *jsc,
     tab = JS_UNDEFINED;
     prop = JS_UNDEFINED;
 
-    switch (JS_VALUE_GET_NORM_TAG(val)) {
-    case JS_TAG_OBJECT:
+    if (JS_IsObject(val)) {
         p = JS_VALUE_GET_OBJ(val);
         cl = p->class_id;
         if (cl == JS_CLASS_STRING) {
             val = JS_ToStringFree(ctx, val);
             if (JS_IsException(val))
                 goto exception;
-            val = JS_ToQuotedStringFree(ctx, val);
-            if (JS_IsException(val))
-                goto exception;
-            return string_buffer_concat_value_free(jsc->b, val);
+            goto concat_primitive;
         } else if (cl == JS_CLASS_NUMBER) {
             val = JS_ToNumberFree(ctx, val);
             if (JS_IsException(val))
                 goto exception;
-            return string_buffer_concat_value_free(jsc->b, val);
-        } else if (cl == JS_CLASS_BOOLEAN) {
-            ret = string_buffer_concat_value(jsc->b, p->u.object_data);
-            JS_FreeValue(ctx, val);
-            return ret;
-        } else
+            goto concat_primitive;
+        } else if (cl == JS_CLASS_BOOLEAN || cl == JS_CLASS_BIG_INT
 #ifdef CONFIG_BIGNUM
-        if (cl == JS_CLASS_BIG_FLOAT) {
-            return string_buffer_concat_value_free(jsc->b, val);
-        } else
+               || cl == JS_CLASS_BIG_FLOAT
+               || cl == JS_CLASS_BIG_DECIMAL
 #endif
-        if (cl == JS_CLASS_BIG_INT) {
-            JS_ThrowTypeError(ctx, "bigint are forbidden in JSON.stringify");
-            goto exception;
+                   )
+        {
+            /* This will thow the same error as for the primitive object */
+            set_value(ctx, &val, JS_DupValue(ctx, p->u.object_data));
+            goto concat_primitive;
         }
         v = js_array_includes(ctx, jsc->stack, 1, (JSValueConst *)&val);
         if (JS_IsException(v))
@@ -45466,6 +45465,9 @@ static int js_json_to_str(JSContext *ctx, JSONStringifyContext *jsc,
         JS_FreeValue(ctx, indent1);
         JS_FreeValue(ctx, prop);
         return 0;
+    }
+ concat_primitive:
+    switch (JS_VALUE_GET_NORM_TAG(val)) {
     case JS_TAG_STRING:
         val = JS_ToQuotedStringFree(ctx, val);
         if (JS_IsException(val))
@@ -45477,15 +45479,17 @@ static int js_json_to_str(JSContext *ctx, JSONStringifyContext *jsc,
         }
         goto concat_value;
     case JS_TAG_INT:
-#ifdef CONFIG_BIGNUM
-    case JS_TAG_BIG_FLOAT:
-#endif
     case JS_TAG_BOOL:
     case JS_TAG_NULL:
     concat_value:
         return string_buffer_concat_value_free(jsc->b, val);
     case JS_TAG_BIG_INT:
-        JS_ThrowTypeError(ctx, "bigint are forbidden in JSON.stringify");
+#ifdef CONFIG_BIGNUM
+    case JS_TAG_BIG_FLOAT:
+    case JS_TAG_BIG_DECIMAL:
+#endif
+        /* reject big numbers: use toJSON method to override */
+        JS_ThrowTypeError(ctx, "Do not know how to serialize a BigInt");
         goto exception;
     default:
         JS_FreeValue(ctx, val);
