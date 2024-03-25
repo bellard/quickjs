@@ -2889,6 +2889,65 @@ static int my_execvpe(const char *filename, char **argv, char **envp)
     return -1;
 }
 
+/*
+    This method is called from the child process (after forking)
+    and closes all open file descriptors > 2
+ */
+void close_fds() {
+/*
+    Use closefrom if possible
+ */
+#if defined(HAVE_CLOSEFROM)
+    closefrom(3);
+#else
+    int fd_max = sysconf(_SC_OPEN_MAX);
+    uint32_t i;
+#if defined(__linux__)
+    /*
+        Under linux
+
+        - check /proc to find all open file descriptors > 2 and close them
+        - set fd_max = 3 if at least one fd was found in /proc
+
+        This will improve performances on systems where the maximum number
+        of open file descriptor is high (such as in a Docker container).
+    */
+    int pid = getpid();
+    char path[32];
+    struct stat statbuf;
+    snprintf(path, sizeof(path), "/proc/%d/fd", pid);
+    if (stat(path, &statbuf) == 0) {
+        if (S_ISDIR(statbuf.st_mode)) {
+            DIR *dir = opendir(path);
+            if (dir) {
+                struct dirent *subdir;
+                int fd;
+                /*
+                    Close all open file descriptors > 2 and set fd_max to 3
+                */
+                for(;;) {
+                    subdir = readdir(dir);
+                    if (!subdir) {
+                        break;
+                    }
+                    fd = atoi(subdir->d_name);
+                    if (fd > 0) {
+                        fd_max = 3;
+                        if (fd > 2 && fd != dirfd(dir)) {
+                            close(fd);
+                        }
+                    }
+                }
+                closedir(dir);
+            }
+        }
+    }
+#endif
+    for(i = 3; i < fd_max; i++)
+        close(i);
+#endif
+}
+
 /* exec(args[, options]) -> exitcode */
 static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv)
@@ -3015,7 +3074,6 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     }
     if (pid == 0) {
         /* child */
-        int fd_max = sysconf(_SC_OPEN_MAX);
 
         /* remap the stdin/stdout/stderr handles if necessary */
         for(i = 0; i < 3; i++) {
@@ -3025,8 +3083,9 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
             }
         }
 
-        for(i = 3; i < fd_max; i++)
-            close(i);
+        /* close all file descriptors > 2 */
+        close_fds();
+
         if (cwd) {
             if (chdir(cwd) < 0)
                 _exit(127);
