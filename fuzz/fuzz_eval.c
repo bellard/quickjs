@@ -47,9 +47,28 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     JS_SetInterruptHandler(JS_GetRuntime(ctx), interrupt_handler, NULL);
     js_std_add_helpers(ctx, 0, NULL);
 
+    // Load os and std
+    js_std_init_handlers(rt);
+    js_init_module_std(ctx, "std");
+    js_init_module_os(ctx, "os");
+    const char *str = "import * as std from 'std';\n"
+                "import * as os from 'os';\n"
+                "globalThis.std = std;\n"
+                "globalThis.os = os;\n";
+    JSValue std_val = JS_Eval(ctx, str, strlen(str), "<input>", JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (!JS_IsException(std_val)) {
+        js_module_set_import_meta(ctx, std_val, 1, 1);
+        std_val = JS_EvalFunction(ctx, std_val);
+    } else {
+        js_std_dump_error(ctx);
+    }
+    std_val = js_std_await(ctx, std_val);
+    JS_FreeValue(ctx, std_val);
+
     uint8_t *null_terminated_data = malloc(size + 1);
     memcpy(null_terminated_data, data, size);
     null_terminated_data[size] = 0;
+
     nbinterrupts = 0;
     //the final 0 does not count (as in strlen)
     JSValue val = JS_Eval(ctx, (const char *)null_terminated_data, size, "<none>", JS_EVAL_TYPE_GLOBAL);
@@ -59,6 +78,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         js_std_loop(ctx);
         JS_FreeValue(ctx, val);
     }
+    js_std_free_handlers(rt);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
     return 0;
