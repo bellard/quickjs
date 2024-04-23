@@ -14,34 +14,22 @@
  */
 
 #include "libregexp.h"
-#include "quickjs.h"
 #include "quickjs-libc.h"
 
-#include <stdint.h>
-#include <stdio.h>
 
-#define CAPTURE_COUNT_MAX 255
+int lre_check_stack_overflow(void *opaque, size_t alloca_size) { return 0; }
 
-FILE *outfile=NULL;
-JSRuntime *rt;
-JSContext *ctx;
+void *lre_realloc(void *opaque, void *ptr, size_t size)
+{
+    return realloc(ptr, size);
+}
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (outfile == NULL) {
-        outfile = fopen("/dev/null", "w");
-        rt = JS_NewRuntime();
-        // 64 Mo
-        JS_SetMemoryLimit(rt, 0x4000000);
-        // 64 Kb
-        JS_SetMaxStackSize(rt, 0x10000);
-        ctx = JS_NewContextRaw(rt);
-    }
     int len, ret, i;
     uint8_t *bc;
     char error_msg[64];
     const uint8_t *input;
-    uint8_t *capture[CAPTURE_COUNT_MAX * 2];
-    int capture_count;
+    uint8_t *capture[255 * 2];
     size_t size1 = size;
 
     //Splits buffer into 2 sub buffers delimited by null character
@@ -56,24 +44,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return 0;
     }
     bc = lre_compile(&len, error_msg, sizeof(error_msg), (const char *) data,
-                     size1, 0, ctx);
+                     size1, 0, NULL);
     if (!bc) {
         return 0;
     }
     input = data + size1 + 1;
-    ret = lre_exec(capture, bc, input, 0, size - (size1 + 1), 0, ctx);
+    ret = lre_exec(capture, bc, input, 0, size - (size1 + 1), 0, NULL);
     if (ret == 1) {
-        capture_count = lre_get_capture_count(bc);
-        for(i = 0; i < 2 * capture_count; i++) {
-            uint8_t *ptr;
-            ptr = capture[i];
-            fprintf(outfile, "%d: ", i);
-            if (!ptr)
-                fprintf(outfile, "<nil>");
-            else
-                fprintf(outfile, "%u", (int)(ptr - (uint8_t *)input));
-            fprintf(outfile, "\n");
-        }
+        lre_get_capture_count(bc);
     }
     free(bc);
 

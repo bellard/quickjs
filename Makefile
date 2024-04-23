@@ -254,7 +254,7 @@ fuzz_eval: $(OBJDIR)/fuzz_eval.o libquickjs.fuzz.a
 fuzz_compile: $(OBJDIR)/fuzz_compile.o libquickjs.fuzz.a
 	$(CC) $(CFLAGS_OPT) $^ -o fuzz_compile -fsanitize=fuzzer
 
-fuzz_regexp: $(OBJDIR)/fuzz_regexp.o libquickjs.fuzz.a
+fuzz_regexp: $(OBJDIR)/fuzz_regexp.o $(OBJDIR)/libregexp.fuzz.o $(OBJDIR)/cutils.fuzz.o $(OBJDIR)/libunicode.fuzz.o
 	$(CC) $(CFLAGS_OPT) $^ -o fuzz_regexp -fsanitize=fuzzer
 
 libfuzzer: fuzz_eval fuzz_compile fuzz_regexp
