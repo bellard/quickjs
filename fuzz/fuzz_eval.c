@@ -39,19 +39,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         JS_SetMemoryLimit(rt, 0x4000000);
         // 64 Kb
         JS_SetMaxStackSize(rt, 0x10000);
-        ctx = JS_NewContextRaw(rt);
+        ctx = JS_NewContext(rt);
         JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
-        JS_AddIntrinsicBaseObjects(ctx);
-        JS_AddIntrinsicDate(ctx);
-        JS_AddIntrinsicEval(ctx);
-        JS_AddIntrinsicStringNormalize(ctx);
-        JS_AddIntrinsicRegExp(ctx);
-        JS_AddIntrinsicJSON(ctx);
-        JS_AddIntrinsicProxy(ctx);
-        JS_AddIntrinsicMapSet(ctx);
-        JS_AddIntrinsicTypedArrays(ctx);
-        JS_AddIntrinsicPromise(ctx);
-        JS_AddIntrinsicBigInt(ctx);
         JS_SetInterruptHandler(JS_GetRuntime(ctx), interrupt_handler, NULL);
         js_std_add_helpers(ctx, 0, NULL);
         initialized = 1;
