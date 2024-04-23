@@ -20,9 +20,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-static int initialized = 0;
-JSRuntime *rt;
-JSContext *ctx;
 static int nbinterrupts = 0;
 
 // handle timeouts from infinite loops
@@ -33,63 +30,71 @@ static int interrupt_handler(JSRuntime *rt, void *opaque)
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (initialized == 0) {
-        rt = JS_NewRuntime();
-        // 64 Mo
-        JS_SetMemoryLimit(rt, 0x4000000);
-        // 64 Kb
-        JS_SetMaxStackSize(rt, 0x10000);
-        ctx = JS_NewContext(rt);
-        JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
-        JS_SetInterruptHandler(JS_GetRuntime(ctx), interrupt_handler, NULL);
-        js_std_add_helpers(ctx, 0, NULL);
-        initialized = 1;
-    }
+    if (size == 0)
+        return 0;
 
-    if (size > 0) {
-        uint8_t *null_terminated_data = malloc(size + 1);
-        memcpy(null_terminated_data, data, size);
-        null_terminated_data[size] = 0;
-        JSValue obj = JS_Eval(ctx, (const char *)null_terminated_data, size, "<none>", JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_MODULE);
-        free(null_terminated_data);
-        //TODO target with JS_ParseJSON
-        if (JS_IsException(obj)) {
-            return 0;
-        }
-        size_t bytecode_size;
-        uint8_t* bytecode = JS_WriteObject(ctx, &bytecode_size, obj, JS_WRITE_OBJ_BYTECODE);
+    JSRuntime *rt = JS_NewRuntime();
+    // 64 Mo
+    JS_SetMemoryLimit(rt, 0x4000000);
+    // 64 Kb
+    JS_SetMaxStackSize(rt, 0x10000);
+    JSContext *ctx = JS_NewContext(rt);
+    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
+    JS_SetInterruptHandler(JS_GetRuntime(ctx), interrupt_handler, NULL);
+    js_std_add_helpers(ctx, 0, NULL);
+
+    uint8_t *null_terminated_data = malloc(size + 1);
+    memcpy(null_terminated_data, data, size);
+    null_terminated_data[size] = 0;
+    JSValue obj = JS_Eval(ctx, (const char *)null_terminated_data, size, "<none>", JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_MODULE);
+    free(null_terminated_data);
+    //TODO target with JS_ParseJSON
+    if (JS_IsException(obj)) {
         JS_FreeValue(ctx, obj);
-        if (!bytecode) {
-            return 0;
-        }
-        obj = JS_ReadObject(ctx, bytecode, bytecode_size, JS_READ_OBJ_BYTECODE);
-        if (JS_IsException(obj)) {
-            js_free(ctx, bytecode);
-            return 0;
-        }
-        nbinterrupts = 0;
-        /* this is based on
-         * js_std_eval_binary(ctx, bytecode, bytecode_size, 0);
-         * modified so as not to exit on JS exception
-         */
-        JSValue val;
-        if (JS_VALUE_GET_TAG(obj) == JS_TAG_MODULE) {
-            if (JS_ResolveModule(ctx, obj) < 0) {
-                JS_FreeValue(ctx, obj);
-                js_free(ctx, bytecode);
-                return 0;
-            }
-            js_module_set_import_meta(ctx, obj, FALSE, TRUE);
-        }
-        val = JS_EvalFunction(ctx, obj);
-        if (JS_IsException(val)) {
-            js_std_dump_error(ctx);
-        } else {
-            js_std_loop(ctx);
-        }
-        JS_FreeValue(ctx, val);
-        js_free(ctx, bytecode);
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(rt);
+        return 0;
     }
+    obj = js_std_await(ctx, obj);
+    size_t bytecode_size;
+    uint8_t* bytecode = JS_WriteObject(ctx, &bytecode_size, obj, JS_WRITE_OBJ_BYTECODE);
+    JS_FreeValue(ctx, obj);
+    if (!bytecode) {
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(rt);
+        return 0;
+    }
+    obj = JS_ReadObject(ctx, bytecode, bytecode_size, JS_READ_OBJ_BYTECODE);
+    js_free(ctx, bytecode);
+    if (JS_IsException(obj)) {
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(rt);
+        return 0;
+    }
+    nbinterrupts = 0;
+    /* this is based on
+     * js_std_eval_binary(ctx, bytecode, bytecode_size, 0);
+     * modified so as not to exit on JS exception
+     */
+    JSValue val;
+    if (JS_VALUE_GET_TAG(obj) == JS_TAG_MODULE) {
+        if (JS_ResolveModule(ctx, obj) < 0) {
+            JS_FreeValue(ctx, obj);
+            JS_FreeContext(ctx);
+            JS_FreeRuntime(rt);
+            return 0;
+        }
+        js_module_set_import_meta(ctx, obj, FALSE, TRUE);
+    }
+    val = JS_EvalFunction(ctx, obj);
+    if (JS_IsException(val)) {
+        js_std_dump_error(ctx);
+    } else {
+        js_std_loop(ctx);
+    }
+    JS_FreeValue(ctx, val);
+    JS_FreeContext(ctx);
+    JS_FreeRuntime(rt);
 
     return 0;
 }
