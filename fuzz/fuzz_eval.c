@@ -32,7 +32,7 @@ static int interrupt_handler(JSRuntime *rt, void *opaque)
     return (nbinterrupts > 100);
 }
 
-int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (initialized == 0) {
         rt = JS_NewRuntime();
         // 64 Mo
@@ -57,14 +57,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         initialized = 1;
     }
 
-    if (Size > 0) {
-        uint8_t *NullTerminatedData = (uint8_t *)malloc(Size + 1);
-        memcpy(NullTerminatedData, Data, Size);
-        NullTerminatedData[Size] = 0;
+    if (size > 0) {
+        uint8_t *null_terminated_data = malloc(size + 1);
+        memcpy(null_terminated_data, data, size);
+        null_terminated_data[size] = 0;
         nbinterrupts = 0;
         //the final 0 does not count (as in strlen)
-        JSValue val = JS_Eval(ctx, (const char *)NullTerminatedData, Size, "<none>", JS_EVAL_TYPE_GLOBAL);
-        free(NullTerminatedData);
+        JSValue val = JS_Eval(ctx, (const char *)null_terminated_data, size, "<none>", JS_EVAL_TYPE_GLOBAL);
+        free(null_terminated_data);
         //TODO targets with JS_ParseJSON, JS_ReadObject
         if (!JS_IsException(val)) {
             js_std_loop(ctx);

@@ -26,7 +26,7 @@ FILE *outfile=NULL;
 JSRuntime *rt;
 JSContext *ctx;
 
-int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (outfile == NULL) {
         outfile = fopen("/dev/null", "w");
         rt = JS_NewRuntime();
@@ -42,26 +42,26 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     const uint8_t *input;
     uint8_t *capture[CAPTURE_COUNT_MAX * 2];
     int capture_count;
-    size_t Size1=Size;
+    size_t size1 = size;
 
     //Splits buffer into 2 sub buffers delimited by null character
-    for (i=0; i<Size; i++) {
-        if (Data[i] == 0) {
-            Size1=i;
+    for (i = 0; i < size; i++) {
+        if (data[i] == 0) {
+            size1 = i;
             break;
         }
     }
-    if (Size1 == Size) {
+    if (size1 == size) {
         //missing delimiter
         return 0;
     }
-    bc = lre_compile(&len, error_msg, sizeof(error_msg), (const char *) Data,
-                     Size1, 0, ctx);
+    bc = lre_compile(&len, error_msg, sizeof(error_msg), (const char *) data,
+                     size1, 0, ctx);
     if (!bc) {
         return 0;
     }
-    input = Data+Size1+1;
-    ret = lre_exec(capture, bc, input, 0, Size-(Size1+1), 0, ctx);
+    input = data + size1 + 1;
+    ret = lre_exec(capture, bc, input, 0, size - (size1 + 1), 0, ctx);
     if (ret == 1) {
         capture_count = lre_get_capture_count(bc);
         for(i = 0; i < 2 * capture_count; i++) {

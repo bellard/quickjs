@@ -32,7 +32,7 @@ static int interrupt_handler(JSRuntime *rt, void *opaque)
     return (nbinterrupts > 100);
 }
 
-int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (initialized == 0) {
         rt = JS_NewRuntime();
         // 64 Mo
@@ -57,13 +57,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         initialized = 1;
     }
 
-    if (Size > 0) {
-        uint8_t *NullTerminatedData = (uint8_t *)malloc(Size + 1);
-        memcpy(NullTerminatedData, Data, Size);
-        NullTerminatedData[Size] = 0;
-        JSValue obj;
-        obj = JS_Eval(ctx, (const char *)NullTerminatedData, Size, "<none>", JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE);
-        free(NullTerminatedData);
+    if (size > 0) {
+        uint8_t *null_terminated_data = malloc(size + 1);
+        memcpy(null_terminated_data, data, size);
+        null_terminated_data[size] = 0;
+        JSValue obj = JS_Eval(ctx, (const char *)null_terminated_data, size, "<none>", JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_MODULE);
+        free(null_terminated_data);
         //TODO target with JS_ParseJSON
         if (JS_IsException(obj)) {
             return 0;
@@ -71,7 +70,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         size_t bytecode_size;
         uint8_t* bytecode = JS_WriteObject(ctx, &bytecode_size, obj, JS_WRITE_OBJ_BYTECODE);
         JS_FreeValue(ctx, obj);
-        if ( !bytecode ) {
+        if (!bytecode) {
             return 0;
         }
         obj = JS_ReadObject(ctx, bytecode, bytecode_size, JS_READ_OBJ_BYTECODE);
