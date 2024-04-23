@@ -248,10 +248,10 @@ qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS))
 qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-fuzz_eval: $(OBJDIR)/fuzz_eval.o libquickjs.fuzz.a
+fuzz_eval: $(OBJDIR)/fuzz_eval.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
 	$(CC) $(CFLAGS_OPT) $^ -o fuzz_eval -fsanitize=fuzzer
 
-fuzz_compile: $(OBJDIR)/fuzz_compile.o libquickjs.fuzz.a
+fuzz_compile: $(OBJDIR)/fuzz_compile.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
 	$(CC) $(CFLAGS_OPT) $^ -o fuzz_compile -fsanitize=fuzzer
 
 fuzz_regexp: $(OBJDIR)/fuzz_regexp.o $(OBJDIR)/libregexp.fuzz.o $(OBJDIR)/cutils.fuzz.o $(OBJDIR)/libunicode.fuzz.o
