@@ -335,6 +335,11 @@ function test_class()
     assert(S.x === 42);
     assert(S.y === 42);
     assert(S.z === 42);
+    
+    class P {
+      get = () => "123"
+    }
+    assert(new P().get() === "123");
 };
 
 function test_template()
@@ -362,8 +367,9 @@ function test_template_skip()
 function test_object_literal()
 {
     var x = 0, get = 1, set = 2; async = 3;
-    a = { get: 2, set: 3, async: 4 };
-    assert(JSON.stringify(a), '{"get":2,"set":3,"async":4}');
+    a = { get: 2, set: 3, async: 4, get a(){ return this.get} };
+    assert(JSON.stringify(a), '{"get":2,"set":3,"async":4,"a":2}');
+    assert(a.a === 2);
 
     a = { x, get, set, async };
     assert(JSON.stringify(a), '{"x":0,"get":1,"set":2,"async":3}');
