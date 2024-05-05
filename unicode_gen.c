@@ -273,7 +273,7 @@ int find_name(const char **tab, int tab_len, const char *name)
     return -1;
 }
 
-static int get_prop(uint32_t c, int prop_idx)
+static BOOL get_prop(uint32_t c, int prop_idx)
 {
     return (unicode_db[c].prop_bitmap_tab[prop_idx >> 5] >> (prop_idx & 0x1f)) & 1;
 }
@@ -1981,7 +1981,7 @@ void check_flags(void)
     BOOL flag_ref, flag;
     for(c = 0; c <= CHARCODE_MAX; c++) {
         flag_ref = get_prop(c, PROP_Cased);
-        flag = lre_is_cased(c);
+        flag = !!lre_is_cased(c);
         if (flag != flag_ref) {
             printf("ERROR: c=%05x cased=%d ref=%d\n",
                    c, flag, flag_ref);
@@ -1989,7 +1989,7 @@ void check_flags(void)
         }
 
         flag_ref = get_prop(c, PROP_Case_Ignorable);
-        flag = lre_is_case_ignorable(c);
+        flag = !!lre_is_case_ignorable(c);
         if (flag != flag_ref) {
             printf("ERROR: c=%05x case_ignorable=%d ref=%d\n",
                    c, flag, flag_ref);
@@ -1997,7 +1997,7 @@ void check_flags(void)
         }
 
         flag_ref = get_prop(c, PROP_ID_Start);
-        flag = lre_is_id_start(c);
+        flag = !!lre_is_id_start(c);
         if (flag != flag_ref) {
             printf("ERROR: c=%05x id_start=%d ref=%d\n",
                    c, flag, flag_ref);
@@ -2005,7 +2005,7 @@ void check_flags(void)
         }
 
         flag_ref = get_prop(c, PROP_ID_Continue);
-        flag = lre_is_id_continue(c);
+        flag = !!lre_is_id_continue(c);
         if (flag != flag_ref) {
             printf("ERROR: c=%05x id_cont=%d ref=%d\n",
                    c, flag, flag_ref);
@@ -2019,7 +2019,7 @@ void check_flags(void)
         count = 0;
         for(c = 0x20; c <= 0xffff; c++) {
             flag_ref = get_prop(c, PROP_ID_Start);
-            flag = lre_is_id_start(c);
+            flag = !!lre_is_id_start(c);
             assert(flag == flag_ref);
             count++;
         }

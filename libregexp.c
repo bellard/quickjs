@@ -30,6 +30,7 @@
 
 #include "cutils.h"
 #include "libregexp.h"
+#include "libunicode.h"
 
 /*
   TODO:
@@ -141,32 +142,6 @@ static const uint16_t char_range_s[] = {
     0xFEFF, 0xFEFF + 1,
 };
 
-BOOL lre_is_space(int c)
-{
-    int i, n, low, high;
-    n = (countof(char_range_s) - 1) / 2;
-    for(i = 0; i < n; i++) {
-        low = char_range_s[2 * i + 1];
-        if (c < low)
-            return FALSE;
-        high = char_range_s[2 * i + 2];
-        if (c < high)
-            return TRUE;
-    }
-    return FALSE;
-}
-
-uint32_t const lre_id_start_table_ascii[4] = {
-    /* $ A-Z _ a-z */
-    0x00000000, 0x00000010, 0x87FFFFFE, 0x07FFFFFE
-};
-
-uint32_t const lre_id_continue_table_ascii[4] = {
-    /* $ 0-9 A-Z _ a-z */
-    0x00000000, 0x03FF0010, 0x87FFFFFE, 0x07FFFFFE
-};
-
-
 static const uint16_t char_range_w[] = {
     4,
     0x0030, 0x0039 + 1,
@@ -186,7 +161,7 @@ typedef enum {
     CHAR_RANGE_W,
 } CharRangeEnum;
 
-static const uint16_t *char_range_table[] = {
+static const uint16_t * const char_range_table[] = {
     char_range_d,
     char_range_s,
     char_range_w,

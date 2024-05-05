@@ -44,6 +44,7 @@
 #include "list.h"
 #include "quickjs.h"
 #include "libregexp.h"
+#include "libunicode.h"
 #include "libbf.h"
 
 #define OPTIMIZE         1
@@ -21188,8 +21189,7 @@ static JSAtom json_parse_ident(JSParseState *s, const uint8_t **pp, int c)
     for(;;) {
         buf[ident_pos++] = c;
         c = *p;
-        if (c >= 128 ||
-            !((lre_id_continue_table_ascii[c >> 5] >> (c & 31)) & 1))
+        if (c >= 128 || !lre_is_id_continue_byte(c))
             break;
         p++;
         if (unlikely(ident_pos >= ident_size - UTF8_CHAR_LEN_MAX)) {
@@ -21401,9 +21401,29 @@ static __exception int json_next_token(JSParseState *s)
     return -1;
 }
 
-/* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
-   only set if TOK_IMPORT is returned */
-/* XXX: handle all unicode cases */
+static int match_identifier(const uint8_t *p, const char *s) {
+    uint32_t c;
+    while (*s) {
+        if ((uint8_t)*s++ != *p++)
+            return 0;
+    }
+    c = *p;
+    if (c >= 128)
+        c = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX, &p);
+    return !lre_js_is_ident_next(c);
+}
+
+/* simple_next_token() is used to check for the next token in simple cases.
+   It is only used for ':' and '=>', 'let' or 'function' look-ahead.
+   (*pp) is only set if TOK_IMPORT is returned for JS_DetectModule()
+   Whitespace and comments are skipped correctly.
+   Then the next token is analyzed, only for specific words.
+   Return values:
+   - '\n' if !no_line_terminator
+   - TOK_ARROW, TOK_IN, TOK_IMPORT, TOK_OF, TOK_EXPORT, TOK_FUNCTION
+   - TOK_IDENT is returned for other identifiers and keywords
+   - otherwise the next character or unicode codepoint is returned.
+ */
 static int simple_next_token(const uint8_t **pp, BOOL no_line_terminator)
 {
     const uint8_t *p;
@@ -21447,33 +21467,42 @@ static int simple_next_token(const uint8_t **pp, BOOL no_line_terminator)
             if (*p == '>')
                 return TOK_ARROW;
             break;
-        default:
-            if (lre_js_is_ident_first(c)) {
-                if (c == 'i') {
-                    if (p[0] == 'n' && !lre_js_is_ident_next(p[1])) {
-                        return TOK_IN;
-                    }
-                    if (p[0] == 'm' && p[1] == 'p' && p[2] == 'o' &&
-                        p[3] == 'r' && p[4] == 't' &&
-                        !lre_js_is_ident_next(p[5])) {
-                        *pp = p + 5;
-                        return TOK_IMPORT;
-                    }
-                } else if (c == 'o' && *p == 'f' && !lre_js_is_ident_next(p[1])) {
-                    return TOK_OF;
-                } else if (c == 'e' &&
-                           p[0] == 'x' && p[1] == 'p' && p[2] == 'o' &&
-                           p[3] == 'r' && p[4] == 't' &&
-                           !lre_js_is_ident_next(p[5])) {
-                    *pp = p + 5;
-                    return TOK_EXPORT;
-                } else if (c == 'f' && p[0] == 'u' && p[1] == 'n' &&
-                         p[2] == 'c' && p[3] == 't' && p[4] == 'i' &&
-                         p[5] == 'o' && p[6] == 'n' && !lre_js_is_ident_next(p[7])) {
-                    return TOK_FUNCTION;
-                }
-                return TOK_IDENT;
+        case 'i':
+            if (match_identifier(p, "n"))
+                return TOK_IN;
+            if (match_identifier(p, "mport")) {
+                *pp = p + 5;
+                return TOK_IMPORT;
             }
+            return TOK_IDENT;
+        case 'o':
+            if (match_identifier(p, "f"))
+                return TOK_OF;
+            return TOK_IDENT;
+        case 'e':
+            if (match_identifier(p, "xport"))
+                return TOK_EXPORT;
+            return TOK_IDENT;
+        case 'f':
+            if (match_identifier(p, "unction"))
+                return TOK_FUNCTION;
+            return TOK_IDENT;
+        case '\\':
+            if (*p == 'u') {
+                if (lre_js_is_ident_first(lre_parse_escape(&p, TRUE)))
+                    return TOK_IDENT;
+            }
+            break;
+        default:
+            if (c >= 128) {
+                c = unicode_from_utf8(p - 1, UTF8_CHAR_LEN_MAX, &p);
+                if (no_line_terminator && (c == CP_PS || c == CP_LS))
+                    return '\n';
+            }
+            if (lre_is_space(c))
+                continue;
+            if (lre_js_is_ident_first(c))
+                return TOK_IDENT;
             break;
         }
         return c;
@@ -26211,7 +26240,6 @@ static int is_let(JSParseState *s, int decl_mask)
     int res = FALSE;
 
     if (token_is_pseudo_keyword(s, JS_ATOM_let)) {
-#if 1
         JSParsePos pos;
         js_parse_get_pos(s, &pos);
         for (;;) {
@@ -26244,12 +26272,6 @@ static int is_let(JSParseState *s, int decl_mask)
         if (js_parse_seek_token(s, &pos)) {
             res = -1;
         }
-#else
-        int tok = peek_token(s, TRUE);
-        if (tok == '{' || tok == TOK_IDENT || peek_token(s, FALSE) == '[') {
-            res = TRUE;
-        }
-#endif
     }
     return res;
 }
