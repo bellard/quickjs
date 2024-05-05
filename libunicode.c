@@ -262,11 +262,7 @@ int lre_canonicalize(uint32_t c, BOOL is_unicode)
 
 static uint32_t get_le24(const uint8_t *ptr)
 {
-#if defined(__x86__) || defined(__x86_64__)
-    return *(uint16_t *)ptr | (ptr[2] << 16);
-#else
     return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16);
-#endif
 }
 
 #define UNICODE_INDEX_BLOCK_LEN 32
@@ -317,6 +313,14 @@ static BOOL lre_is_in_table(uint32_t c, const uint8_t *table,
         return FALSE; /* outside the table */
     p = table + pos;
     bit = 0;
+    /* Compressed run length encoding:
+       00..3F: 2 packed lengths: 3-bit + 3-bit
+       40..5F: 5-bits plus extra byte for length
+       60..7F: 5-bits plus 2 extra bytes for length
+       80..FF: 7-bit length
+       lengths must be incremented to get character count
+       Ranges alternate between false and true return value.
+     */
     for(;;) {
         b = *p++;
         if (b < 64) {
@@ -833,6 +837,13 @@ static int unicode_get_cc(uint32_t c)
     if (pos < 0)
         return 0;
     p = unicode_cc_table + pos;
+    /* Compressed run length encoding:
+       - 2 high order bits are combining class type
+       -         0:0, 1:230, 2:extra byte linear progression, 3:extra byte
+       - 00..2F: range length (add 1)
+       - 30..37: 3-bit range-length + 1 extra byte
+       - 38..3F: 3-bit range-length + 2 extra byte
+     */
     for(;;) {
         b = *p++;
         type = b >> 6;
@@ -1185,6 +1196,15 @@ static int unicode_general_category1(CharRange *cr, uint32_t gc_mask)
     p = unicode_gc_table;
     p_end = unicode_gc_table + countof(unicode_gc_table);
     c = 0;
+    /* Compressed range encoding:
+       initial byte:
+       bits 0..4: category number (special case 31)
+       bits 5..7: range length (add 1)
+       special case bits 5..7 == 7: read an extra byte
+       - 00..7F: range length (add 7 + 1)
+       - 80..BF: 6-bits plus extra byte for range length (add 7 + 128)
+       - C0..FF: 6-bits plus 2 extra bytes for range length (add 7 + 128 + 16384)
+     */
     while (p < p_end) {
         b = *p++;
         n = b >> 5;
@@ -1238,6 +1258,14 @@ static int unicode_prop1(CharRange *cr, int prop_idx)
     p_end = p + unicode_prop_len_table[prop_idx];
     c = 0;
     bit = 0;
+    /* Compressed range encoding:
+       00..3F: 2 packed lengths: 3-bit + 3-bit
+       40..5F: 5-bits plus extra byte for length
+       60..7F: 5-bits plus 2 extra bytes for length
+       80..FF: 7-bit length
+       lengths must be incremented to get character count
+       Ranges alternate between false and true return value.
+     */
     while (p < p_end) {
         c0 = c;
         b = *p++;
