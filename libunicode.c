@@ -1814,3 +1814,97 @@ int unicode_prop(CharRange *cr, const char *prop_name)
 }
 
 #endif /* CONFIG_ALL_UNICODE */
+
+/*---- lre codepoint categorizing functions ----*/
+
+#define S  UNICODE_C_SPACE
+#define D  UNICODE_C_DIGIT
+#define X  UNICODE_C_XDIGIT
+#define U  UNICODE_C_UPPER
+#define L  UNICODE_C_LOWER
+#define _  UNICODE_C_UNDER
+#define d  UNICODE_C_DOLLAR
+
+uint8_t const lre_ctype_bits[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, S, S, S, S, S, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    S, 0, 0, 0, d, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    X|D, X|D, X|D, X|D, X|D, X|D, X|D, X|D,
+    X|D, X|D, 0, 0, 0, 0, 0, 0,
+
+    0, X|U, X|U, X|U, X|U, X|U, X|U, U,
+    U, U, U, U, U, U, U, U,
+    U, U, U, U, U, U, U, U,
+    U, U, U, 0, 0, 0, 0, _,
+
+    0, X|L, X|L, X|L, X|L, X|L, X|L, L,
+    L, L, L, L, L, L, L, L,
+    L, L, L, L, L, L, L, L,
+    L, L, L, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    S, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+};
+
+#undef S
+#undef D
+#undef X
+#undef U
+#undef L
+#undef _
+#undef d
+
+/* code point ranges for Zs,Zl or Zp property */
+static const uint16_t char_range_s[] = {
+    10,
+    0x0009, 0x000D + 1,
+    0x0020, 0x0020 + 1,
+    0x00A0, 0x00A0 + 1,
+    0x1680, 0x1680 + 1,
+    0x2000, 0x200A + 1,
+    /* 2028;LINE SEPARATOR;Zl;0;WS;;;;;N;;;;; */
+    /* 2029;PARAGRAPH SEPARATOR;Zp;0;B;;;;;N;;;;; */
+    0x2028, 0x2029 + 1,
+    0x202F, 0x202F + 1,
+    0x205F, 0x205F + 1,
+    0x3000, 0x3000 + 1,
+    /* FEFF;ZERO WIDTH NO-BREAK SPACE;Cf;0;BN;;;;;N;BYTE ORDER MARK;;;; */
+    0xFEFF, 0xFEFF + 1,
+};
+
+BOOL lre_is_space_non_ascii(uint32_t c)
+{
+    size_t i, n;
+
+    n = countof(char_range_s);
+    for(i = 5; i < n; i += 2) {
+        uint32_t low = char_range_s[i];
+        uint32_t high = char_range_s[i + 1];
+        if (c < low)
+            return FALSE;
+        if (c < high)
+            return TRUE;
+    }
+    return FALSE;
+}
