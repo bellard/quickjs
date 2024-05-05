@@ -22381,7 +22381,7 @@ static int __exception js_parse_property_name(JSParseState *s,
                 goto fail1;
             if (s->token.val == ':' || s->token.val == ',' ||
                 s->token.val == '}' || s->token.val == '(' ||
-                s->token.val == '=' ) {
+                s->token.val == '=') {
                 is_non_reserved_ident = TRUE;
                 goto ident_found;
             }
@@ -22397,7 +22397,8 @@ static int __exception js_parse_property_name(JSParseState *s,
             if (next_token(s))
                 goto fail1;
             if (s->token.val == ':' || s->token.val == ',' ||
-                s->token.val == '}' || s->token.val == '(') {
+                s->token.val == '}' || s->token.val == '(' ||
+                s->token.val == '=') {
                 is_non_reserved_ident = TRUE;
                 goto ident_found;
             }
@@ -23081,7 +23082,12 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
                 goto fail;
             continue;
         }
-        is_static = (s->token.val == TOK_STATIC);
+        is_static = FALSE;
+        if (s->token.val == TOK_STATIC) {
+            int next = peek_token(s, TRUE);
+            if (!(next == ';' || next == '}' || next == '(' || next == '='))
+                is_static = TRUE;
+        }
         prop_type = -1;
         if (is_static) {
             if (next_token(s))
