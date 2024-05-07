@@ -111,6 +111,7 @@ ifdef CONFIG_CLANG
       AR=$(CROSS_PREFIX)ar
     endif
   endif
+  LIB_FUZZING_ENGINE ?= "-fsanitize=fuzzer"
 else ifdef CONFIG_COSMO
   CONFIG_LTO=
   HOST_CC=gcc
@@ -249,13 +250,13 @@ qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 fuzz_eval: $(OBJDIR)/fuzz_eval.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
-	$(CC) $(CFLAGS_OPT) $^ -o fuzz_eval -fsanitize=fuzzer
+	$(CC) $(CFLAGS_OPT) $^ -o fuzz_eval $(LIB_FUZZING_ENGINE)
 
 fuzz_compile: $(OBJDIR)/fuzz_compile.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
-	$(CC) $(CFLAGS_OPT) $^ -o fuzz_compile -fsanitize=fuzzer
+	$(CC) $(CFLAGS_OPT) $^ -o fuzz_compile $(LIB_FUZZING_ENGINE)
 
 fuzz_regexp: $(OBJDIR)/fuzz_regexp.o $(OBJDIR)/libregexp.fuzz.o $(OBJDIR)/cutils.fuzz.o $(OBJDIR)/libunicode.fuzz.o
-	$(CC) $(CFLAGS_OPT) $^ -o fuzz_regexp -fsanitize=fuzzer
+	$(CC) $(CFLAGS_OPT) $^ -o fuzz_regexp $(LIB_FUZZING_ENGINE)
 
 libfuzzer: fuzz_eval fuzz_compile fuzz_regexp
 
