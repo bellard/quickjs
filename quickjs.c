@@ -53074,6 +53074,20 @@ JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len)
                                         TRUE);
 }
 
+/* return -1 if exception (proxy case) or TRUE/FALSE */
+int JS_IsArrayBuffer(JSContext *ctx, JSValueConst val)
+{
+    JSObject *p;
+
+    if (js_resolve_proxy(ctx, &val, TRUE))
+        return -1;
+    if (JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT)
+        return FALSE;
+    p = JS_VALUE_GET_OBJ(val);
+    return p->class_id == JS_CLASS_ARRAY_BUFFER ||
+           p->class_id == JS_CLASS_SHARED_ARRAY_BUFFER;
+}
+
 static JSValue js_array_buffer_constructor(JSContext *ctx,
                                            JSValueConst new_target,
                                            int argc, JSValueConst *argv)

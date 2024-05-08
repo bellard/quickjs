@@ -828,6 +828,7 @@ JSValue JS_NewArrayBuffer(JSContext *ctx, uint8_t *buf, size_t len,
                           JSFreeArrayBufferDataFunc *free_func, void *opaque,
                           JS_BOOL is_shared);
 JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len);
+int JS_IsArrayBuffer(JSContext *ctx, JSValueConst val);
 void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj);
 uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj);
 
