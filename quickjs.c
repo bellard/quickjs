@@ -38397,7 +38397,7 @@ static JSValue js_function_constructor(JSContext *ctx, JSValueConst new_target,
         if (string_buffer_concat_value(b, argv[i]))
             goto fail;
     }
-    string_buffer_puts8(b, "\n) {\n");
+    string_buffer_puts8(b, ") {");
     if (n >= 0) {
         if (string_buffer_concat_value(b, argv[n]))
             goto fail;
