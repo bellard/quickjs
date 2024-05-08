@@ -53439,6 +53439,32 @@ JSValue JS_NewTypedArray(JSContext *ctx, int argc, JSValueConst *argv,
                                       JS_CLASS_UINT8C_ARRAY + type);
 }
 
+/* Return value is -1 for proxy errors, 0 if `obj` is not a typed array,
+   1 if it is a typed array.
+   The structure pointed to by `desc` is filled on success unless `desc`
+   is a null pointer. */
+int JS_GetTypedArray(JSContext *ctx, JSValueConst obj,
+                     JSTypedArrayDescriptor *desc)
+{
+    int class_id;
+    JSObject *p;
+
+    if (js_resolve_proxy(ctx, &obj, TRUE))
+        return -1;
+    if (JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT)
+        return 0;
+    p = JS_VALUE_GET_OBJ(obj);
+    class_id = p->class_id;
+    if (class_id < JS_CLASS_UINT8C_ARRAY || class_id > JS_CLASS_FLOAT64_ARRAY)
+        return 0;
+    if (desc) {
+        desc->type = JS_TYPED_ARRAY_UINT8C + (class_id - JS_CLASS_UINT8C_ARRAY);
+        desc->length = p->u.typed_array->length;
+        desc->data = p->u.array.u.ptr;
+    }
+    return 1;
+}
+
 /* Return the buffer associated to the typed array or an exception if
    it is not a typed array or if the buffer is detached. pbyte_offset,
    pbyte_length or pbytes_per_element can be NULL. */

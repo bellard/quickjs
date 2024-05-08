@@ -845,8 +845,40 @@ typedef enum JSTypedArrayEnum {
     JS_TYPED_ARRAY_FLOAT64,
 } JSTypedArrayEnum;
 
+static inline int JS_BytesPerElement(JSTypedArrayEnum type)
+{
+    switch (type) {
+    case JS_TYPED_ARRAY_UINT8C:
+    case JS_TYPED_ARRAY_INT8:
+    case JS_TYPED_ARRAY_UINT8:
+        return 1;
+    case JS_TYPED_ARRAY_INT16:
+    case JS_TYPED_ARRAY_UINT16:
+        return 2;
+    case JS_TYPED_ARRAY_INT32:
+    case JS_TYPED_ARRAY_UINT32:
+    case JS_TYPED_ARRAY_FLOAT32:
+        return 4;
+    default:
+        return 8;
+    }
+}
+
 JSValue JS_NewTypedArray(JSContext *ctx, int argc, JSValueConst *argv,
                          JSTypedArrayEnum array_type);
+
+typedef struct JSTypedArrayDescriptor {
+    JSTypedArrayEnum type;
+    size_t length;
+    void *data;
+} JSTypedArrayDescriptor;
+
+/* Return value is -1 for proxy errors, 0 if `obj` is not a typed array,
+   1 if it is a typed array.
+   The structure pointed to by `desc` is filled on success unless `desc`
+   is a null pointer. */
+int JS_GetTypedArray(JSContext *ctx, JSValueConst obj,
+                     JSTypedArrayDescriptor *desc);
 JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
                                size_t *pbyte_offset,
                                size_t *pbyte_length,
