@@ -53393,6 +53393,16 @@ static JSValue js_typed_array_get_byteOffset(JSContext *ctx,
     return JS_NewInt32(ctx, ta->offset);
 }
 
+JSValue JS_NewTypedArray(JSContext *ctx, int argc, JSValueConst *argv,
+                         JSTypedArrayEnum type)
+{
+    if (type < JS_TYPED_ARRAY_UINT8C || type > JS_TYPED_ARRAY_FLOAT64)
+        return JS_ThrowRangeError(ctx, "invalid typed array type");
+
+    return js_typed_array_constructor(ctx, JS_UNDEFINED, argc, argv,
+                                      JS_CLASS_UINT8C_ARRAY + type);
+}
+
 /* Return the buffer associated to the typed array or an exception if
    it is not a typed array or if the buffer is detached. pbyte_offset,
    pbyte_length or pbytes_per_element can be NULL. */
