@@ -1,0 +1,27 @@
+libFuzzer support for QuickJS
+=============================
+
+Build QuickJS with libFuzzer support as follows:
+
+  CONFIG_CLANG=y make libfuzzer
+
+This can be extended with sanitizer support to improve efficacy:
+
+  CONFIG_CLANG=y CONFIG_ASAN=y make libfuzzer
+
+
+Currently, there are three fuzzing targets defined: fuzz_eval, fuzz_compile and fuzz_regexp.
+The above build command will produce an executable binary for each of them, which can be
+simply executed as:
+
+  ./fuzz_eval
+
+or with an initial corpus:
+
+  ./fuzz_compile corpus_dir/
+
+or with a predefined dictionary to improve its efficacy:
+
+  ./fuzz_eval -dict fuzz/fuzz.dict
+
+or with arbitrary CLI arguments provided by libFuzzer (https://llvm.org/docs/LibFuzzer.html).
