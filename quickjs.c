@@ -14234,7 +14234,7 @@ static no_inline __exception int js_eq_slow(JSContext *ctx, JSValue *sp,
                 goto exception;
             }
         }
-        res = js_strict_eq(ctx, op1, op2);
+        res = js_strict_eq2(ctx, op1, op2, JS_EQ_STRICT);
     } else if (tag1 == JS_TAG_BOOL) {
         op1 = JS_NewInt32(ctx, JS_VALUE_GET_INT(op1));
         goto redo;
@@ -14552,14 +14552,16 @@ static BOOL js_strict_eq2(JSContext *ctx, JSValue op1, JSValue op2,
     return res;
 }
 
-static BOOL js_strict_eq(JSContext *ctx, JSValue op1, JSValue op2)
+static BOOL js_strict_eq(JSContext *ctx, JSValueConst op1, JSValueConst op2)
 {
-    return js_strict_eq2(ctx, op1, op2, JS_EQ_STRICT);
+    return js_strict_eq2(ctx,
+                         JS_DupValue(ctx, op1), JS_DupValue(ctx, op2),
+                         JS_EQ_STRICT);
 }
 
 BOOL JS_StrictEq(JSContext *ctx, JSValueConst op1, JSValueConst op2)
 {
-    return js_strict_eq(ctx, JS_DupValue(ctx, op1), JS_DupValue(ctx, op2));
+    return js_strict_eq(ctx, op1, op2);
 }
 
 static BOOL js_same_value(JSContext *ctx, JSValueConst op1, JSValueConst op2)
@@ -14590,7 +14592,7 @@ static no_inline int js_strict_eq_slow(JSContext *ctx, JSValue *sp,
                                        BOOL is_neq)
 {
     BOOL res;
-    res = js_strict_eq(ctx, sp[-2], sp[-1]);
+    res = js_strict_eq2(ctx, sp[-2], sp[-1], JS_EQ_STRICT);
     sp[-2] = JS_NewBool(ctx, res ^ is_neq);
     return 0;
 }
