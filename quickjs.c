@@ -14557,7 +14557,7 @@ static BOOL js_strict_eq(JSContext *ctx, JSValue op1, JSValue op2)
     return js_strict_eq2(ctx, op1, op2, JS_EQ_STRICT);
 }
 
-BOOL JS_StrictEq(JSContext *ctx, JSValue op1, JSValue op2)
+BOOL JS_StrictEq(JSContext *ctx, JSValueConst op1, JSValueConst op2)
 {
     return js_strict_eq(ctx, op1, op2);
 }
