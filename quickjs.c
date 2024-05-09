@@ -53429,14 +53429,26 @@ static JSValue js_typed_array_get_byteOffset(JSContext *ctx,
     return JS_NewInt32(ctx, ta->offset);
 }
 
-JSValue JS_NewTypedArray(JSContext *ctx, int argc, JSValueConst *argv,
+JSValue JS_NewTypedArray(JSContext *ctx, size_t length, const void *init,
                          JSTypedArrayEnum type)
 {
+    JSValue args[1], ret;
+
     if (type < JS_TYPED_ARRAY_UINT8C || type > JS_TYPED_ARRAY_FLOAT64)
         return JS_ThrowRangeError(ctx, "invalid typed array type");
 
-    return js_typed_array_constructor(ctx, JS_UNDEFINED, argc, argv,
-                                      JS_CLASS_UINT8C_ARRAY + type);
+    args[0] = JS_NewInt64(ctx, length);
+    ret = js_typed_array_constructor(ctx, JS_UNDEFINED, 1, (JSValueConst *)args,
+                                     JS_CLASS_UINT8C_ARRAY + type);
+    JS_FreeValue(ctx, args[0]);
+
+    if (init != NULL && !JS_IsException(ret)) {
+        JSObject *p = JS_VALUE_GET_OBJ(ret);
+        size_t len = length * (1 << typed_array_size_log2(p->class_id));
+        memcpy(p->u.array.u.ptr, init, len);
+    }
+
+    return ret;
 }
 
 /* Return the buffer associated to the typed array or an exception if
