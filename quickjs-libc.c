@@ -3015,7 +3015,6 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     }
     if (pid == 0) {
         /* child */
-        int fd_max = sysconf(_SC_OPEN_MAX);
 
         /* remap the stdin/stdout/stderr handles if necessary */
         for(i = 0; i < 3; i++) {
@@ -3024,9 +3023,28 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                     _exit(127);
             }
         }
+#if defined(HAVE_CLOSEFROM)
+        /* closefrom() is available on many recent unix systems:
+           Linux with glibc 2.34+, Solaris 9+, FreeBSD 7.3+,
+           NetBSD 3.0+, OpenBSD 3.5+.
+           Linux with the musl libc and macOS don't have it.
+         */
 
-        for(i = 3; i < fd_max; i++)
-            close(i);
+        closefrom(3);
+#else
+        {
+            /* Close the file handles manually, limit to 1024 to avoid
+               costly loop on linux Alpine where sysconf(_SC_OPEN_MAX)
+               returns a huge value 1048576.
+               Patch inspired by nicolas-duteil-nova. See also:
+               https://stackoverflow.com/questions/73229353/
+               https://stackoverflow.com/questions/899038/#918469
+             */
+            int fd_max = min_int(sysconf(_SC_OPEN_MAX), 1024);
+            for(i = 3; i < fd_max; i++)
+                close(i);
+        }
+#endif
         if (cwd) {
             if (chdir(cwd) < 0)
                 _exit(127);

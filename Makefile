@@ -143,6 +143,11 @@ endif
 ifdef CONFIG_WIN32
 DEFINES+=-D__USE_MINGW_ANSI_STDIO # for standard snprintf behavior
 endif
+ifndef CONFIG_WIN32
+ifeq ($(shell $(CC) -o /dev/null compat/test-closefrom.c 2>/dev/null && echo 1),1)
+DEFINES+=-DHAVE_CLOSEFROM
+endif
+endif
 
 CFLAGS+=$(DEFINES)
 CFLAGS_DEBUG=$(CFLAGS) -O0
