@@ -1175,9 +1175,10 @@ static JSValue JS_ThrowTypeErrorRevokedProxy(JSContext *ctx);
 static JSValue js_proxy_getPrototypeOf(JSContext *ctx, JSValueConst obj);
 static int js_proxy_setPrototypeOf(JSContext *ctx, JSValueConst obj,
                                    JSValueConst proto_val, BOOL throw_flag);
+
+static int js_resolve_proxy(JSContext *ctx, JSValueConst *pval, int throw_exception);
 static int js_proxy_isExtensible(JSContext *ctx, JSValueConst obj);
 static int js_proxy_preventExtensions(JSContext *ctx, JSValueConst obj);
-static int js_proxy_isArray(JSContext *ctx, JSValueConst obj);
 static int JS_CreateProperty(JSContext *ctx, JSObject *p,
                              JSAtom prop, JSValueConst val,
                              JSValueConst getter, JSValueConst setter,
@@ -12110,15 +12111,14 @@ static __maybe_unused void JS_PrintValue(JSContext *ctx,
 }
 
 /* return -1 if exception (proxy case) or TRUE/FALSE */
+// TODO: should take flags to make proxy resolution and exceptions optional
 int JS_IsArray(JSContext *ctx, JSValueConst val)
 {
-    JSObject *p;
+    if (js_resolve_proxy(ctx, &val, TRUE))
+        return -1;
     if (JS_VALUE_GET_TAG(val) == JS_TAG_OBJECT) {
-        p = JS_VALUE_GET_OBJ(val);
-        if (unlikely(p->class_id == JS_CLASS_PROXY))
-            return js_proxy_isArray(ctx, val);
-        else
-            return p->class_id == JS_CLASS_ARRAY;
+        JSObject *p = JS_VALUE_GET_OBJ(val);
+        return p->class_id == JS_CLASS_ARRAY;
     } else {
         return FALSE;
     }
@@ -46697,20 +46697,35 @@ static JSValue js_proxy_call(JSContext *ctx, JSValueConst func_obj,
     return ret;
 }
 
-static int js_proxy_isArray(JSContext *ctx, JSValueConst obj)
-{
-    JSProxyData *s = JS_GetOpaque(obj, JS_CLASS_PROXY);
-    if (!s)
-        return FALSE;
-    if (js_check_stack_overflow(ctx->rt, 0)) {
-        JS_ThrowStackOverflow(ctx);
-        return -1;
+/* `js_resolve_proxy`: resolve the proxy chain
+   `*pval` is updated with to ultimate proxy target
+   `throw_exception` controls whether exceptions are thown or not
+   - return -1 in case of error
+   - otherwise return 0
+ */
+static int js_resolve_proxy(JSContext *ctx, JSValueConst *pval, BOOL throw_exception) {
+    int depth = 0;
+    JSObject *p;
+    JSProxyData *s;
+
+    while (JS_VALUE_GET_TAG(*pval) == JS_TAG_OBJECT) {
+        p = JS_VALUE_GET_OBJ(*pval);
+        if (p->class_id != JS_CLASS_PROXY)
+            break;
+        if (depth++ > 1000) {
+            if (throw_exception)
+                JS_ThrowStackOverflow(ctx);
+            return -1;
+        }
+        s = p->u.opaque;
+        if (s->is_revoked) {
+            if (throw_exception)
+                JS_ThrowTypeErrorRevokedProxy(ctx);
+            return -1;
+        }
+        *pval = s->target;
     }
-    if (s->is_revoked) {
-        JS_ThrowTypeErrorRevokedProxy(ctx);
-        return -1;
-    }
-    return JS_IsArray(ctx, s->target);
+    return 0;
 }
 
 static const JSClassExoticMethods js_proxy_exotic_methods = {
