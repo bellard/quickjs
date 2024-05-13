@@ -148,6 +148,9 @@ ifeq ($(shell $(CC) -o /dev/null compat/test-closefrom.c 2>/dev/null && echo 1),
 DEFINES+=-DHAVE_CLOSEFROM
 endif
 endif
+ifdef CONFIG_NO_WORKER
+DEFINES+=-DCONFIG_NO_WORKER
+endif
 
 CFLAGS+=$(DEFINES)
 CFLAGS_DEBUG=$(CFLAGS) -O0
