@@ -15556,7 +15556,7 @@ static __exception int js_append_enumerate(JSContext *ctx, JSValue *sp)
             if (JS_IsException(value))
                 goto exception;
             if (done) {
-                /* value is JS_UNDEFINED */
+                JS_FreeValue(ctx, value);
                 break;
             }
             if (JS_DefinePropertyValueUint32(ctx, sp[-3], pos++, value, JS_PROP_C_W_E) < 0)
@@ -38748,8 +38748,10 @@ static JSValue iterator_to_array(JSContext *ctx, JSValueConst items)
         v = JS_IteratorNext(ctx, iter, next_method, 0, NULL, &done);
         if (JS_IsException(v))
             goto exception_close;
-        if (done)
+        if (done) {
+            JS_FreeValue(ctx, v);
             break;
+        }
         if (JS_DefinePropertyValueInt64(ctx, r, k, v,
                                         JS_PROP_C_W_E | JS_PROP_THROW) < 0)
             goto exception_close;
@@ -39039,8 +39041,10 @@ static JSValue js_array_from(JSContext *ctx, JSValueConst this_val,
             v = JS_IteratorNext(ctx, stack[0], stack[1], 0, NULL, &done);
             if (JS_IsException(v))
                 goto exception_close;
-            if (done)
+            if (done) {
+                JS_FreeValue(ctx, v);
                 break;
+            }
             if (mapping) {
                 args[0] = v;
                 args[1] = JS_NewInt32(ctx, k);
@@ -47506,8 +47510,10 @@ static JSValue js_object_groupBy(JSContext *ctx, JSValueConst this_val,
         v = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
         if (JS_IsException(v))
             goto exception;
-        if (done)
-            break; // v is JS_UNDEFINED
+        if (done) {
+            JS_FreeValue(ctx, v);
+            break;
+        }
 
         args[0] = v;
         args[1] = JS_NewInt64(ctx, idx);
@@ -48536,8 +48542,10 @@ static JSValue js_promise_all(JSContext *ctx, JSValueConst this_val,
             item = JS_IteratorNext(ctx, iter, next_method, 0, NULL, &done);
             if (JS_IsException(item))
                 goto fail_reject;
-            if (done)
+            if (done) {
+                JS_FreeValue(ctx, item);
                 break;
+            }
             next_promise = JS_Call(ctx, promise_resolve,
                                    this_val, 1, (JSValueConst *)&item);
             JS_FreeValue(ctx, item);
@@ -48666,8 +48674,10 @@ static JSValue js_promise_race(JSContext *ctx, JSValueConst this_val,
             item = JS_IteratorNext(ctx, iter, next_method, 0, NULL, &done);
             if (JS_IsException(item))
                 goto fail_reject;
-            if (done)
+            if (done) {
+                JS_FreeValue(ctx, item);
                 break;
+            }
             next_promise = JS_Call(ctx, promise_resolve,
                                    this_val, 1, (JSValueConst *)&item);
             JS_FreeValue(ctx, item);
@@ -53781,8 +53791,10 @@ static JSValue js_typed_array_from(JSContext *ctx, JSValueConst this_val,
             v = JS_IteratorNext(ctx, stack[0], stack[1], 0, NULL, &done);
             if (JS_IsException(v))
                 goto exception_close;
-            if (done)
+            if (done) {
+                JS_FreeValue(ctx, v);
                 break;
+            }
             if (JS_DefinePropertyValueInt64(ctx, arr, k, v, JS_PROP_C_W_E | JS_PROP_THROW) < 0)
                 goto exception_close;
         }
