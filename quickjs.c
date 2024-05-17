@@ -42457,7 +42457,7 @@ static JSValue js_string_pad(JSContext *ctx, JSValueConst this_val,
     }
     if (n > JS_STRING_LEN_MAX) {
         JS_ThrowRangeError(ctx, "invalid string length");
-        goto fail2;
+        goto fail3;
     }
     if (string_buffer_init(ctx, b, n))
         goto fail3;
