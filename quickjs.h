@@ -93,6 +93,12 @@ typedef struct JSRefCountHeader {
 
 #define JS_FLOAT64_NAN NAN
 
+#if defined(_MSC_VER)
+#define JS_VALUE_CAST(t, v) v
+#else
+#define JS_VALUE_CAST(t, v) (t)v
+#endif
+
 #ifdef CONFIG_CHECK_JSVALUE
 /* JSValue consistency : it is not possible to run the code in this
    mode, but it is useful to detect simple reference counting
@@ -206,12 +212,6 @@ typedef struct JSValue {
 } JSValue;
 
 #define JSValueConst JSValue
-
-#if defined(_MSC_VER)
-#define JS_VALUE_CAST(t, v) v
-#else
-#define JS_VALUE_CAST(t, v) (t)v
-#endif
 
 #define JS_VALUE_GET_TAG(v) ((int32_t)(v).tag)
 /* same as JS_VALUE_GET_TAG, but return JS_TAG_FLOAT64 with NaN boxing */
