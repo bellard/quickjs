@@ -633,7 +633,6 @@ static inline JS_BOOL JS_IsObject(JSValueConst v)
 
 JSValue JS_Throw(JSContext *ctx, JSValue obj);
 JSValue JS_GetException(JSContext *ctx);
-JS_BOOL JS_HasException(JSContext *ctx);
 JS_BOOL JS_IsError(JSContext *ctx, JSValueConst val);
 void JS_SetUncatchableError(JSContext *ctx, JSValueConst val, JS_BOOL flag);
 void JS_ResetUncatchableError(JSContext *ctx);
