@@ -524,7 +524,7 @@ test2o-update: run-test262
 	./run-test262 -t -u -c test262o.conf
 endif
 
-ifeq ($(wildcard test262o/tests.txt),)
+ifeq ($(wildcard test262/features.txt),)
 test2 test2-32 test2-update test2-default test2-check:
 	@echo test262 tests not installed
 else
