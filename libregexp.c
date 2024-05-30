@@ -1488,15 +1488,13 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
 
                 if (dbuf_error(&s->byte_code))
                     goto out_of_memory;
-                /* the spec tells that if there is no advance when
-                   running the atom after the first quant_min times,
-                   then there is no match. We remove this test when we
-                   are sure the atom always advances the position. */
-                add_zero_advance_check = re_need_check_advance(s->byte_code.buf + last_atom_start,
-                                                               s->byte_code.size - last_atom_start);
-            } else {
-                add_zero_advance_check = FALSE;
             }
+            /* the spec tells that if there is no advance when
+               running the atom after the first quant_min times,
+               then there is no match. We remove this test when we
+               are sure the atom always advances the position. */
+            add_zero_advance_check = re_need_check_advance(s->byte_code.buf + last_atom_start,
+                                                           s->byte_code.size - last_atom_start);
 
             {
                 int len, pos;
