@@ -51929,7 +51929,7 @@ static const JSCFunctionListEntry js_bigfloat_funcs[] = {
     JS_CGETSET_MAGIC_DEF("MIN_VALUE", js_bigfloat_get_const, NULL, 2 ),
     JS_CGETSET_MAGIC_DEF("MAX_VALUE", js_bigfloat_get_const, NULL, 3 ),
     JS_CGETSET_MAGIC_DEF("EPSILON", js_bigfloat_get_const, NULL, 4 ),
-    JS_CFUNC_DEF("parseFloat", 1, js_bigfloat_parseFloat ),
+    JS_CFUNC_DEF("parseFloat", 2, js_bigfloat_parseFloat ),
     JS_CFUNC_DEF("isFinite", 1, js_bigfloat_isFinite ),
     JS_CFUNC_DEF("isNaN", 1, js_bigfloat_isNaN ),
     JS_CFUNC_MAGIC_DEF("abs", 1, js_bigfloat_fop, MATH_OP_ABS ),
