@@ -32,6 +32,15 @@
 extern "C" {
 #endif
 
+#define JS_MKVERSION(major, minor, patch) (((major) << 16) | ((minor) << 8) | (patch))
+#define JS_VERSION JS_MKVERSION(0, 5, 0)
+#define JS_VERSION_STR "0.5.0"
+#define JS_VERSION_MAJOR(v) (((v) >> 16))
+#define JS_VERSION_MINOR(v) (((v) >> 8) & 0xff)
+#define JS_VERSION_PATCH(v) ((v) & 0xff)
+
+const char *JS_GetVersion(void);
+
 #if defined(__GNUC__) || defined(__clang__)
 #define js_likely(x)          __builtin_expect(!!(x), 1)
 #define js_unlikely(x)        __builtin_expect(!!(x), 0)
