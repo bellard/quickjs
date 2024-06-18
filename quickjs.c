@@ -31,7 +31,9 @@
 #include <time.h>
 #include <fenv.h>
 #include <math.h>
-#if defined(__APPLE__)
+#if defined(_WIN32)
+#include <timezoneapi.h>
+#elif defined(__APPLE__)
 #include <malloc/malloc.h>
 #include <sys/time.h>
 #elif defined(__linux__)

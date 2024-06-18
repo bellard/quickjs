@@ -35,6 +35,9 @@
 #include <limits.h>
 #include <sys/stat.h>
 #if defined(_WIN32)
+  #if defined(__MINGW32__)
+    #include <dlfcn.h>
+  #endif
   #include <windows.h>
   #include <conio.h>
   #include <io.h>
@@ -463,7 +466,7 @@ typedef JSModuleDef *(JSInitModuleFunc)(JSContext *ctx,
                                         const char *module_name);
 
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 static JSModuleDef *js_module_loader_so(JSContext *ctx,
                                         const char *module_name)
 {
@@ -579,7 +582,7 @@ JSModuleDef *js_module_loader(JSContext *ctx,
 {
     JSModuleDef *m;
 
-    if (has_suffix(module_name, ".so")) {
+    if (has_suffix(module_name, NATIVE_MODULE_SUFFIX)) {
         m = js_module_loader_so(ctx, module_name);
     } else {
         size_t buf_len;

@@ -129,6 +129,8 @@ project "qjsc"
 	files {
 		"qjsc.c"
 	}
+	filter { "action:gmake*", "toolset:gcc" }
+		links { "dl", "pthread" }
 
 -----------------------------------------------------------------------------------------------------------------------
 
@@ -144,6 +146,8 @@ project "qjs"
 		"qjscalc.js",
 		"qjscalc.c"
 	}
+	filter { "action:gmake*", "toolset:gcc" }
+		links { "dl", "pthread" }
 
 -- Compile repl.js and save bytecode into repl.c
 prebuildcommands { "\"%{cfg.buildtarget.directory}/qjsc.exe\" -c -o \"../../repl.c\" -m \"../../repl.js\"" }
