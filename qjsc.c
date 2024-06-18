@@ -248,7 +248,7 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
         namelist_add(&init_module_list, e->name, e->short_name, 0);
         /* create a dummy module */
         m = JS_NewCModule(ctx, module_name, js_module_dummy_init);
-    } else if (has_suffix(module_name, ".so")) {
+    } else if (has_suffix(module_name, NATIVE_MODULE_SUFFIX)) {
         fprintf(stderr, "Warning: binary module '%s' will be dynamically loaded\n", module_name);
         /* create a dummy module */
         m = JS_NewCModule(ctx, module_name, js_module_dummy_init);
@@ -767,3 +767,5 @@ int main(int argc, char **argv)
     namelist_free(&init_module_list);
     return 0;
 }
+
+#undef NATIVE_MODULE_SUFFIX

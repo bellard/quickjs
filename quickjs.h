@@ -30,6 +30,14 @@
 #include <math.h>
 #include "quickjs-version.h"
 
+#if defined(_WIN32)
+  #define NATIVE_MODULE_SUFFIX ".dll"
+#elif defined(__APPLE__)
+  #define NATIVE_NATIVE_MODULE_SUFFIX ".dylib"
+#else
+  #define NATIVE_MODULE_SUFFIX ".so"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

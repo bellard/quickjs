@@ -582,7 +582,7 @@ JSModuleDef *js_module_loader(JSContext *ctx,
 {
     JSModuleDef *m;
 
-    if (has_suffix(module_name, ".so")) {
+    if (has_suffix(module_name, NATIVE_MODULE_SUFFIX)) {
         m = js_module_loader_so(ctx, module_name);
     } else {
         size_t buf_len;
