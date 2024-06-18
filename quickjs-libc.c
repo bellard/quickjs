@@ -35,6 +35,9 @@
 #include <limits.h>
 #include <sys/stat.h>
 #if defined(_WIN32)
+  #if defined(__MINGW32__)
+    #include <dlfcn.h>
+  #endif
   #include <windows.h>
   #include <conio.h>
   #include <io.h>
@@ -463,7 +466,7 @@ typedef JSModuleDef *(JSInitModuleFunc)(JSContext *ctx,
                                         const char *module_name);
 
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 static JSModuleDef *js_module_loader_so(JSContext *ctx,
                                         const char *module_name)
 {

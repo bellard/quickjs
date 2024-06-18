@@ -32,7 +32,11 @@
 #include <sys/wait.h>
   #include <unistd.h>
 #else
+  #if !defined(__MINGW32__)
   #include "win/getopt.h"
+  #else
+    #include <unistd.h>
+  #endif
 #endif
 
 #include "cutils.h"
