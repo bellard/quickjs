@@ -3466,7 +3466,8 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
 
     /* module name */
     filename = JS_ToCString(ctx, argv[0]);
-    if (!filename)
+    struct stat buffer;
+    if (!filename || stat(filename, &buffer) != 0)
         goto fail;
 
     args = malloc(sizeof(*args));
