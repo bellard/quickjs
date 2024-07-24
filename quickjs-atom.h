@@ -269,5 +269,6 @@ DEF(Symbol_asyncIterator, "Symbol.asyncIterator")
 #ifdef CONFIG_BIGNUM
 DEF(Symbol_operatorSet, "Symbol.operatorSet")
 #endif
+DEF(WeakRef, "WeakRef")
 
 #endif /* DEF */

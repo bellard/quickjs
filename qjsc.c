@@ -77,6 +77,7 @@ static const FeatureEntry feature_list[] = {
 #define FE_MODULE_LOADER 9
     { "module-loader", NULL },
     { "bigint", "BigInt" },
+    { "weakref", "WeakRef" },
 };
 
 void namelist_add(namelist_t *lp, const char *name, const char *short_name,

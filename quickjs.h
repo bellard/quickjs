@@ -376,6 +376,7 @@ void JS_AddIntrinsicPromise(JSContext *ctx);
 void JS_AddIntrinsicBigInt(JSContext *ctx);
 void JS_AddIntrinsicBigFloat(JSContext *ctx);
 void JS_AddIntrinsicBigDecimal(JSContext *ctx);
+void JS_AddIntrinsicWeakRef(JSContext *ctx);
 /* enable operator overloading */
 void JS_AddIntrinsicOperators(JSContext *ctx);
 /* enable "use math" */
@@ -1076,6 +1077,10 @@ int JS_SetModuleExport(JSContext *ctx, JSModuleDef *m, const char *export_name,
                        JSValue val);
 int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
                            const JSCFunctionListEntry *tab, int len);
+
+/* WeakRef support */
+JSValue JS_NewWeakRef(JSContext *ctx, JSValueConst target);
+JSValue JS_DerefWeakRef(JSContext *ctx, JSValueConst weakref);
 
 #undef js_unlikely
 #undef js_force_inline

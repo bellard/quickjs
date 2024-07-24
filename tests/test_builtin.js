@@ -779,6 +779,59 @@ function test_weak_map()
         tab[i][0] = null; /* should remove the object from the WeakMap too */
     }
     /* the WeakMap should be empty here */
+
+    // test symbol as key
+    var symbol_key = Symbol("key");
+    a = new WeakMap();
+    a.set(symbol_key, "hello");
+    assert(a.has(symbol_key), true);
+    assert(a.get(symbol_key), "hello");
+
+    symbol_key = undefined;
+    assert(a.has(symbol_key), false);
+    assert(a.get(symbol_key), undefined);
+}
+
+function test_weak_ref()
+{
+    var obj = {};
+    var ref = new WeakRef(obj);
+    var ref2 = new WeakRef(obj);
+
+    assert(ref.deref(), obj);
+    assert(ref2.deref(), obj);
+
+    obj = undefined;
+    /* weak ref should be released */
+    assert(ref.deref(), undefined);
+    assert(ref2.deref(), undefined);
+
+    // symbol
+    var sym = Symbol("sym")
+    var ref3 = new WeakRef(sym);
+    assert(ref3.deref(), sym);
+    new WeakRef(Symbol.hasInstance);
+
+    sym = undefined;
+    assert(ref3.deref(), undefined);
+
+    function should_fail(block) {
+        try {
+            block()
+        } catch (e) {
+            return
+        }
+        throw_error("weak ref should throw exception, but it not");
+    }
+
+    should_fail(() => new WeakRef("string"));
+    should_fail(() => new WeakRef(/* number */0));
+    should_fail(() => new WeakRef(/* registered symbol */ Symbol.for("test")));
+
+    /* cyclic ref */
+    obj = {};
+    ref = new WeakRef(obj);
+    obj["x"] = ref;
 }
 
 function test_generator()
@@ -855,4 +908,5 @@ test_regexp();
 test_symbol();
 test_map();
 test_weak_map();
+test_weak_ref();
 test_generator();
