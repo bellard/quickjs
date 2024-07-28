@@ -845,8 +845,8 @@ typedef enum JSTypedArrayEnum {
     JS_TYPED_ARRAY_FLOAT64,
 } JSTypedArrayEnum;
 
-JSValue JS_NewTypedArray(JSContext *ctx, int argc, JSValueConst *argv,
-                         JSTypedArrayEnum array_type);
+JSValue JS_NewTypedArray(JSContext *ctx, size_t length, const void *init,
+                         JSTypedArrayEnum type);
 JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
                                size_t *pbyte_offset,
                                size_t *pbyte_length,
