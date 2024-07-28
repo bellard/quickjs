@@ -2964,11 +2964,16 @@ JSAtom JS_NewAtomLen(JSContext *ctx, const char *str, size_t len)
     JSValue val;
 
     if (len == 0 || !is_digit(*str)) {
-        // XXX: this will not work if UTF-8 encoded str contains non ASCII bytes
+        size_t i;
+        for(i = 0; i < len; i++) {
+            if ((uint8_t)str[i] >= 0x80)
+                goto slow_path;
+        }
         JSAtom atom = __JS_FindAtom(ctx->rt, str, len, JS_ATOM_TYPE_STRING);
         if (atom)
             return atom;
     }
+slow_path:
     val = JS_NewStringLen(ctx, str, len);
     if (JS_IsException(val))
         return JS_ATOM_NULL;
