@@ -235,6 +235,10 @@ typedef struct {
     int (*mul_pow10)(JSContext *ctx, JSValue *sp);
 } JSNumericOperations;
 
+#define JS_HASH_MAP_DEFAULT_SIZE ((size_t)4)
+#define JS_HASH_MAP_DEFAULT_LOAD_FACTOR ((float)2)
+#define JS_HASH_MAP_DEFAULT_SHRINK_FACTOR (1/(float)2)
+
 struct JSRuntime {
     JSMallocFunctions mf;
     JSMallocState malloc_state;
@@ -304,6 +308,7 @@ struct JSRuntime {
     JSNumericOperations bigdecimal_ops;
     uint32_t operator_count;
 #endif
+    struct JSHashMap *weak_target_map; /* key: target object/symbol */
     void *user_opaque;
 };
 
@@ -494,8 +499,11 @@ struct JSString {
        XXX: could change encoding to have one more bit in hash */
     uint32_t hash : 30;
     uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
-    uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
-    struct list_head *weak_ref_list; /* list of JSWeakRecord */ /* XXX: use a bit and an external hash table? */
+    /* atom_index for JS_ATOM_TYPE_SYMBOL.
+       must be enough to hold JS_ATOM_MAX/sizeof(JSString*)
+       XXX: for 64-bit platform 27 bits is enough, and 28 bits for 32-bit platform. */
+    uint32_t hash_next : 31;
+    uint8_t has_weak_ref : 1; /* if TRUE, has JSWeakRecord pointing to this object */
 #ifdef DUMP_LEAKS
     struct list_head link; /* string list */
 #endif
@@ -921,7 +929,7 @@ struct JSObject {
             uint8_t is_exotic : 1; /* TRUE if object has exotic property handlers */
             uint8_t fast_array : 1; /* TRUE if u.array is used for get/put (for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS and typed arrays) */
             uint8_t is_constructor : 1; /* TRUE if object is a constructor function */
-            uint8_t is_uncatchable_error : 1; /* if TRUE, error is not catchable */
+            uint8_t has_weak_ref : 1; /* if TRUE, has JSWeakRecord pointing to this object */
             uint8_t tmp_mark : 1; /* used in JS_WriteObjectRec() */
             uint8_t is_HTMLDDA : 1; /* specific annex B IsHtmlDDA behavior */
             uint16_t class_id; /* see JS_CLASS_x */
@@ -931,8 +939,6 @@ struct JSObject {
     JSShape *shape; /* prototype and property names + flag */
     JSProperty *prop; /* array of properties */
     /* byte offsets: 24/40 */
-    struct list_head *weak_ref_list; /* list of JSWeakRecord */ /* XXX: use a bit and an external hash table? */
-    /* byte offsets: 28/48 */
     union {
         void *opaque;
         struct JSBoundFunction *bound_function; /* JS_CLASS_BOUND_FUNCTION */
@@ -992,9 +998,14 @@ struct JSObject {
             uint32_t count; /* <= 2^31-1. 0 for a detached typed array */
         } array;    /* 12/20 bytes */
         JSRegExp regexp;    /* JS_CLASS_REGEXP: 8/16 bytes */
+        struct { /* JS_CLASS_ERROR 4 bytes */
+            uint8_t is_uncatchable_error : 1; /* if TRUE, error is not catchable */
+            uint32_t __unused_bits : 31;
+        } error;
         JSValue object_data;    /* for JS_SetObjectData(): 8/16/16 bytes */
     } u;
-    /* byte sizes: 40/48/72 */
+    /* byte sizes: 40/48/72 */ // TODO: update?, what is 48??? 40 is size on 32-bit platform, 64 72 on 64-bit.
+    /* byte sizes: 36/48/64 */
 };
 
 enum {
@@ -1042,6 +1053,26 @@ enum OPCodeEnum {
 #undef FMT
     OP_TEMP_END,
 };
+
+typedef struct JSHashEntry {
+    struct list_head list; /* list in bucket */
+} JSHashEntry;
+
+typedef struct JSHashMap {
+    size_t capacity;
+    size_t size;
+    float load_factor; /* range in (0, 1] */
+    float shrink_factor; /* range in [0, load_factor) */
+    struct list_head *bucket;
+    void *(*get_key)(JSHashEntry *entry);
+    uint32_t (*key_hash)(void *key);
+    BOOL (*key_equals)(void *key1, void *key2);
+} JSHashMap;
+
+typedef struct JSHashMapIterator {
+    size_t index;
+    JSHashEntry *current;
+} JSHashMapIterator;
 
 static int JS_InitAtoms(JSRuntime *rt);
 static JSAtom __JS_NewAtomInit(JSRuntime *rt, const char *str, int len,
@@ -1305,21 +1336,28 @@ static JSValue JS_InstantiateFunctionListItem2(JSContext *ctx, JSObject *p,
                                                JSAtom atom, void *opaque);
 static JSValue js_object_groupBy(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv, int is_map);
-static void js_init_weak_record(struct JSWeakRecord *wr, const struct JSWeakRecordOperations* operations);
-struct list_head **js_get_target_weak_ref_list(JSContext *ctx, JSValueConst target);
-static BOOL js_add_weak_ref(JSContext *ctx, struct list_head **weak_ref_list, JSWeakRecord *wr);
-static void js_unlink_weak_ref(JSWeakRecord *wr);
-static void js_reset_weak_ref(JSRuntime *rt, struct list_head **weak_ref_list);
-static inline void js_object_reset_weak_ref(JSRuntime *rt, JSObject *p)
-{
-    assert(p->weak_ref_list);
-    js_reset_weak_ref(rt, &p->weak_ref_list);
-}
-static inline void js_atom_reset_weak_ref(JSRuntime *rt, JSAtomStruct *p)
-{
-    assert(p->weak_ref_list);
-    js_reset_weak_ref(rt, &p->weak_ref_list);
-}
+
+static void js_weak_record_init(struct JSWeakRecord *wr, const struct JSWeakRecordOperations* operations);
+static struct JSWeakTargetRecord *js_weak_ref_obtain_target_record(JSContext *ctx, JSValueConst target);
+static void js_weak_ref_add_record(JSContext *ctx, struct JSWeakTargetRecord *target, JSWeakRecord *wr);
+static void js_weak_ref_unlink(JSWeakRecord *wr);
+static void js_weak_ref_reset(JSRuntime *rt, JSValueConst target);
+static void js_weak_ref_free_runtime_map(JSRuntime *rt);
+
+static int js_hash_map_init(JSRuntime *rt, JSHashMap *map,
+                            size_t initial_size, /* pow of two */
+                            float load_factor, /* range in (0, +INF) */
+                            float shrink_factor, /* range in [0, load_factor) */
+                            void *(*get_key)(JSHashEntry *entry),
+                            uint32_t (*key_hash)(void *key),
+                            BOOL (*key_equals)(void *key1, void *key2));
+static void js_hash_map_release(JSRuntime *rt, JSHashMap *map,
+                                void (*free_entry)(JSRuntime *rt, JSHashEntry *entry, void *data), void *data);
+static size_t js_hash_map_size(JSHashMap *map);
+static JSHashEntry *js_hash_map_find_entry(JSHashMap *map, void *key);
+static int js_hash_map_add_entry(JSRuntime *rt, JSHashMap *map, JSHashEntry *entry);
+static void js_hash_map_remove_entry(JSRuntime *rt, JSHashMap *map, JSHashEntry *entry);
+static int js_hash_map_iterate_next_entry(JSHashMap *map, JSHashMapIterator *it);
 
 static const JSClassExoticMethods js_arguments_exotic_methods;
 static const JSClassExoticMethods js_string_exotic_methods;
@@ -1723,6 +1761,7 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
     JS_UpdateStackTop(rt);
 
     rt->current_exception = JS_UNINITIALIZED;
+    rt->weak_target_map = NULL;
 
     return rt;
  fail:
@@ -1942,7 +1981,7 @@ static JSString *js_alloc_string_rt(JSRuntime *rt, int max_len, int is_wide_char
     str->atom_type = 0;
     str->hash = 0;          /* optional but costless */
     str->hash_next = 0;     /* optional */
-    str->weak_ref_list = NULL;
+    str->has_weak_ref = 0;
 #ifdef DUMP_LEAKS
     list_add_tail(&str->link, &rt->string_list);
 #endif
@@ -2113,9 +2152,7 @@ void JS_FreeRuntime(JSRuntime *rt)
         JSAtomStruct *p = rt->atom_array[i];
         if (!atom_is_free(p)) {
             /* reset weak reference */
-            if (p->weak_ref_list) {
-                js_atom_reset_weak_ref(rt, p);
-            }
+            js_weak_ref_reset(rt, JS_MKPTR(JS_TAG_SYMBOL, p));
 #ifdef DUMP_LEAKS
             list_del(&p->link);
 #endif
@@ -2125,6 +2162,10 @@ void JS_FreeRuntime(JSRuntime *rt)
     js_free_rt(rt, rt->atom_array);
     js_free_rt(rt, rt->atom_hash);
     js_free_rt(rt, rt->shape_hash);
+
+    if (rt->weak_target_map) {
+        js_weak_ref_free_runtime_map(rt);
+    }
 #ifdef DUMP_LEAKS
     if (!list_empty(&rt->string_list)) {
         if (rt->rt_info) {
@@ -2816,7 +2857,6 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
             }
             p->header.ref_count = 1;  /* not refcounted */
             p->atom_type = JS_ATOM_TYPE_SYMBOL;
-            p->weak_ref_list = NULL;
 #ifdef DUMP_LEAKS
             list_add_tail(&p->link, &rt->string_list);
 #endif
@@ -2850,7 +2890,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
             p->header.ref_count = 1;
             p->is_wide_char = str->is_wide_char;
             p->len = str->len;
-            p->weak_ref_list = NULL;
+            p->has_weak_ref = 0;
 #ifdef DUMP_LEAKS
             list_add_tail(&p->link, &rt->string_list);
 #endif
@@ -2865,7 +2905,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
         p->header.ref_count = 1;
         p->is_wide_char = 1;    /* Hack to represent NULL as a JSString */
         p->len = 0;
-        p->weak_ref_list = NULL;
+        p->has_weak_ref = 0;
 #ifdef DUMP_LEAKS
         list_add_tail(&p->link, &rt->string_list);
 #endif
@@ -2976,9 +3016,7 @@ static void JS_FreeAtomStruct(JSRuntime *rt, JSAtomStruct *p)
     rt->atom_free_index = i;
 
     /* release WeakRecord referencing to p */
-    if (unlikely(p->weak_ref_list)) {
-        js_atom_reset_weak_ref(rt, p);
-    }
+    js_weak_ref_reset(rt, JS_MKPTR(JS_TAG_SYMBOL, p));
 
     /* free the string structure */
 #ifdef DUMP_LEAKS
@@ -4824,10 +4862,9 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
     p->is_exotic = 0;
     p->fast_array = 0;
     p->is_constructor = 0;
-    p->is_uncatchable_error = 0;
+    p->has_weak_ref = 0;
     p->tmp_mark = 0;
     p->is_HTMLDDA = 0;
-    p->weak_ref_list = NULL;
     p->u.opaque = NULL;
     p->shape = sh;
     p->prop = js_malloc(ctx, sizeof(JSProperty) * sh->prop_size);
@@ -4901,6 +4938,9 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
         p->u.regexp.pattern = NULL;
         p->u.regexp.bytecode = NULL;
         goto set_exotic;
+    case JS_CLASS_ERROR:
+        p->u.error.is_uncatchable_error = 0;
+        break;
     default:
     set_exotic:
         if (ctx->rt->class_array[class_id].exotic) {
@@ -5516,9 +5556,7 @@ static void free_object(JSRuntime *rt, JSObject *p)
     p->prop = NULL;
 
     /* release WeakRecord referencing to p */
-    if (unlikely(p->weak_ref_list)) {
-        js_object_reset_weak_ref(rt, p);
-    }
+    js_weak_ref_reset(rt, JS_MKPTR(JS_TAG_OBJECT, p));
 
     finalizer = rt->class_array[p->class_id].finalizer;
     if (finalizer)
@@ -9870,7 +9908,7 @@ BOOL JS_IsUncatchableError(JSContext *ctx, JSValueConst val)
     if (JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT)
         return FALSE;
     p = JS_VALUE_GET_OBJ(val);
-    return p->class_id == JS_CLASS_ERROR && p->is_uncatchable_error;
+    return p->class_id == JS_CLASS_ERROR && p->u.error.is_uncatchable_error;
 }
 
 void JS_SetUncatchableError(JSContext *ctx, JSValueConst val, BOOL flag)
@@ -9880,7 +9918,7 @@ void JS_SetUncatchableError(JSContext *ctx, JSValueConst val, BOOL flag)
         return;
     p = JS_VALUE_GET_OBJ(val);
     if (p->class_id == JS_CLASS_ERROR)
-        p->is_uncatchable_error = flag;
+        p->u.error.is_uncatchable_error = flag;
 }
 
 void JS_ResetUncatchableError(JSContext *ctx)
@@ -47028,18 +47066,263 @@ static const JSCFunctionListEntry js_symbol_funcs[] = {
     JS_CFUNC_DEF("keyFor", 1, js_symbol_keyFor ),
 };
 
-/* JSObject/Atom weak support */
-static void js_init_weak_record(struct JSWeakRecord *wr, const struct JSWeakRecordOperations* operations)
+/* generic hash_map implementation */
+static int __js_hash_map_resize(JSRuntime *rt, JSHashMap *map, size_t new_size);
+static size_t __js_hash_map_bucket_index(JSHashMap *map, void *key);
+
+static int js_hash_map_init(JSRuntime *rt, JSHashMap *map,
+                            size_t initial_size, /* must be pow of two */
+                            float load_factor, /* range in (0, +INF) */
+                            float shrink_factor, /* range in [0, load_factor) */
+                            void *(*get_key)(JSHashEntry *entry),
+                            uint32_t (*key_hash)(void *key),
+                            BOOL (*key_equals)(void *key1, void *key2))
 {
-    assert(operations);
-    init_list_head(&wr->list);
-    wr->operations = operations;
+    assert(load_factor > 0);
+    assert(shrink_factor >= 0 && shrink_factor < load_factor);
+    assert(get_key && key_hash && key_equals);
+
+    map->capacity = 0;
+    map->size = 0;
+    map->bucket = NULL;
+    map->load_factor = load_factor;
+    map->shrink_factor = shrink_factor;
+    map->get_key = get_key;
+    map->key_hash = key_hash;
+    map->key_equals = key_equals;
+    if (unlikely(__js_hash_map_resize(rt, map, initial_size))) {
+        return -1;
+    }
+    return 0;
+}
+
+/* free hashmap internal data, doesn't free map itself */
+static void js_hash_map_release(JSRuntime *rt, JSHashMap *map,
+                                void (*free_entry)(JSRuntime *rt, JSHashEntry *entry, void *data), void *data)
+{
+    JSHashMapIterator it = { 0 };
+    while(!js_hash_map_iterate_next_entry(map, &it)) {
+        JSHashEntry *entry = it.current;
+        list_del(&entry->list);
+        if (free_entry) {
+            free_entry(rt, entry, data);
+        }
+        it.current = NULL;
+    }
+    js_free_rt(rt, map->bucket);
+
+    /* fail safe */
+    map->capacity = 0;
+    map->size = 0;
+    map->bucket = NULL;
+}
+
+static inline size_t js_hash_map_size(JSHashMap *map)
+{
+    return map->size;
+}
+
+static inline size_t __js_hash_map_bucket_index(JSHashMap *map, void *key)
+{
+    uint32_t hash = map->key_hash(key);
+    /* spreads higher bits to lower */
+    hash ^= hash >> 16;
+    return hash & (map->capacity - 1);
+}
+
+static JSHashEntry *js_hash_map_find_entry(JSHashMap *map, void *key)
+{
+    size_t bucket_index = __js_hash_map_bucket_index(map, key);
+    struct list_head *el;
+    struct list_head *bucket = &map->bucket[bucket_index];
+    list_for_each(el, bucket) {
+        JSHashEntry *entry = list_entry(el, JSHashEntry, list);
+        if (map->key_equals(map->get_key(entry), key)) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
+/* remember to init_list_head(entry->entry.list) */
+static int js_hash_map_add_entry(JSRuntime *rt, JSHashMap *map, JSHashEntry *entry)
+{
+    size_t bucket_index;
+    assert(entry);
+    assert(list_empty(&entry->list) || !entry->list.next); /* not added */
+
+    /* enlarge size */
+    if ((map->size + 1) > map->capacity * map->load_factor) {
+        if (unlikely(__js_hash_map_resize(rt, map, map->capacity << 1))) {
+            return -1;
+        }
+    }
+    bucket_index = __js_hash_map_bucket_index(map, map->get_key(entry));
+    list_add(&entry->list, &map->bucket[bucket_index]);
+    map->size++;
+
+    return 0;
+}
+
+/* remove entry from map, DOES NOT free(entry) */
+static void js_hash_map_remove_entry(JSRuntime *rt, JSHashMap *map, JSHashEntry *entry)
+{
+    map->size--;
+    list_del(&entry->list); /* unlink form bucket */
+
+    /* reduce size */
+    if (map->capacity > JS_HASH_MAP_DEFAULT_SIZE) {
+        float load = (map->size / (float)map->capacity);
+        if (load < map->shrink_factor) {
+            __js_hash_map_resize(rt, map, map->capacity >> 1);
+        }
+    }
+}
+
+static int __js_hash_map_resize(JSRuntime *rt, JSHashMap *map, size_t new_capacity)
+{
+    size_t i;
+    size_t old_capacity;
+    struct list_head *el, *el1;
+    struct list_head *new_bucket;
+    struct list_head *old_bucket;
+
+    assert(new_capacity && (new_capacity & (new_capacity - 1)) == 0); /* pow of two */
+    if (new_capacity == map->capacity) {
+        return 0;
+    }
+
+    new_bucket = js_malloc_rt(rt, sizeof(map->bucket[0]) * new_capacity);
+    if (unlikely(!new_bucket)) {
+        return -1;
+    }
+    for (i = 0; i < new_capacity; i++) {
+        init_list_head(&new_bucket[i]);
+    }
+
+    /* add entries to new bucket */
+    old_capacity = map->capacity;
+    old_bucket = map->bucket;
+    map->capacity = new_capacity;
+    map->bucket = new_bucket;
+    for (i = 0; i < old_capacity; i++) {
+        list_for_each_safe(el, el1, &old_bucket[i]) {
+            JSHashEntry *entry = list_entry(el, JSHashEntry, list);
+            size_t new_index = __js_hash_map_bucket_index(map, map->get_key(entry));
+            list_del(&entry->list);
+            list_add(&entry->list, &new_bucket[new_index]);
+        }
+    }
+
+    js_free_rt(rt, old_bucket);
+    return 0;
+}
+
+/* 1. it.current == NULL returns first entry
+   2. when enumeration ends returns -1 and set it.current to NULL otherwise return 0. 
+   Note: DO NOT modify hash map during iterating.
+   */
+static int js_hash_map_iterate_next_entry(JSHashMap *map, JSHashMapIterator *it)
+{
+    size_t index;
+    struct list_head *current;
+
+    if (!map->size) {
+        return -1;
+    }
+
+    if (it->current) {
+        index = it->index;
+        current = &it->current->list;
+    } else {
+        index = 0;
+        current = &map->bucket[0];
+    }
+
+    while (index < map->capacity) {
+        current = current->next;
+        if (current != &map->bucket[index]) {
+            it->index = index;
+            it->current = list_entry(current, JSHashEntry, list);
+            return 0;
+        } else if (++index < map->capacity){
+            current = &map->bucket[index];
+        }
+    }
+    return -1;
+}
+
+/* JSObject/Atom weak support */
+typedef struct JSWeakTargetRecord {
+    JSHashEntry entry;
+    void *target_ptr; /* key */
+    struct list_head weak_ref_list; /* value */
+} JSWeakTargetRecord;
+
+static void *__js_weak_ref_tr_get_key(JSHashEntry *entry)
+{
+    return container_of(entry, JSWeakTargetRecord, entry)->target_ptr;
+}
+
+static uint32_t __js_weak_ref_tr_key_hash(void *key)
+{
+    uint32_t hash;
+    if (sizeof(void *) == 8) {
+        uint64_t h = (uint64_t)(uintptr_t)key;
+        h ^= h >> 32;
+        hash = (uint32_t)h;
+    } else {
+        hash = (uint32_t)(uintptr_t)key;
+    }
+    return hash;
+}
+
+static BOOL __js_weak_ref_tr_key_equals(void *key1, void *key2)
+{
+    return key1 == key2;
+}
+
+static JSHashMap * js_weak_ref_obtain_runtime_map(JSRuntime *rt)
+{
+    if (!rt->weak_target_map) {
+        JSHashMap *weak_ref_map = js_malloc_rt(rt, sizeof(JSHashMap));
+        if (!weak_ref_map ||
+            js_hash_map_init(rt, weak_ref_map,
+                             JS_HASH_MAP_DEFAULT_SIZE, 
+                             JS_HASH_MAP_DEFAULT_LOAD_FACTOR,
+                             JS_HASH_MAP_DEFAULT_SHRINK_FACTOR,
+                             __js_weak_ref_tr_get_key,
+                             __js_weak_ref_tr_key_hash,
+                             __js_weak_ref_tr_key_equals)) {
+            return NULL;
+        }
+        rt->weak_target_map = weak_ref_map;
+    }
+    return rt->weak_target_map;
+}
+
+static void js_weak_ref_free_runtime_map(JSRuntime *rt)
+{
+    JSHashMap *map = rt->weak_target_map;
+    assert(rt->weak_target_map);
+    /* all object GCed, map should be empty */
+    assert(js_hash_map_size(map) == 0);
+    js_hash_map_release(rt, map, NULL, NULL);
+    js_free_rt(rt, map);
+    rt->weak_target_map = NULL;
 }
 
 /* find the weak_ref_list of a Object or Symbol/Atom,
    on failure: return NULL and throw exception */
-struct list_head **js_get_target_weak_ref_list(JSContext *ctx, JSValueConst target)
+static JSWeakTargetRecord *js_weak_ref_obtain_target_record(JSContext *ctx, JSValueConst target)
 {
+    JSRuntime *rt = ctx->rt;
+    JSHashMap *weak_ref_map;
+    void *target_ptr;
+    BOOL has_weak_ref = FALSE;
+    JSHashEntry *entry = NULL;
+    JSWeakTargetRecord *record;
+
     /* the spec says: Thrown if target is not an object or a non-registered symbol. */
     if (JS_IsSymbol(target)) {
         JSAtomStruct *p = JS_VALUE_GET_PTR(target);
@@ -47047,43 +47330,108 @@ struct list_head **js_get_target_weak_ref_list(JSContext *ctx, JSValueConst targ
             JS_ThrowTypeError(ctx, "registered symbol is not allowed");
             return NULL;
         }
-        return &p->weak_ref_list;
+        target_ptr = p;
+        has_weak_ref = p->has_weak_ref;
     } else if (JS_IsObject(target)) {
         JSObject *p = JS_VALUE_GET_OBJ(target);
-        return &p->weak_ref_list;
+        target_ptr = p;
+        has_weak_ref = p->has_weak_ref;
     } else {
         JS_ThrowTypeError(ctx, "not a valid target");
         return NULL;
     }
+
+    weak_ref_map = js_weak_ref_obtain_runtime_map(rt);
+    if (unlikely(!weak_ref_map)) {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
+
+    if (!has_weak_ref) {
+        record = js_malloc(ctx, sizeof(JSWeakTargetRecord));
+        if (unlikely(!record)) {
+            return NULL;
+        }
+        entry = &record->entry;
+        init_list_head(&entry->list);
+        record->target_ptr = target_ptr;
+        init_list_head(&record->weak_ref_list);
+
+        if (unlikely(js_hash_map_add_entry(rt, weak_ref_map, entry))) {
+            js_free(ctx, record);
+            JS_ThrowOutOfMemory(ctx);
+            return NULL;
+        }
+
+        /* set flag bit */
+        if (JS_IsObject(target)) {
+            ((JSObject *)target_ptr)->has_weak_ref = 1;
+        } else if (JS_IsSymbol(target)) {
+            ((JSAtomStruct *)target_ptr)->has_weak_ref = 1;
+        } else {
+            abort();
+        }
+    } else {
+        entry = js_hash_map_find_entry(weak_ref_map, target_ptr);
+        assert(entry);
+        record = container_of(entry, JSWeakTargetRecord, entry);
+    }
+    return record;
+}
+
+static void js_weak_record_init(struct JSWeakRecord *wr, const struct JSWeakRecordOperations* operations)
+{
+    assert(operations);
+    init_list_head(&wr->list);
+    wr->operations = operations;
 }
 
 /* Add weak record to object's weak reference list, on failure return FALSE and throw exception */
-static BOOL js_add_weak_ref(JSContext *ctx, struct list_head **weak_ref_list, JSWeakRecord *wr)
+static void js_weak_ref_add_record(JSContext *ctx, struct JSWeakTargetRecord *target, JSWeakRecord *wr)
 {
-    if(likely(!*weak_ref_list)) {
-        struct list_head *list = js_malloc(ctx, sizeof(*list));
-        if (unlikely(!list)) {
-            return FALSE;
-        }
-        init_list_head(list);
-        *weak_ref_list = list;
-    }
-    list_add(&wr->list, *weak_ref_list);
-    return TRUE;
+    list_add(&wr->list, &target->weak_ref_list);
 }
 
 /* unlink the weak reference from the object weak reference list
-   eg. JSObject.u.weak_ref_list or JSString.weak_ref_list */
-static void js_unlink_weak_ref(JSWeakRecord *wr)
+   eg. JSWeakTargetRecord.weak_ref_list */
+static void js_weak_ref_unlink(JSWeakRecord *wr)
 {
     list_del(&wr->list);
 }
 
 /* reset object weak reference record, and do clean up */
-static void js_reset_weak_ref(JSRuntime *rt, struct list_head **weak_ref_list)
+
+static void js_weak_ref_reset(JSRuntime *rt, JSValueConst target)
 {
-    struct list_head *list = *weak_ref_list;
+    JSHashEntry *entry;
+    JSWeakTargetRecord *record;
+    struct list_head *list;
     struct list_head *el, *el1;
+    void* target_ptr = NULL;
+
+    if (JS_IsObject(target)) {
+        JSObject *p = JS_VALUE_GET_OBJ(target);
+        if (p->has_weak_ref){
+            target_ptr = p;
+        }
+    } else if (JS_IsSymbol(target)) {
+        JSAtomStruct *p = JS_VALUE_GET_PTR(target);
+        if (p->has_weak_ref) {
+            target_ptr = p;
+        }
+    } else {
+        abort();
+    }
+
+    if(!target_ptr) {
+        return;
+    }
+
+    assert(rt->weak_target_map);
+    entry = js_hash_map_find_entry(rt->weak_target_map, target_ptr);
+    assert(entry);
+    record = container_of(entry, JSWeakTargetRecord, entry);
+    list = &record->weak_ref_list;
 
     /* first pass to remove the records from the Weak... lists */
     list_for_each(el, list) {
@@ -47102,8 +47450,8 @@ static void js_reset_weak_ref(JSRuntime *rt, struct list_head **weak_ref_list)
         wr->operations->reset_weak_ref_second_pass(rt, wr);
     }
 
-    js_free_rt(rt, list);
-    *weak_ref_list = NULL; /* fail safe */
+    js_hash_map_remove_entry(rt, rt->weak_target_map, entry);
+    js_free_rt(rt, record);
 }
 
 /* WeakRef support */
@@ -47134,10 +47482,10 @@ static const struct JSWeakRecordOperations js_weak_ref_operations = {
 static JSValue js_new_weak_ref_internal(JSContext *ctx, JSValueConst ctor, JSValueConst target)
 {
     JSValue weak_ref = JS_UNDEFINED;
-    struct list_head **weak_ref_list = NULL;
+    JSWeakTargetRecord *target_record;
 
-    weak_ref_list = js_get_target_weak_ref_list(ctx, target);
-    if (!weak_ref_list) {
+    target_record = js_weak_ref_obtain_target_record(ctx, target);
+    if (!target_record) {
         goto fail;
     }
 
@@ -47148,14 +47496,12 @@ static JSValue js_new_weak_ref_internal(JSContext *ctx, JSValueConst ctor, JSVal
         if (!ref) {
             goto fail;
         }
-        js_init_weak_record(&ref->record, &js_weak_ref_operations);
+        js_weak_record_init(&ref->record, &js_weak_ref_operations);
         ref->this_obj = obj;
         ref->target = target;
         obj->u.weakref = ref;
 
-        if (!js_add_weak_ref(ctx, weak_ref_list, &ref->record)) {
-            goto fail;
-        }
+        js_weak_ref_add_record(ctx, target_record, &ref->record);
     }
     return weak_ref;
 
@@ -47211,7 +47557,7 @@ static void js_weakref_finalizer(JSRuntime *rt, JSValue val)
     JSWeakRef *ref = p->u.weakref;
     if (ref) {
         JSWeakRecord *record = &ref->record;
-        js_unlink_weak_ref(record);
+        js_weak_ref_unlink(record);
         js_free_rt(rt, ref);
     }
 }
@@ -47250,7 +47596,7 @@ typedef struct JSMapRecord {
     int ref_count; /* used during enumeration to avoid freeing the record */
     BOOL empty; /* TRUE if the record is deleted */
     struct JSMapState *map;
-    JSWeakRecord weak_record; /* managed by JSObject.weak_ref_list */
+    JSWeakRecord weak_record; /* managed by JSWeakTargetRecord.weak_ref_list */
     struct list_head link;
     struct list_head hash_link;
     JSValue key;
@@ -47499,13 +47845,14 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
     mr->map = s;
     mr->empty = FALSE;
     if (s->is_weak) {
-        struct list_head **weak_ref_list = js_get_target_weak_ref_list(ctx, key);
-        js_init_weak_record(&mr->weak_record, &js_map_weak_operations);
-        /* Add the weak reference */
-        if (!weak_ref_list || !js_add_weak_ref(ctx, weak_ref_list, &mr->weak_record)) {
+        JSWeakTargetRecord *target_record = js_weak_ref_obtain_target_record(ctx, key);
+        if (!target_record) {
             js_free(ctx, mr);
             return NULL;
         }
+        /* Add the weak reference */
+        js_weak_record_init(&mr->weak_record, &js_map_weak_operations);
+        js_weak_ref_add_record(ctx, target_record, &mr->weak_record);
     } else {
         JS_DupValue(ctx, key);
     }
@@ -47526,7 +47873,7 @@ static void map_delete_record(JSRuntime *rt, JSMapState *s, JSMapRecord *mr)
         return;
     list_del(&mr->hash_link);
     if (s->is_weak) {
-        js_unlink_weak_ref(&mr->weak_record);
+        js_weak_ref_unlink(&mr->weak_record);
     } else {
         JS_FreeValueRT(rt, mr->key);
     }
@@ -47849,7 +48196,7 @@ static void js_map_finalizer(JSRuntime *rt, JSValue val)
             mr = list_entry(el, JSMapRecord, link);
             if (!mr->empty) {
                 if (s->is_weak)
-                    js_unlink_weak_ref(&mr->weak_record);
+                    js_weak_ref_unlink(&mr->weak_record);
                 else
                     JS_FreeValueRT(rt, mr->key);
                 JS_FreeValueRT(rt, mr->value);

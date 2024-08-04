@@ -47,7 +47,6 @@ Optimization ideas:
 - add implicit numeric strings for Uint32 numbers?
 - optimize `s += a + b`, `s += a.b` and similar simple expressions
 - ensure string canonical representation and optimise comparisons and hashes?
-- remove JSObject.first_weak_ref, use bit+context based hashed array for weak references
 - property access optimization on the global object, functions,
   prototypes and special non extensible objects.
 - create object literals with the correct length by backpatching length argument
