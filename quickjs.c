@@ -176,6 +176,7 @@ enum {
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,  /* u.async_from_sync_iterator_data */
     JS_CLASS_ASYNC_GENERATOR_FUNCTION,  /* u.func */
     JS_CLASS_ASYNC_GENERATOR,   /* u.async_generator_data */
+    JS_CLASS_WEAKREF,           /* u.weakref */
 
     JS_CLASS_INIT_COUNT, /* last entry for predefined classes */
 };
@@ -494,6 +495,7 @@ struct JSString {
     uint32_t hash : 30;
     uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
     uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
+    struct list_head *weak_ref_list; /* list of JSWeakRecord */ /* XXX: use a bit and an external hash table? */
 #ifdef DUMP_LEAKS
     struct list_head link; /* string list */
 #endif
@@ -883,6 +885,30 @@ struct JSShape {
     JSShapeProperty prop[0]; /* prop_size elements */
 };
 
+typedef struct JSWeakRecord {
+    /* operations for given type of weak record, this actually act as a vtable */
+    const struct JSWeakRecordOperations *operations;
+
+    struct list_head list;
+} JSWeakRecord;
+
+typedef struct JSWeakRecordOperations {
+    /* first pass to remove the records from the weak_ref_list
+       note: implementation CAN NOT touch js context here, eg. new/free js object
+      */
+    void (*reset_weak_ref_first_pass)(JSRuntime *rt, struct JSWeakRecord *wr);
+    /* second pass to free the values to avoid modifying the weak
+       reference list while traversing it.
+       note: implementation is responsible to free node in here. */
+    void (*reset_weak_ref_second_pass)(JSRuntime *rt, struct JSWeakRecord *wr);
+} JSWeakRecordOperations;
+
+typedef struct JSWeakRef {
+    JSWeakRecord record;
+    JSObject *this_obj;
+    JSValueConst target;
+} JSWeakRef;
+
 struct JSObject {
     union {
         JSGCObjectHeader header;
@@ -905,7 +931,7 @@ struct JSObject {
     JSShape *shape; /* prototype and property names + flag */
     JSProperty *prop; /* array of properties */
     /* byte offsets: 24/40 */
-    struct JSMapRecord *first_weak_ref; /* XXX: use a bit and an external hash table? */
+    struct list_head *weak_ref_list; /* list of JSWeakRecord */ /* XXX: use a bit and an external hash table? */
     /* byte offsets: 28/48 */
     union {
         void *opaque;
@@ -929,6 +955,7 @@ struct JSObject {
         struct JSAsyncFunctionState *async_function_data; /* JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_FUNCTION_REJECT */
         struct JSAsyncFromSyncIteratorData *async_from_sync_iterator_data; /* JS_CLASS_ASYNC_FROM_SYNC_ITERATOR */
         struct JSAsyncGeneratorData *async_generator_data; /* JS_CLASS_ASYNC_GENERATOR */
+        struct JSWeakRef *weakref; /* JS_CLASS_WEAKREF */
         struct { /* JS_CLASS_BYTECODE_FUNCTION: 12/24 bytes */
             /* also used by JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_ASYNC_FUNCTION and JS_CLASS_ASYNC_GENERATOR_FUNCTION */
             struct JSFunctionBytecode *function_bytecode;
@@ -1184,7 +1211,6 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
                              JSValueConst getter, JSValueConst setter,
                              int flags);
 static int js_string_memcmp(const JSString *p1, const JSString *p2, int len);
-static void reset_weak_ref(JSRuntime *rt, JSObject *p);
 static JSValue js_array_buffer_constructor3(JSContext *ctx,
                                             JSValueConst new_target,
                                             uint64_t len, JSClassID class_id,
@@ -1279,6 +1305,21 @@ static JSValue JS_InstantiateFunctionListItem2(JSContext *ctx, JSObject *p,
                                                JSAtom atom, void *opaque);
 static JSValue js_object_groupBy(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv, int is_map);
+static void js_init_weak_record(struct JSWeakRecord *wr, const struct JSWeakRecordOperations* operations);
+struct list_head **js_get_target_weak_ref_list(JSContext *ctx, JSValueConst target);
+static BOOL js_add_weak_ref(JSContext *ctx, struct list_head **weak_ref_list, JSWeakRecord *wr);
+static void js_unlink_weak_ref(JSWeakRecord *wr);
+static void js_reset_weak_ref(JSRuntime *rt, struct list_head **weak_ref_list);
+static inline void js_object_reset_weak_ref(JSRuntime *rt, JSObject *p)
+{
+    assert(p->weak_ref_list);
+    js_reset_weak_ref(rt, &p->weak_ref_list);
+}
+static inline void js_atom_reset_weak_ref(JSRuntime *rt, JSAtomStruct *p)
+{
+    assert(p->weak_ref_list);
+    js_reset_weak_ref(rt, &p->weak_ref_list);
+}
 
 static const JSClassExoticMethods js_arguments_exotic_methods;
 static const JSClassExoticMethods js_string_exotic_methods;
@@ -1901,6 +1942,7 @@ static JSString *js_alloc_string_rt(JSRuntime *rt, int max_len, int is_wide_char
     str->atom_type = 0;
     str->hash = 0;          /* optional but costless */
     str->hash_next = 0;     /* optional */
+    str->weak_ref_list = NULL;
 #ifdef DUMP_LEAKS
     list_add_tail(&str->link, &rt->string_list);
 #endif
@@ -2070,6 +2112,10 @@ void JS_FreeRuntime(JSRuntime *rt)
     for(i = 0; i < rt->atom_size; i++) {
         JSAtomStruct *p = rt->atom_array[i];
         if (!atom_is_free(p)) {
+            /* reset weak reference */
+            if (p->weak_ref_list) {
+                js_atom_reset_weak_ref(rt, p);
+            }
 #ifdef DUMP_LEAKS
             list_del(&p->link);
 #endif
@@ -2179,6 +2225,7 @@ JSContext *JS_NewContext(JSRuntime *rt)
     JS_AddIntrinsicTypedArrays(ctx);
     JS_AddIntrinsicPromise(ctx);
     JS_AddIntrinsicBigInt(ctx);
+    JS_AddIntrinsicWeakRef(ctx);
     return ctx;
 }
 
@@ -2769,6 +2816,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
             }
             p->header.ref_count = 1;  /* not refcounted */
             p->atom_type = JS_ATOM_TYPE_SYMBOL;
+            p->weak_ref_list = NULL;
 #ifdef DUMP_LEAKS
             list_add_tail(&p->link, &rt->string_list);
 #endif
@@ -2802,6 +2850,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
             p->header.ref_count = 1;
             p->is_wide_char = str->is_wide_char;
             p->len = str->len;
+            p->weak_ref_list = NULL;
 #ifdef DUMP_LEAKS
             list_add_tail(&p->link, &rt->string_list);
 #endif
@@ -2816,6 +2865,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
         p->header.ref_count = 1;
         p->is_wide_char = 1;    /* Hack to represent NULL as a JSString */
         p->len = 0;
+        p->weak_ref_list = NULL;
 #ifdef DUMP_LEAKS
         list_add_tail(&p->link, &rt->string_list);
 #endif
@@ -2924,6 +2974,12 @@ static void JS_FreeAtomStruct(JSRuntime *rt, JSAtomStruct *p)
     /* insert in free atom list */
     rt->atom_array[i] = atom_set_free(rt->atom_free_index);
     rt->atom_free_index = i;
+
+    /* release WeakRecord referencing to p */
+    if (unlikely(p->weak_ref_list)) {
+        js_atom_reset_weak_ref(rt, p);
+    }
+
     /* free the string structure */
 #ifdef DUMP_LEAKS
     list_del(&p->link);
@@ -4771,7 +4827,7 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
     p->is_uncatchable_error = 0;
     p->tmp_mark = 0;
     p->is_HTMLDDA = 0;
-    p->first_weak_ref = NULL;
+    p->weak_ref_list = NULL;
     p->u.opaque = NULL;
     p->shape = sh;
     p->prop = js_malloc(ctx, sizeof(JSProperty) * sh->prop_size);
@@ -5459,8 +5515,9 @@ static void free_object(JSRuntime *rt, JSObject *p)
     p->shape = NULL;
     p->prop = NULL;
 
-    if (unlikely(p->first_weak_ref)) {
-        reset_weak_ref(rt, p);
+    /* release WeakRecord referencing to p */
+    if (unlikely(p->weak_ref_list)) {
+        js_object_reset_weak_ref(rt, p);
     }
 
     finalizer = rt->class_array[p->class_id].finalizer;
@@ -46971,13 +47028,229 @@ static const JSCFunctionListEntry js_symbol_funcs[] = {
     JS_CFUNC_DEF("keyFor", 1, js_symbol_keyFor ),
 };
 
+/* JSObject/Atom weak support */
+static void js_init_weak_record(struct JSWeakRecord *wr, const struct JSWeakRecordOperations* operations)
+{
+    assert(operations);
+    init_list_head(&wr->list);
+    wr->operations = operations;
+}
+
+/* find the weak_ref_list of a Object or Symbol/Atom,
+   on failure: return NULL and throw exception */
+struct list_head **js_get_target_weak_ref_list(JSContext *ctx, JSValueConst target)
+{
+    /* the spec says: Thrown if target is not an object or a non-registered symbol. */
+    if (JS_IsSymbol(target)) {
+        JSAtomStruct *p = JS_VALUE_GET_PTR(target);
+        if (p->atom_type == JS_ATOM_TYPE_GLOBAL_SYMBOL) {
+            JS_ThrowTypeError(ctx, "registered symbol is not allowed");
+            return NULL;
+        }
+        return &p->weak_ref_list;
+    } else if (JS_IsObject(target)) {
+        JSObject *p = JS_VALUE_GET_OBJ(target);
+        return &p->weak_ref_list;
+    } else {
+        JS_ThrowTypeError(ctx, "not a valid target");
+        return NULL;
+    }
+}
+
+/* Add weak record to object's weak reference list, on failure return FALSE and throw exception */
+static BOOL js_add_weak_ref(JSContext *ctx, struct list_head **weak_ref_list, JSWeakRecord *wr)
+{
+    if(likely(!*weak_ref_list)) {
+        struct list_head *list = js_malloc(ctx, sizeof(*list));
+        if (unlikely(!list)) {
+            return FALSE;
+        }
+        init_list_head(list);
+        *weak_ref_list = list;
+    }
+    list_add(&wr->list, *weak_ref_list);
+    return TRUE;
+}
+
+/* unlink the weak reference from the object weak reference list
+   eg. JSObject.u.weak_ref_list or JSString.weak_ref_list */
+static void js_unlink_weak_ref(JSWeakRecord *wr)
+{
+    list_del(&wr->list);
+}
+
+/* reset object weak reference record, and do clean up */
+static void js_reset_weak_ref(JSRuntime *rt, struct list_head **weak_ref_list)
+{
+    struct list_head *list = *weak_ref_list;
+    struct list_head *el, *el1;
+
+    /* first pass to remove the records from the Weak... lists */
+    list_for_each(el, list) {
+        JSWeakRecord *wr = list_entry(el, JSWeakRecord, list);
+        assert(wr->operations);
+        wr->operations->reset_weak_ref_first_pass(rt, wr);
+    }
+
+    /* second pass to free the values to avoid modifying the weak
+       reference list while traversing it. */
+    list_for_each_safe(el, el1, list) {
+        JSWeakRecord *wr = list_entry(el, JSWeakRecord, list);
+        list_del(el);
+
+        assert(wr->operations);
+        wr->operations->reset_weak_ref_second_pass(rt, wr);
+    }
+
+    js_free_rt(rt, list);
+    *weak_ref_list = NULL; /* fail safe */
+}
+
+/* WeakRef support */
+static void js_weakref_reset_weak_ref_first_pass(JSRuntime *rt, JSWeakRecord *wr)
+{
+    JSWeakRef *ref = container_of(wr, JSWeakRef, record);
+    JSObject *this_obj = ref->this_obj;
+
+    assert(this_obj->u.weakref == ref);
+    assert(!JS_IsUndefined(ref->target));
+
+    /* target object deleted, reset weakref */
+    this_obj->u.weakref = NULL;
+}
+
+static void js_weakref_reset_weak_ref_second_pass(JSRuntime *rt, JSWeakRecord *wr)
+{
+    /* delete record */
+    JSWeakRef *ref = container_of(wr, JSWeakRef, record);
+    js_free_rt(rt, ref);
+}
+
+static const struct JSWeakRecordOperations js_weak_ref_operations = {
+    js_weakref_reset_weak_ref_first_pass,
+    js_weakref_reset_weak_ref_second_pass
+};
+
+static JSValue js_new_weak_ref_internal(JSContext *ctx, JSValueConst ctor, JSValueConst target)
+{
+    JSValue weak_ref = JS_UNDEFINED;
+    struct list_head **weak_ref_list = NULL;
+
+    weak_ref_list = js_get_target_weak_ref_list(ctx, target);
+    if (!weak_ref_list) {
+        goto fail;
+    }
+
+    weak_ref = js_create_from_ctor(ctx, ctor, JS_CLASS_WEAKREF);
+    if (!JS_IsException(weak_ref)) {
+        JSObject *obj = JS_VALUE_GET_OBJ(weak_ref);
+        JSWeakRef *ref = js_malloc(ctx, sizeof(*ref));
+        if (!ref) {
+            goto fail;
+        }
+        js_init_weak_record(&ref->record, &js_weak_ref_operations);
+        ref->this_obj = obj;
+        ref->target = target;
+        obj->u.weakref = ref;
+
+        if (!js_add_weak_ref(ctx, weak_ref_list, &ref->record)) {
+            goto fail;
+        }
+    }
+    return weak_ref;
+
+fail:
+    JS_FreeValue(ctx, weak_ref);
+    return JS_EXCEPTION;
+}
+
+JSValue JS_NewWeakRef(JSContext *ctx, JSValueConst target)
+{
+    if (unlikely(!JS_IsRegisteredClass(ctx->rt, JS_CLASS_WEAKREF))) {
+        return JS_ThrowInternalError(ctx, "WeakRef intrinsic is not added");
+    }
+    return js_new_weak_ref_internal(ctx, JS_UNDEFINED, target);
+}
+
+JSValue JS_DerefWeakRef(JSContext *ctx, JSValueConst weakref)
+{
+    JSObject *p;
+    if (!JS_IsObject(weakref)) {
+        goto fail;
+    }
+    p = JS_VALUE_GET_OBJ(weakref);
+    if (p->class_id != JS_CLASS_WEAKREF) {
+        goto fail;
+    }
+
+    if (p->u.weakref) {
+        JSValueConst target = p->u.weakref->target;
+        return JS_DupValue(ctx, target);
+    }
+
+    return JS_UNDEFINED;
+fail:
+    return JS_ThrowTypeError(ctx, "not a WeakRef");
+}
+
+static JSValue js_weakref_constructor(JSContext *ctx, JSValueConst new_target,
+                                  int argc, JSValueConst *argv)
+{
+    return js_new_weak_ref_internal(ctx, new_target, argv[0]);
+}
+
+static JSValue js_weakref_deref(JSContext *ctx, JSValueConst this_val,
+                                  int argc, JSValueConst *argv)
+{
+    return JS_DerefWeakRef(ctx, this_val);
+}
+
+static void js_weakref_finalizer(JSRuntime *rt, JSValue val)
+{
+    JSObject *p = JS_VALUE_GET_OBJ(val);
+    JSWeakRef *ref = p->u.weakref;
+    if (ref) {
+        JSWeakRecord *record = &ref->record;
+        js_unlink_weak_ref(record);
+        js_free_rt(rt, ref);
+    }
+}
+
+static const JSCFunctionListEntry js_weakref_proto_funcs[] = {
+    JS_CFUNC_DEF("deref", 0, js_weakref_deref),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "WeakRef", JS_PROP_CONFIGURABLE ),
+};
+
+static const JSClassShortDef js_weak_class_def[] = {
+    { JS_ATOM_WeakRef, js_weakref_finalizer, NULL },
+};
+
+void JS_AddIntrinsicWeakRef(JSContext *ctx)
+{
+    JSValue proto;
+
+    if (!JS_IsRegisteredClass(ctx->rt, JS_CLASS_WEAKREF)) {
+        init_class_range(ctx->rt, js_weak_class_def, JS_CLASS_WEAKREF,
+                         countof(js_weak_class_def));
+    }
+
+    proto = JS_NewObject(ctx);
+    ctx->class_proto[JS_CLASS_WEAKREF] = proto;
+    JS_SetPropertyFunctionList(ctx, proto,
+                               js_weakref_proto_funcs,
+                               countof(js_weakref_proto_funcs));
+    JS_NewGlobalCConstructorOnly(ctx, "WeakRef",
+                             js_weakref_constructor, 1,
+                             proto);
+}
+
 /* Set/Map/WeakSet/WeakMap */
 
 typedef struct JSMapRecord {
     int ref_count; /* used during enumeration to avoid freeing the record */
     BOOL empty; /* TRUE if the record is deleted */
     struct JSMapState *map;
-    struct JSMapRecord *next_weak_ref;
+    JSWeakRecord weak_record; /* managed by JSObject.weak_ref_list */
     struct list_head link;
     struct list_head hash_link;
     JSValue key;
@@ -47205,6 +47478,14 @@ static void map_hash_resize(JSContext *ctx, JSMapState *s)
     s->record_count_threshold = new_hash_size * 2;
 }
 
+static void js_map_reset_weak_ref_first_pass(JSRuntime *rt, JSWeakRecord *wr);
+static void js_map_reset_weak_ref_second_pass(JSRuntime *rt, JSWeakRecord *wr);
+
+static const JSWeakRecordOperations js_map_weak_operations = {
+    js_map_reset_weak_ref_first_pass,
+    js_map_reset_weak_ref_second_pass,
+};
+
 static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
                                    JSValueConst key)
 {
@@ -47218,10 +47499,13 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
     mr->map = s;
     mr->empty = FALSE;
     if (s->is_weak) {
-        JSObject *p = JS_VALUE_GET_OBJ(key);
+        struct list_head **weak_ref_list = js_get_target_weak_ref_list(ctx, key);
+        js_init_weak_record(&mr->weak_record, &js_map_weak_operations);
         /* Add the weak reference */
-        mr->next_weak_ref = p->first_weak_ref;
-        p->first_weak_ref = mr;
+        if (!weak_ref_list || !js_add_weak_ref(ctx, weak_ref_list, &mr->weak_record)) {
+            js_free(ctx, mr);
+            return NULL;
+        }
     } else {
         JS_DupValue(ctx, key);
     }
@@ -47236,34 +47520,13 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
     return mr;
 }
 
-/* Remove the weak reference from the object weak
-   reference list. we don't use a doubly linked list to
-   save space, assuming a given object has few weak
-       references to it */
-static void delete_weak_ref(JSRuntime *rt, JSMapRecord *mr)
-{
-    JSMapRecord **pmr, *mr1;
-    JSObject *p;
-
-    p = JS_VALUE_GET_OBJ(mr->key);
-    pmr = &p->first_weak_ref;
-    for(;;) {
-        mr1 = *pmr;
-        assert(mr1 != NULL);
-        if (mr1 == mr)
-            break;
-        pmr = &mr1->next_weak_ref;
-    }
-    *pmr = mr1->next_weak_ref;
-}
-
 static void map_delete_record(JSRuntime *rt, JSMapState *s, JSMapRecord *mr)
 {
     if (mr->empty)
         return;
     list_del(&mr->hash_link);
     if (s->is_weak) {
-        delete_weak_ref(rt, mr);
+        js_unlink_weak_ref(&mr->weak_record);
     } else {
         JS_FreeValueRT(rt, mr->key);
     }
@@ -47290,30 +47553,21 @@ static void map_decref_record(JSRuntime *rt, JSMapRecord *mr)
     }
 }
 
-static void reset_weak_ref(JSRuntime *rt, JSObject *p)
+static void js_map_reset_weak_ref_first_pass(JSRuntime *rt, JSWeakRecord *wr)
 {
-    JSMapRecord *mr, *mr_next;
-    JSMapState *s;
+    JSMapRecord *mr = container_of(wr, JSMapRecord, weak_record);
+    JSMapState *s = mr->map;
+    assert(s->is_weak);
+    assert(!mr->empty); /* no iterator on WeakMap/WeakSet */
+    list_del(&mr->hash_link);
+    list_del(&mr->link);
+}
 
-    /* first pass to remove the records from the WeakMap/WeakSet
-       lists */
-    for(mr = p->first_weak_ref; mr != NULL; mr = mr->next_weak_ref) {
-        s = mr->map;
-        assert(s->is_weak);
-        assert(!mr->empty); /* no iterator on WeakMap/WeakSet */
-        list_del(&mr->hash_link);
-        list_del(&mr->link);
-    }
-
-    /* second pass to free the values to avoid modifying the weak
-       reference list while traversing it. */
-    for(mr = p->first_weak_ref; mr != NULL; mr = mr_next) {
-        mr_next = mr->next_weak_ref;
-        JS_FreeValueRT(rt, mr->value);
-        js_free_rt(rt, mr);
-    }
-
-    p->first_weak_ref = NULL; /* fail safe */
+static void js_map_reset_weak_ref_second_pass(JSRuntime *rt, JSWeakRecord *wr)
+{
+    JSMapRecord *mr = container_of(wr, JSMapRecord, weak_record);
+    JS_FreeValueRT(rt, mr->value);
+    js_free_rt(rt, mr);
 }
 
 static JSValue js_map_set(JSContext *ctx, JSValueConst this_val,
@@ -47326,8 +47580,6 @@ static JSValue js_map_set(JSContext *ctx, JSValueConst this_val,
     if (!s)
         return JS_EXCEPTION;
     key = map_normalize_key(ctx, argv[0]);
-    if (s->is_weak && !JS_IsObject(key))
-        return JS_ThrowTypeErrorNotAnObject(ctx);
     if (magic & MAGIC_SET)
         value = JS_UNDEFINED;
     else
@@ -47597,7 +47849,7 @@ static void js_map_finalizer(JSRuntime *rt, JSValue val)
             mr = list_entry(el, JSMapRecord, link);
             if (!mr->empty) {
                 if (s->is_weak)
-                    delete_weak_ref(rt, mr);
+                    js_unlink_weak_ref(&mr->weak_record);
                 else
                     JS_FreeValueRT(rt, mr->key);
                 JS_FreeValueRT(rt, mr->value);

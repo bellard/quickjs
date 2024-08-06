@@ -281,9 +281,7 @@ The following features are not supported yet:
 
 @item Tail calls@footnote{We believe the current specification of tails calls is too complicated and presents limited practical interests.}
 
-@item WeakRef and FinalizationRegistry objects
-
-@item Symbols as WeakMap keys
+@item FinalizationRegistry objects
 
 @end itemize
 
