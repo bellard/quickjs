@@ -689,6 +689,11 @@ JS_BOOL JS_SameValue(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 JS_BOOL JS_SameValueZero(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 
 int JS_ToBool(JSContext *ctx, JSValueConst val); /* return -1 for JS_EXCEPTION */
+static inline JSValue JS_ToBoolean(JSContext *ctx, JSValueConst val)
+{
+    return JS_NewBool(ctx, JS_ToBool(ctx, val));
+}
+JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
 int JS_ToInt32(JSContext *ctx, int32_t *pres, JSValueConst val);
 static inline int JS_ToUint32(JSContext *ctx, uint32_t *pres, JSValueConst val)
 {
@@ -722,6 +727,7 @@ JSValue JS_NewObjectProtoClass(JSContext *ctx, JSValueConst proto, JSClassID cla
 JSValue JS_NewObjectClass(JSContext *ctx, int class_id);
 JSValue JS_NewObjectProto(JSContext *ctx, JSValueConst proto);
 JSValue JS_NewObject(JSContext *ctx);
+JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
 
 JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_IsConstructor(JSContext* ctx, JSValueConst val);
