@@ -1286,6 +1286,21 @@ static const JSClassExoticMethods js_proxy_exotic_methods;
 static const JSClassExoticMethods js_module_ns_exotic_methods;
 static JSClassID js_class_id_alloc = JS_CLASS_INIT_COUNT;
 
+const char* JS_GetVersion(void)
+{
+#define JS_STRINGIFY_(x) #x
+#define JS_STRINGIFY(x)  JS_STRINGIFY_(x)
+
+    return JS_VERSION_STR
+#ifdef JS_VERSION_SUFFIX
+           "-" JS_STRINGIFY(JS_VERSION_SUFFIX)
+#endif
+           ;
+
+#undef JS_STRINGIFY
+#undef JS_STRINGIFY_
+}
+
 static void js_trigger_gc(JSRuntime *rt, size_t size)
 {
     BOOL force_gc;
