@@ -1114,6 +1114,33 @@ function string_to_float(n)
     return n;
 }
 
+function weakref(n)
+{
+    var objs = new Array(n);
+    var weak1 = new Array(n);
+    var weak2 = new Array(n);
+    for (var i = 0; i < n; i++) {
+        objs[i] = { index: i };
+        weak1[i] = new WeakRef(objs[i]); /* init object hash table*/
+        weak2[i] = new WeakRef(objs[i]); /* find hsh table then add */
+    }
+    for (var i = 0; i < n; i++) {
+        weak1[i].deref();
+        weak2[i].deref();
+    }
+    for (var i = 0; i < n / 2; i++) {
+        objs[i] = undefined; /* release weak and hash table */
+    }
+    for (var i = 0; i < n; i++) {
+        weak1[i].deref();
+        weak2[i].deref();
+    }
+    weak1 = undefined;
+    weak2 = undefined;
+    objs = undefined;
+    return n * 3;
+}
+
 function load_result(filename)
 {
     var has_filename = filename;
@@ -1236,6 +1263,7 @@ function main(argc, argv, g)
         float_to_string,
         string_to_int,
         string_to_float,
+        weakref,
     ];
     var tests = [];
     var i, j, n, f, name, found;
