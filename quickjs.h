@@ -1060,6 +1060,10 @@ typedef struct JSCFunctionListEntry {
 void JS_SetPropertyFunctionList(JSContext *ctx, JSValueConst obj,
                                 const JSCFunctionListEntry *tab,
                                 int len);
+/* same as JS_SetPropertyFunctionList() returns -1 if exception, 0 if OK */
+int JS_SetPropertyFunctionList2(JSContext *ctx, JSValueConst obj,
+                                const JSCFunctionListEntry *tab,
+                                int len);
 
 /* C module definition */
 

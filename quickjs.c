@@ -36998,6 +36998,25 @@ void JS_SetPropertyFunctionList(JSContext *ctx, JSValueConst obj,
     }
 }
 
+int JS_SetPropertyFunctionList2(JSContext *ctx, JSValueConst obj,
+                                const JSCFunctionListEntry *tab, int len)
+{
+    int i;
+
+    for (i = 0; i < len; i++) {
+        const JSCFunctionListEntry *e = &tab[i];
+        JSAtom atom = find_atom(ctx, e->name);
+        if (atom == JS_ATOM_NULL)
+            return -1;
+        if (JS_InstantiateFunctionListItem(ctx, obj, atom, e) < 0) {
+            JS_FreeAtom(ctx, atom);
+            return -1;
+        }
+        JS_FreeAtom(ctx, atom);
+    }
+    return 0;
+}
+
 int JS_AddModuleExportList(JSContext *ctx, JSModuleDef *m,
                            const JSCFunctionListEntry *tab, int len)
 {
