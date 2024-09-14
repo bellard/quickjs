@@ -36892,6 +36892,7 @@ static JSValue JS_InstantiateFunctionListItem2(JSContext *ctx, JSObject *p,
     return val;
 }
 
+/* return -1 if exception, 0 if OK */
 static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
                                           JSAtom atom,
                                           const JSCFunctionListEntry *e)
@@ -36934,8 +36935,9 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
             /* Function.prototype[Symbol.hasInstance] is not writable nor configurable */
             prop_flags = 0;
         }
-        JS_DefineAutoInitProperty(ctx, obj, atom, JS_AUTOINIT_ID_PROP,
-                                  (void *)e, prop_flags);
+        if (JS_DefineAutoInitProperty(ctx, obj, atom, JS_AUTOINIT_ID_PROP,
+                                  (void *)e, prop_flags) < 0)
+            return -1;
         return 0;
     case JS_DEF_CGETSET: /* XXX: use autoinit again ? */
     case JS_DEF_CGETSET_MAGIC:
@@ -36949,6 +36951,8 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
                 getter = JS_NewCFunction2(ctx, e->u.getset.get.generic,
                                           buf, 0, e->def_type == JS_DEF_CGETSET_MAGIC ? JS_CFUNC_getter_magic : JS_CFUNC_getter,
                                           e->magic);
+                if (JS_IsException(getter))
+                    return -1;
             }
             setter = JS_UNDEFINED;
             if (e->u.getset.set.generic) {
@@ -36956,8 +36960,13 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
                 setter = JS_NewCFunction2(ctx, e->u.getset.set.generic,
                                           buf, 1, e->def_type == JS_DEF_CGETSET_MAGIC ? JS_CFUNC_setter_magic : JS_CFUNC_setter,
                                           e->magic);
+                if (JS_IsException(setter)) {
+                    JS_FreeValue(ctx, getter);
+                    return -1;
+                }
             }
-            JS_DefinePropertyGetSet(ctx, obj, atom, getter, setter, prop_flags);
+            if (JS_DefinePropertyGetSet(ctx, obj, atom, getter, setter, prop_flags) < 0)
+                return -1;
             return 0;
         }
         break;
@@ -36975,13 +36984,17 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
         break;
     case JS_DEF_PROP_STRING:
     case JS_DEF_OBJECT:
-        JS_DefineAutoInitProperty(ctx, obj, atom, JS_AUTOINIT_ID_PROP,
-                                  (void *)e, prop_flags);
+        if (JS_DefineAutoInitProperty(ctx, obj, atom, JS_AUTOINIT_ID_PROP,
+                                  (void *)e, prop_flags) < 0)
+            return -1;
         return 0;
     default:
         abort();
     }
-    JS_DefinePropertyValue(ctx, obj, atom, val, prop_flags);
+    if (JS_DefinePropertyValue(ctx, obj, atom, val, prop_flags) < 0) {
+        JS_FreeValue(ctx, val);
+        return -1;
+    }
     return 0;
 }
 
