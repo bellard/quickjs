@@ -5556,6 +5556,10 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
                 if (rt->gc_phase == JS_GC_PHASE_NONE) {
                     free_zero_refcount(rt);
                 }
+            } else if (p->mark == 0) {
+                p->mark = 1;
+                list_del(&p->link);
+                list_add_tail(&p->link, &rt->tmp_obj_list);
             }
         }
         break;
