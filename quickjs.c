@@ -2295,17 +2295,7 @@ void JS_FreeContext(JSContext *ctx)
     JS_DumpShapes(ctx->rt);
 #endif
 #ifdef DUMP_OBJECTS
-    {
-        struct list_head *el;
-        JSGCObjectHeader *p;
-        printf("JSObjects: {\n");
-        JS_DumpObjectHeader(ctx->rt);
-        list_for_each(el, &rt->gc_obj_list) {
-            p = list_entry(el, JSGCObjectHeader, link);
-            JS_DumpGCObject(rt, p);
-        }
-        printf("}\n");
-    }
+    JS_DumpObjects(ctx-rt);
 #endif
 #ifdef DUMP_MEM
     {
@@ -6376,6 +6366,18 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
         fprintf(fp, "%-20s %8"PRId64" %8"PRId64"\n",
                 "binary objects", s->binary_object_count, s->binary_object_size);
     }
+}
+
+void JS_DumpObjects(JSRuntime *rt){
+    struct list_head *el;
+    JSGCObjectHeader *p;
+    printf("JSObjects: {\n");
+    JS_DumpObjectHeader(rt);
+    list_for_each(el, &rt->gc_obj_list) {
+        p = list_entry(el, JSGCObjectHeader, link);
+        JS_DumpGCObject(rt, p);
+    }
+    printf("}\n");
 }
 
 JSValue JS_GetGlobalObject(JSContext *ctx)
