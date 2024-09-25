@@ -9847,7 +9847,7 @@ void *JS_GetOpaque(JSValueConst obj, JSClassID class_id)
     if (JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT)
         return NULL;
     p = JS_VALUE_GET_OBJ(obj);
-    if (p->class_id != class_id)
+    if (class_id && p->class_id != class_id)
         return NULL;
     return p->u.opaque;
 }
