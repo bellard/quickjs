@@ -53214,7 +53214,8 @@ static JSArrayBuffer *js_get_array_buffer(JSContext *ctx, JSValueConst obj)
 }
 
 /* return NULL if exception. WARNING: any JS call can detach the
-   buffer and render the returned pointer invalid */
+   buffer and render the returned pointer invalid. psize can be
+   NULL. */
 uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj)
 {
     JSArrayBuffer *abuf = js_get_array_buffer(ctx, obj);
@@ -53224,10 +53225,14 @@ uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj)
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         goto fail;
     }
-    *psize = abuf->byte_length;
+    if (psize) {
+        *psize = abuf->byte_length;
+    }
     return abuf->data;
  fail:
-    *psize = 0;
+    if (psize) {
+        *psize = 0;
+    }
     return NULL;
 }
 
