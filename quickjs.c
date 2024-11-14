@@ -14097,20 +14097,25 @@ static no_inline int js_relational_slow(JSContext *ctx, JSValue *sp,
             } else {
                 d2 = JS_VALUE_GET_INT(op2);
             }
-            switch(op) {
-            case OP_lt:
-                res = (d1 < d2); /* if NaN return false */
-                break;
-            case OP_lte:
-                res = (d1 <= d2); /* if NaN return false */
-                break;
-            case OP_gt:
-                res = (d1 > d2); /* if NaN return false */
-                break;
-            default:
-            case OP_gte:
-                res = (d1 >= d2); /* if NaN return false */
-                break;
+
+            if (isnan(d1) || isnan(d2)) {
+                res = FALSE;
+            } else {
+                switch(op) {
+                case OP_lt:
+                    res = (d1 < d2);
+                    break;
+                case OP_lte:
+                    res = (d1 <= d2);
+                    break;
+                case OP_gt:
+                    res = (d1 > d2);
+                    break;
+                default:
+                case OP_gte:
+                    res = (d1 >= d2);
+                    break;
+                }
             }
         }
     }
