@@ -303,6 +303,13 @@ struct JSRuntime {
     JSNumericOperations bigdecimal_ops;
     uint32_t operator_count;
 #endif
+#ifdef CONFIG_PROFILE_CALLS
+    ProfileEventHandler *profile_function_start;
+    ProfileEventHandler *profile_function_end;
+    void *profile_opaque;
+    uint32_t profile_sampling;
+    uint32_t profile_sample_count;
+#endif
     void *user_opaque;
 };
 
@@ -621,6 +628,10 @@ typedef struct JSFunctionBytecode {
         int pc2line_len;
         uint8_t *pc2line_buf;
         char *source;
+#ifdef CONFIG_PROFILE_CALLS
+        /* Class.function or Object.function or just function */
+        JSAtom full_func_name_cache;
+#endif
     } debug;
 } JSFunctionBytecode;
 
@@ -5546,8 +5557,17 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
             }
         }
         break;
-    case JS_TAG_OBJECT:
     case JS_TAG_FUNCTION_BYTECODE:
+#ifdef CONFIG_PROFILE_CALLS
+    {
+        JSFunctionBytecode *b = JS_VALUE_GET_PTR(v);
+        // In STRICT js_mode, there is no "debug".
+        if (!(b->js_mode & JS_MODE_STRICT) && b->debug.full_func_name_cache != JS_ATOM_NULL) {
+            JS_FreeAtomRT(rt, b->debug.full_func_name_cache);
+        }
+    }
+#endif
+    case JS_TAG_OBJECT:
         {
             JSGCObjectHeader *p = JS_VALUE_GET_PTR(v);
             if (rt->gc_phase != JS_GC_PHASE_REMOVE_CYCLES) {
@@ -5879,6 +5899,20 @@ BOOL JS_IsLiveObject(JSRuntime *rt, JSValueConst obj)
         return FALSE;
     p = JS_VALUE_GET_OBJ(obj);
     return !p->free_mark;
+}
+
+void JS_EnableProfileCalls(JSRuntime *rt, ProfileEventHandler *on_start, ProfileEventHandler *on_end, uint32_t sampling, void *opaque_data)
+{
+#ifdef CONFIG_PROFILE_CALLS
+    rt->profile_function_start = on_start;
+    rt->profile_function_end = on_end;
+    rt->profile_opaque = opaque_data;
+    // If sampling == 0, it's interpreted as "no sampling" which means we log 1/1 calls.
+    rt->profile_sampling = sampling > 0 ? sampling : 1;
+    rt->profile_sample_count = 0;
+#else
+    fprintf(stderr, "QuickJS was not compiled with -DCONFIG_PROFILE_CALLS. Profiling is disabled.");
+#endif
 }
 
 /* Compute memory used by various object types */
@@ -6527,6 +6561,64 @@ static const char *get_func_name(JSContext *ctx, JSValueConst func)
     if (JS_VALUE_GET_TAG(val) != JS_TAG_STRING)
         return NULL;
     return JS_ToCString(ctx, val);
+}
+
+/* Computes the full name of the function including the constructor of the
+   object it's being executed on, if any. For example, this may output
+   "MyClass.my_function" or if there is no "this", just "my_function". */
+static JSAtom get_full_func_name(JSContext *ctx, JSValueConst func, JSValueConst this_obj)
+{
+    JSAtom result_atom;
+    const char *func_str = get_func_name(ctx, func);
+    if (!func_str || func_str[0] == '\0') {
+        JS_FreeCString(ctx, func_str);
+        return JS_ATOM_NULL;
+    }
+    // If "this" isn't an object, return just the name.
+    if (JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT) {
+        result_atom = JS_NewAtom(ctx, func_str);
+        JS_FreeCString(ctx, func_str);
+        return result_atom;
+    }
+
+    JSValue ctor = JS_GetProperty(ctx, this_obj, JS_ATOM_constructor);
+    const char *ctor_str = get_func_name(ctx, ctor);
+    size_t func_len = strlen(func_str);
+    JSValue result_val;
+
+    if (ctor_str == NULL || ctor_str[0] == '\0') {
+        // Invalid constructor, use <unknown>
+        StringBuffer sb;
+        char prefix[] = "<unknown>.";
+        if (string_buffer_init2(ctx, &sb, sizeof(prefix) + func_len, 0)) {
+            JS_FreeCString(ctx, func_str);
+            JS_FreeCString(ctx, ctor_str);
+            JS_FreeValue(ctx, ctor);
+            return JS_ATOM_NULL;
+        }
+        string_buffer_write8(&sb, (const uint8_t *)prefix, sizeof(prefix));
+        string_buffer_write8(&sb, (const uint8_t *)func_str, func_len);
+        result_val = string_buffer_end(&sb);
+    } else {
+        StringBuffer sb;
+        size_t ctor_len = strlen(ctor_str);
+        if (string_buffer_init2(ctx, &sb, ctor_len + 1 + func_len, 0)) {
+            JS_FreeCString(ctx, func_str);
+            JS_FreeCString(ctx, ctor_str);
+            JS_FreeValue(ctx, ctor);
+            return JS_ATOM_NULL;
+        }
+        string_buffer_write8(&sb, (const uint8_t *)ctor_str, ctor_len);
+        string_buffer_write8(&sb, (const uint8_t *)".", 1);
+        string_buffer_write8(&sb, (const uint8_t *)func_str, func_len);
+        result_val = string_buffer_end(&sb);
+    }
+    result_atom = JS_ValueToAtom(ctx, result_val);
+    JS_FreeValue(ctx, result_val);
+    JS_FreeCString(ctx, func_str);
+    JS_FreeCString(ctx, ctor_str);
+    JS_FreeValue(ctx, ctor);
+    return result_atom;
 }
 
 #define JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL (1 << 0)
@@ -16169,6 +16261,10 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     JSValue *local_buf, *stack_buf, *var_buf, *arg_buf, *sp, ret_val, *pval;
     JSVarRef **var_refs;
     size_t alloca_size;
+#ifdef CONFIG_PROFILE_CALLS
+    JSAtom full_func_name = JS_ATOM_NULL;
+    const int must_sample = rt->profile_sampling && rt->profile_sample_count == 0;
+#endif
 
 #if !DIRECT_DISPATCH
 #define SWITCH(pc)      switch (opcode = *pc++)
@@ -16232,7 +16328,22 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                          (JSValueConst *)argv, flags);
     }
     b = p->u.func.function_bytecode;
-
+#ifdef CONFIG_PROFILE_CALLS
+    if (unlikely(must_sample)) {
+        if (!(b->js_mode & JS_MODE_STRICT)) {
+            if (!b->debug.full_func_name_cache) {
+                b->debug.full_func_name_cache = get_full_func_name(caller_ctx, func_obj, this_obj);
+            }
+            full_func_name = b->debug.full_func_name_cache;
+        } else {
+            // Even if we can't cache it, we need to compute it to report the function execution.
+            full_func_name = get_full_func_name(caller_ctx, func_obj, this_obj);
+        }
+        if (likely(rt->profile_function_start)) {
+            rt->profile_function_start(caller_ctx, full_func_name, b->debug.filename, rt->profile_opaque);
+        }
+    }
+#endif
     if (unlikely(argc < b->arg_count || (flags & JS_CALL_FLAG_COPY_ARGV))) {
         arg_allocated_size = b->arg_count;
     } else {
@@ -18701,6 +18812,20 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         }
     }
     rt->current_stack_frame = sf->prev_frame;
+#ifdef CONFIG_PROFILE_CALLS
+    if (unlikely(must_sample)) {
+        if (likely(rt->profile_function_end)) {
+            rt->profile_function_end(caller_ctx, full_func_name, b->debug.filename, rt->profile_opaque);
+        }
+        if (b->js_mode & JS_MODE_STRICT) {
+            // If we weren't able to cache it, we have to free it right away (and sadly recreate it later).
+            JS_FreeAtom(caller_ctx, full_func_name);
+        }
+    }
+    if (unlikely(rt->profile_sampling)) {
+        rt->profile_sample_count = (rt->profile_sample_count + 1) % rt->profile_sampling;
+    }
+#endif
     return ret_val;
 }
 

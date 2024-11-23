@@ -350,6 +350,31 @@ void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func);
 void JS_RunGC(JSRuntime *rt);
 JS_BOOL JS_IsLiveObject(JSRuntime *rt, JSValueConst obj);
 
+/**
+ * Callback function type for handling JavaScript profiling events.
+ *
+ * @param func        Function name as a JSAtom. May be in the format "Constructor.name"
+ *                    when the function is executed in a constructor's context (i.e.,
+ *                    with 'this' binding)
+ * @param filename    Name of the source file containing the function, as a JSAtom
+ * @param opaque_data User data that was originally passed to JS_EnableProfileCalls.
+ *                    Same value is provided to both start and end handlers
+ */
+typedef void ProfileEventHandler(JSContext *ctx, JSAtom func, JSAtom filename, void *opaque_data);
+/**
+ * Enables function call profiling for the JavaScript runtime.
+ *
+ * NOTE: This function only works if QuickJS was compiled with -DCONFIG_PROFILE_CALLS flag.
+ *
+ * @param on_start    Callback called when a function starts.
+ * @param on_end      Callback called when a function ends.
+ * @param sampling    Controls profiling frequency: only 1/sampling function calls are
+ *                    instrumented. Must be ≥ 1. Example: if sampling=4, only 25% of
+ *                    function calls will trigger the handlers.
+ * @param opaque_data Optional user data passed to both handlers. Can be NULL.
+ */
+void JS_EnableProfileCalls(JSRuntime *rt, ProfileEventHandler *on_start, ProfileEventHandler *on_end, uint32_t sampling, void *opaque_data);
+
 JSContext *JS_NewContext(JSRuntime *rt);
 void JS_FreeContext(JSContext *s);
 JSContext *JS_DupContext(JSContext *ctx);
