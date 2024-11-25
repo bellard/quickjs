@@ -14855,6 +14855,10 @@ static JSValue js_build_arguments(JSContext *ctx, int argc, JSValueConst *argv)
     /* add the length field (cannot fail) */
     pr = add_property(ctx, p, JS_ATOM_length,
                       JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    if (!pr) {
+      JS_FreeValue(ctx, val);
+      return JS_EXCEPTION;
+    }
     pr->u.value = JS_NewInt32(ctx, argc);
 
     /* initialize the fast array part */
@@ -14904,6 +14908,8 @@ static JSValue js_build_mapped_arguments(JSContext *ctx, int argc,
     /* add the length field (cannot fail) */
     pr = add_property(ctx, p, JS_ATOM_length,
                       JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    if (!pr)
+      goto fail;
     pr->u.value = JS_NewInt32(ctx, argc);
 
     for(i = 0; i < arg_count; i++) {
