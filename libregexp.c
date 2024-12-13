@@ -700,8 +700,10 @@ static int get_class_atom(REParseState *s, CharRange *cr,
             if (ret >= 0) {
                 c = ret;
             } else {
-                if (ret == -2 && *p != '\0' && strchr("^$\\.*+?()[]{}|/", *p)) {
-                    /* always valid to escape these characters */
+                if (ret == -2 && *p != '\0'
+                    && strchr(inclass ? "-^$\\.*+?()[]{}|/" : "^$\\.*+?()[]{}|/", *p)) {
+                    /* always valid to escape these characters
+                       ("-" only in character classes) */
                     goto normal_char;
                 } else if (s->is_unicode) {
                 invalid_escape:
