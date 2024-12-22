@@ -18659,7 +18659,12 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
            before if the exception happens in a bytecode
            operation */
         sf->cur_pc = pc;
-        build_backtrace(ctx, rt->current_exception, NULL, 0, 0);
+        JSValue exception_dup = JS_DupValue(ctx, rt->current_exception);
+        if (!JS_IsNull(exception_dup)) {
+            build_backtrace(ctx, exception_dup, NULL, 0, 0);
+            /* Free the duplicate to avoid leaks */
+            JS_FreeValue(ctx, exception_dup);
+        }
     }
     if (!JS_IsUncatchableError(ctx, rt->current_exception)) {
         while (sp > stack_buf) {
