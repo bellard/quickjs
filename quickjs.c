@@ -5762,7 +5762,11 @@ static void gc_decref(JSRuntime *rt)
         mark_children(rt, p, gc_decref_child);
         p->mark = 1;
         if (p->ref_count == 0) {
-            list_del(&p->link);
+            if (p->link.prev != NULL && p->link.next != NULL) {
+                list_del(&p->link);
+            } else {
+                fprintf(stderr, "Warning: Attempt to delete an invalid list element\n");
+            }
             list_add_tail(&p->link, &rt->tmp_obj_list);
         }
     }
@@ -18906,6 +18910,7 @@ static JSAsyncFunctionState *async_func_init(JSContext *ctx,
     local_count = arg_buf_len + b->var_count + b->stack_size;
     sf->arg_buf = js_malloc(ctx, sizeof(JSValue) * max_int(local_count, 1));
     if (!sf->arg_buf) {
+        remove_gc_object(&s->header);
         js_free(ctx, s);
         return NULL;
     }
