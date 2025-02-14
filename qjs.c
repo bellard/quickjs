@@ -301,9 +301,18 @@ void help(void)
 }
 
 #ifdef CONFIG_PROFILE_CALLS
-void profile_function_start(JSContext *ctx, JSAtom func, JSAtom filename, void *opaque) {
+const char *get_func_name(JSContext *ctx, JSAtom func) {
+    if (func == JS_ATOM_NULL) {
+        return js_strdup(ctx, "<anonymous>");
+    }
     const char* func_str = JS_AtomToCString(ctx, func);
-    const char *func_str2 = func_str[0] ? func_str : "<anonymous>";
+    if (func_str[0]) {
+        return func_str;
+    }
+    return js_strdup(ctx, "<anonymous>");
+}
+void profile_function_start(JSContext *ctx, JSAtom func, JSAtom filename, void *opaque) {
+    const char *func_str = get_func_name(ctx, func);
     FILE *logfile = (FILE *)opaque;
     // Format documented here:
     // https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0#heading=h.yr4qxyxotyw
@@ -314,12 +323,11 @@ void profile_function_start(JSContext *ctx, JSAtom func, JSAtom filename, void *
             "\"ts\": %ld,"
             "\"pid\": 1,"
             "\"tid\": 1"
-        "},\n", func_str2, clock());
+        "},\n", func_str, clock());
     JS_FreeCString(ctx, func_str);
 }
 void profile_function_end(JSContext *ctx, JSAtom func, JSAtom filename, void *opaque) {
-    const char* func_str = JS_AtomToCString(ctx, func);
-    const char *func_str2 = func_str[0] ? func_str : "<anonymous>";
+    const char *func_str = get_func_name(ctx, func);
     FILE *logfile = (FILE *)opaque;
     fprintf(logfile, "{"
             "\"name\": \"%s\","
@@ -328,7 +336,7 @@ void profile_function_end(JSContext *ctx, JSAtom func, JSAtom filename, void *op
             "\"ts\": %ld,"
             "\"pid\": 1,"
             "\"tid\": 1"
-        "},\n", func_str2, clock());
+        "},\n", func_str, clock());
     JS_FreeCString(ctx, func_str);
 }
 #endif
