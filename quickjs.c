@@ -49998,22 +49998,25 @@ static int string_skip_until(const uint8_t *sp, int *pp, const char *stoplist) {
 }
 
 /* parse a numeric field (max_digits = 0 -> no maximum) */
+/* return FALSE if the value overflows INT32_MAX */
 static BOOL string_get_digits(const uint8_t *sp, int *pp, int *pval,
                               int min_digits, int max_digits)
 {
-    int v = 0;
+    uint64_t v = 0;
     int c, p = *pp, p_start;
 
     p_start = p;
     while ((c = sp[p]) >= '0' && c <= '9') {
         v = v * 10 + c - '0';
+        if (v >= INT32_MAX)
+            return FALSE;
         p++;
         if (p - p_start == max_digits)
             break;
     }
     if (p - p_start < min_digits)
         return FALSE;
-    *pval = v;
+    *pval = (int)v;
     *pp = p;
     return TRUE;
 }
@@ -50053,7 +50056,7 @@ static BOOL string_get_tzoffset(const uint8_t *sp, int *pp, int *tzp, BOOL stric
     sgn = sp[p++];
     if (sgn == '+' || sgn == '-') {
         int n = p;
-        if (!string_get_digits(sp, &p, &hh, 1, 9))
+        if (!string_get_digits(sp, &p, &hh, 1, 0))
             return FALSE;
         n = p - n;
         if (strict && n != 2 && n != 4)
@@ -50245,7 +50248,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp,
                 *is_local = FALSE;
             } else {
                 p++;
-                if (string_get_digits(sp, &p, &val, 1, 9)) {
+                if (string_get_digits(sp, &p, &val, 1, 0)) {
                     if (c == '-') {
                         if (val == 0)
                             return FALSE;
@@ -50256,7 +50259,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp,
                 }
             }
         } else
-        if (string_get_digits(sp, &p, &val, 1, 9)) {
+        if (string_get_digits(sp, &p, &val, 1, 0)) {
             if (string_skip_char(sp, &p, ':')) {
                 /* time part */
                 fields[3] = val;
