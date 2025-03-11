@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
@@ -19225,26 +19226,39 @@ static int js_async_function_resolve_create(JSContext *ctx,
     return 0;
 }
 
-static void js_async_function_resume(JSContext *ctx, JSAsyncFunctionState *s)
+static bool js_async_function_resume(JSContext *ctx, JSAsyncFunctionState *s)
 {
+    bool is_success = true;
     JSValue func_ret, ret2;
 
     func_ret = async_func_resume(ctx, s);
     if (s->is_completed) {
         if (JS_IsException(func_ret)) {
-            JSValue error;
+            //JSValue error;
         fail:
-            error = JS_GetException(ctx);
-            ret2 = JS_Call(ctx, s->resolving_funcs[1], JS_UNDEFINED,
-                           1, (JSValueConst *)&error);
-            JS_FreeValue(ctx, error);
-            JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
+            if (unlikely(JS_IsUncatchableError(ctx, ctx->rt->current_exception))) {
+                is_success = false;
+            } else {
+                JSValueConst error = JS_GetException(ctx);
+                ret2 = JS_Call(ctx, s->resolving_funcs[1], JS_UNDEFINED, 1, &error);
+                JS_FreeValue(ctx, error);
+            resolved:
+                if (unlikely(JS_IsException(ret2))) {
+                    if (JS_IsUncatchableError(ctx, ctx->rt->current_exception)) {
+                        is_success = false;
+                    } else {
+                        abort(); /* BUG */
+                    }
+                }
+                JS_FreeValue(ctx, ret2);
+            }
         } else {
             /* normal return */
             ret2 = JS_Call(ctx, s->resolving_funcs[0], JS_UNDEFINED,
                            1, (JSValueConst *)&func_ret);
             JS_FreeValue(ctx, func_ret);
-            JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
+            // JS_FreeValue(ctx, ret2); /* XXX: what to do if exception ? */
+            goto resolved;
         }
     } else {
         JSValue value, promise, resolving_funcs[2], resolving_funcs1[2];
@@ -19278,6 +19292,8 @@ static void js_async_function_resume(JSContext *ctx, JSAsyncFunctionState *s)
         if (res)
             goto fail;
     }
+
+    return is_success;
 }
 
 static JSValue js_async_function_resolve_call(JSContext *ctx,
@@ -19302,7 +19318,8 @@ static JSValue js_async_function_resolve_call(JSContext *ctx,
         /* return value of await */
         s->frame.cur_sp[-1] = JS_DupValue(ctx, arg);
     }
-    js_async_function_resume(ctx, s);
+    if (!js_async_function_resume(ctx, s))
+        return JS_EXCEPTION;
     return JS_UNDEFINED;
 }
 
@@ -19323,7 +19340,11 @@ static JSValue js_async_function_call(JSContext *ctx, JSValueConst func_obj,
         return JS_EXCEPTION;
     }
 
-    js_async_function_resume(ctx, s);
+    if (!js_async_function_resume(ctx, s)) {
+        JS_FreeValue(ctx, promise);
+        // js_async_function_free(ctx->rt, s);
+        return JS_EXCEPTION;
+    }
 
     async_func_free(ctx->rt, s);
 
@@ -47959,8 +47980,11 @@ static JSValue promise_reaction_job(JSContext *ctx, int argc,
         res = JS_Call(ctx, handler, JS_UNDEFINED, 1, &arg);
     }
     is_reject = JS_IsException(res);
-    if (is_reject)
+    if (is_reject) {
+        if (unlikely(JS_IsUncatchableError(ctx, ctx->rt->current_exception)))
+            return JS_EXCEPTION;
         res = JS_GetException(ctx);
+    }
     func = argv[is_reject];
     /* as an extension, we support undefined as value to avoid
        creating a dummy promise in the 'await' implementation of async
