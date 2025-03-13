@@ -52,18 +52,6 @@ function pad_center(str, n) {
     return str;
 }
 
-function toPrec(n, prec) {
-    var i, s;
-    for (i = 0; i < prec; i++)
-        n *= 10;
-    s = "" + Math.round(n);
-    for (i = s.length - prec; i <= 0; i++)
-        s = "0" + s;
-    if (prec > 0)
-        s = s.substring(0, i) + "." + s.substring(i);
-    return s;
-}
-
 var ref_data;
 var log_data;
 
@@ -83,7 +71,7 @@ function log_line() {
         a = arguments[i];
         if (typeof a === "number") {
             total[i] += a;
-            a = toPrec(a, precs[i]);
+            a = a.toFixed(precs[i]);
             s += pad_left(a, widths[i]);
         } else {
             s += pad_left(a, widths[i]);
