@@ -14857,16 +14857,16 @@ static JSValue js_build_arguments(JSContext *ctx, int argc, JSValueConst *argv)
     /* add the length field (cannot fail) */
     pr = add_property(ctx, p, JS_ATOM_length,
                       JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    if (unlikely(!pr))
+        goto fail;
     pr->u.value = JS_NewInt32(ctx, argc);
 
     /* initialize the fast array part */
     tab = NULL;
     if (argc > 0) {
         tab = js_malloc(ctx, sizeof(tab[0]) * argc);
-        if (!tab) {
-            JS_FreeValue(ctx, val);
-            return JS_EXCEPTION;
-        }
+        if (!tab)
+            goto fail;
         for(i = 0; i < argc; i++) {
             tab[i] = JS_DupValue(ctx, argv[i]);
         }
@@ -14882,6 +14882,9 @@ static JSValue js_build_arguments(JSContext *ctx, int argc, JSValueConst *argv)
                       ctx->throw_type_error, ctx->throw_type_error,
                       JS_PROP_HAS_GET | JS_PROP_HAS_SET);
     return val;
+ fail:
+    JS_FreeValue(ctx, val);
+    return JS_EXCEPTION;
 }
 
 #define GLOBAL_VAR_OFFSET 0x40000000
@@ -14906,6 +14909,8 @@ static JSValue js_build_mapped_arguments(JSContext *ctx, int argc,
     /* add the length field (cannot fail) */
     pr = add_property(ctx, p, JS_ATOM_length,
                       JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    if (unlikely(!pr))
+        goto fail;
     pr->u.value = JS_NewInt32(ctx, argc);
 
     for(i = 0; i < arg_count; i++) {
