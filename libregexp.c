@@ -686,6 +686,10 @@ static int get_class_atom(REParseState *s, CharRange *cr,
                 c = '\\';
             }
             break;
+        case '-':
+            if (!inclass && s->is_unicode)
+                goto invalid_escape;
+            break;
 #ifdef CONFIG_ALL_UNICODE
         case 'p':
         case 'P':
