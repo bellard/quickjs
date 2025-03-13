@@ -363,10 +363,7 @@ typedef struct JSVarRef {
         struct {
             int __gc_ref_count; /* corresponds to header.ref_count */
             uint8_t __gc_mark; /* corresponds to header.mark/gc_obj_type */
-            uint8_t is_detached : 1;
-            uint8_t is_arg : 1;
-            uint16_t var_idx; /* index of the corresponding function variable on
-                                 the stack */
+            uint8_t is_detached;
         };
     };
     JSValue *pvalue; /* pointer to the value, either on the stack or
@@ -15673,10 +15670,16 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf,
 {
     JSVarRef *var_ref;
     struct list_head *el;
+    JSValue *pvalue;
+
+    if (is_arg)
+        pvalue = &sf->arg_buf[var_idx];
+    else
+        pvalue = &sf->var_buf[var_idx];
 
     list_for_each(el, &sf->var_ref_list) {
         var_ref = list_entry(el, JSVarRef, var_ref_link);
-        if (var_ref->var_idx == var_idx && var_ref->is_arg == is_arg) {
+        if (var_ref->pvalue == pvalue) {
             var_ref->header.ref_count++;
             return var_ref;
         }
@@ -15688,8 +15691,6 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf,
     var_ref->header.ref_count = 1;
     add_gc_object(ctx->rt, &var_ref->header, JS_GC_OBJ_TYPE_VAR_REF);
     var_ref->is_detached = FALSE;
-    var_ref->is_arg = is_arg;
-    var_ref->var_idx = var_idx;
     list_add_tail(&var_ref->var_ref_link, &sf->var_ref_list);
     if (sf->js_mode & JS_MODE_ASYNC) {
         /* The stack frame is detached and may be destroyed at any
@@ -15705,10 +15706,7 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf,
     } else {
         var_ref->async_func = NULL;
     }
-    if (is_arg)
-        var_ref->pvalue = &sf->arg_buf[var_idx];
-    else
-        var_ref->pvalue = &sf->var_buf[var_idx];
+    var_ref->pvalue = pvalue;
     return var_ref;
 }
 
@@ -15936,37 +15934,33 @@ static void close_var_refs(JSRuntime *rt, JSStackFrame *sf)
 {
     struct list_head *el, *el1;
     JSVarRef *var_ref;
-    int var_idx;
 
     list_for_each_safe(el, el1, &sf->var_ref_list) {
         var_ref = list_entry(el, JSVarRef, var_ref_link);
         /* no need to unlink var_ref->var_ref_link as the list is never used afterwards */
         if (var_ref->async_func)
             async_func_free(rt, var_ref->async_func);
-        var_idx = var_ref->var_idx;
-        if (var_ref->is_arg)
-            var_ref->value = JS_DupValueRT(rt, sf->arg_buf[var_idx]);
-        else
-            var_ref->value = JS_DupValueRT(rt, sf->var_buf[var_idx]);
+        var_ref->value = JS_DupValueRT(rt, *var_ref->pvalue);
         var_ref->pvalue = &var_ref->value;
         /* the reference is no longer to a local variable */
         var_ref->is_detached = TRUE;
     }
 }
 
-static void close_lexical_var(JSContext *ctx, JSStackFrame *sf, int idx, int is_arg)
+static void close_lexical_var(JSContext *ctx, JSStackFrame *sf, int var_idx)
 {
+    JSValue *pvalue;
     struct list_head *el, *el1;
     JSVarRef *var_ref;
-    int var_idx = idx;
 
+    pvalue = &sf->var_buf[var_idx];
     list_for_each_safe(el, el1, &sf->var_ref_list) {
         var_ref = list_entry(el, JSVarRef, var_ref_link);
-        if (var_idx == var_ref->var_idx && var_ref->is_arg == is_arg) {
+        if (var_ref->pvalue == pvalue) {
             list_del(&var_ref->var_ref_link);
             if (var_ref->async_func)
                 async_func_free(ctx->rt, var_ref->async_func);
-            var_ref->value = JS_DupValue(ctx, sf->var_buf[var_idx]);
+            var_ref->value = JS_DupValue(ctx, *var_ref->pvalue);
             var_ref->pvalue = &var_ref->value;
             /* the reference is no longer to a local variable */
             var_ref->is_detached = TRUE;
@@ -17199,7 +17193,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 int idx;
                 idx = get_u16(pc);
                 pc += 2;
-                close_lexical_var(ctx, sf, idx, FALSE);
+                close_lexical_var(ctx, sf, idx);
             }
             BREAK;
 
