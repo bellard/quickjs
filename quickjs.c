@@ -8601,6 +8601,8 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                 goto retry2;
             } else if (!(prs->flags & JS_PROP_WRITABLE)) {
                 goto read_only_prop;
+            } else {
+                break;
             }
         }
     }
