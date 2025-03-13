@@ -50006,6 +50006,9 @@ static BOOL string_get_digits(const uint8_t *sp, int *pp, int *pval,
 
     p_start = p;
     while ((c = sp[p]) >= '0' && c <= '9') {
+        /* arbitrary limit to 9 digits */
+        if (v >= 100000000)
+            return FALSE;
         v = v * 10 + c - '0';
         p++;
         if (p - p_start == max_digits)
@@ -50053,7 +50056,7 @@ static BOOL string_get_tzoffset(const uint8_t *sp, int *pp, int *tzp, BOOL stric
     sgn = sp[p++];
     if (sgn == '+' || sgn == '-') {
         int n = p;
-        if (!string_get_digits(sp, &p, &hh, 1, 9))
+        if (!string_get_digits(sp, &p, &hh, 1, 0))
             return FALSE;
         n = p - n;
         if (strict && n != 2 && n != 4)
@@ -50245,7 +50248,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp,
                 *is_local = FALSE;
             } else {
                 p++;
-                if (string_get_digits(sp, &p, &val, 1, 9)) {
+                if (string_get_digits(sp, &p, &val, 1, 0)) {
                     if (c == '-') {
                         if (val == 0)
                             return FALSE;
@@ -50256,7 +50259,7 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp,
                 }
             }
         } else
-        if (string_get_digits(sp, &p, &val, 1, 9)) {
+        if (string_get_digits(sp, &p, &val, 1, 0)) {
             if (string_skip_char(sp, &p, ':')) {
                 /* time part */
                 fields[3] = val;
