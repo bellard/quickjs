@@ -537,6 +537,207 @@ int cr_invert(CharRange *cr)
     return 0;
 }
 
+#define CASE_U (1 << 0)
+#define CASE_L (1 << 1)
+#define CASE_F (1 << 2)
+
+/* use the case conversion table to generate range of characters.
+   CASE_U: set char if modified by uppercasing,
+   CASE_L: set char if modified by lowercasing,
+   CASE_F: set char if modified by case folding,
+ */
+static int unicode_case1(CharRange *cr, int case_mask)
+{
+#define MR(x) (1 << RUN_TYPE_ ## x)
+    const uint32_t tab_run_mask[3] = {
+        MR(U) | MR(UF) | MR(UL) | MR(LSU) | MR(U2L_399_EXT2) | MR(UF_D20) |
+        MR(UF_D1_EXT) | MR(U_EXT) | MR(UF_EXT2) | MR(UF_EXT3),
+
+        MR(L) | MR(LF) | MR(UL) | MR(LSU) | MR(U2L_399_EXT2) | MR(LF_EXT) | MR(LF_EXT2),
+
+        MR(UF) | MR(LF) | MR(UL) | MR(LSU) | MR(U2L_399_EXT2) | MR(LF_EXT) | MR(LF_EXT2) | MR(UF_D20) | MR(UF_D1_EXT) | MR(LF_EXT) | MR(UF_EXT2) | MR(UF_EXT3),
+    };
+#undef MR
+    uint32_t mask, v, code, type, len, i, idx;
+
+    if (case_mask == 0)
+        return 0;
+    mask = 0;
+    for(i = 0; i < 3; i++) {
+        if ((case_mask >> i) & 1)
+            mask |= tab_run_mask[i];
+    }
+    for(idx = 0; idx < countof(case_conv_table1); idx++) {
+        v = case_conv_table1[idx];
+        type = (v >> (32 - 17 - 7 - 4)) & 0xf;
+        code = v >> (32 - 17);
+        len = (v >> (32 - 17 - 7)) & 0x7f;
+        if ((mask >> type) & 1) {
+            //            printf("%d: type=%d %04x %04x\n", idx, type, code, code + len - 1);
+            switch(type) {
+            case RUN_TYPE_UL:
+                if ((case_mask & CASE_U) && (case_mask & (CASE_L | CASE_F)))
+                    goto def_case;
+                code += ((case_mask & CASE_U) != 0);
+                for(i = 0; i < len; i += 2) {
+                    if (cr_add_interval(cr, code + i, code + i + 1))
+                        return -1;
+                }
+                break;
+            case RUN_TYPE_LSU:
+                if ((case_mask & CASE_U) && (case_mask & (CASE_L | CASE_F)))
+                    goto def_case;
+                if (!(case_mask & CASE_U)) {
+                    if (cr_add_interval(cr, code, code + 1))
+                        return -1;
+                }
+                if (cr_add_interval(cr, code + 1, code + 2))
+                    return -1;
+                if (case_mask & CASE_U) {
+                    if (cr_add_interval(cr, code + 2, code + 3))
+                        return -1;
+                }
+                break;
+            default:
+            def_case:
+                if (cr_add_interval(cr, code, code + len))
+                    return -1;
+                break;
+            }
+        }
+    }
+    return 0;
+}
+
+static int point_cmp(const void *p1, const void *p2, void *arg)
+{
+    uint32_t v1 = *(uint32_t *)p1;
+    uint32_t v2 = *(uint32_t *)p2;
+    return (v1 > v2) - (v1 < v2);
+}
+
+static void cr_sort_and_remove_overlap(CharRange *cr)
+{
+    uint32_t start, end, start1, end1, i, j;
+
+    /* the resulting ranges are not necessarily sorted and may overlap */
+    rqsort(cr->points, cr->len / 2, sizeof(cr->points[0]) * 2, point_cmp, NULL);
+    j = 0;
+    for(i = 0; i < cr->len; ) {
+        start = cr->points[i];
+        end = cr->points[i + 1];
+        i += 2;
+        while (i < cr->len) {
+            start1 = cr->points[i];
+            end1 = cr->points[i + 1];
+            if (start1 > end) {
+                /* |------|
+                 *           |-------| */
+                break;
+            } else if (end1 <= end) {
+                /* |------|
+                 *    |--| */
+                i += 2;
+            } else {
+                /* |------|
+                 *     |-------| */
+                end = end1;
+                i += 2;
+            }
+        }
+        cr->points[j] = start;
+        cr->points[j + 1] = end;
+        j += 2;
+    }
+    cr->len = j;
+}
+
+/* canonicalize a character set using the JS regex case folding rules
+   (see lre_canonicalize()) */
+int cr_regexp_canonicalize(CharRange *cr, BOOL is_unicode)
+{
+    CharRange cr_inter, cr_mask, cr_result, cr_sub;
+    uint32_t v, code, len, i, idx, start, end, c, d_start, d_end, d;
+
+    cr_init(&cr_mask, cr->mem_opaque, cr->realloc_func);
+    cr_init(&cr_inter, cr->mem_opaque, cr->realloc_func);
+    cr_init(&cr_result, cr->mem_opaque, cr->realloc_func);
+    cr_init(&cr_sub, cr->mem_opaque, cr->realloc_func);
+
+    if (unicode_case1(&cr_mask, is_unicode ? CASE_F : CASE_U))
+        goto fail;
+    if (cr_op(&cr_inter, cr_mask.points, cr_mask.len, cr->points, cr->len, CR_OP_INTER))
+        goto fail;
+
+    if (cr_invert(&cr_mask))
+        goto fail;
+    if (cr_op(&cr_sub, cr_mask.points, cr_mask.len, cr->points, cr->len, CR_OP_INTER))
+        goto fail;
+
+    /* cr_inter = cr & cr_mask */
+    /* cr_sub = cr & ~cr_mask */
+
+    /* use the case conversion table to compute the result */
+    d_start = -1;
+    d_end = -1;
+    idx = 0;
+    v = case_conv_table1[idx];
+    code = v >> (32 - 17);
+    len = (v >> (32 - 17 - 7)) & 0x7f;
+    for(i = 0; i < cr_inter.len; i += 2) {
+        start = cr_inter.points[i];
+        end = cr_inter.points[i + 1];
+
+        for(c = start; c < end; c++) {
+            for(;;) {
+                if (c >= code && c < code + len)
+                    break;
+                idx++;
+                assert(idx < countof(case_conv_table1));
+                v = case_conv_table1[idx];
+                code = v >> (32 - 17);
+                len = (v >> (32 - 17 - 7)) & 0x7f;
+            }
+            d = lre_case_folding_entry(c, idx, v, is_unicode);
+            /* try to merge with the current interval */
+            if (d_start == -1) {
+                d_start = d;
+                d_end = d + 1;
+            } else if (d_end == d) {
+                d_end++;
+            } else {
+                cr_add_interval(&cr_result, d_start, d_end);
+                d_start = d;
+                d_end = d + 1;
+            }
+        }
+    }
+    if (d_start != -1) {
+        if (cr_add_interval(&cr_result, d_start, d_end))
+            goto fail;
+    }
+
+    /* the resulting ranges are not necessarily sorted and may overlap */
+    cr_sort_and_remove_overlap(&cr_result);
+
+    /* or with the character not affected by the case folding */
+    cr->len = 0;
+    if (cr_op(cr, cr_result.points, cr_result.len, cr_sub.points, cr_sub.len, CR_OP_UNION))
+        goto fail;
+
+    cr_free(&cr_inter);
+    cr_free(&cr_mask);
+    cr_free(&cr_result);
+    cr_free(&cr_sub);
+    return 0;
+ fail:
+    cr_free(&cr_inter);
+    cr_free(&cr_mask);
+    cr_free(&cr_result);
+    cr_free(&cr_sub);
+    return -1;
+}
+
 #ifdef CONFIG_ALL_UNICODE
 
 BOOL lre_is_id_start(uint32_t c)
@@ -1294,207 +1495,6 @@ static int unicode_prop1(CharRange *cr, int prop_idx)
         bit ^= 1;
     }
     return 0;
-}
-
-#define CASE_U (1 << 0)
-#define CASE_L (1 << 1)
-#define CASE_F (1 << 2)
-
-/* use the case conversion table to generate range of characters.
-   CASE_U: set char if modified by uppercasing,
-   CASE_L: set char if modified by lowercasing,
-   CASE_F: set char if modified by case folding,
- */
-static int unicode_case1(CharRange *cr, int case_mask)
-{
-#define MR(x) (1 << RUN_TYPE_ ## x)
-    const uint32_t tab_run_mask[3] = {
-        MR(U) | MR(UF) | MR(UL) | MR(LSU) | MR(U2L_399_EXT2) | MR(UF_D20) |
-        MR(UF_D1_EXT) | MR(U_EXT) | MR(UF_EXT2) | MR(UF_EXT3),
-
-        MR(L) | MR(LF) | MR(UL) | MR(LSU) | MR(U2L_399_EXT2) | MR(LF_EXT) | MR(LF_EXT2),
-
-        MR(UF) | MR(LF) | MR(UL) | MR(LSU) | MR(U2L_399_EXT2) | MR(LF_EXT) | MR(LF_EXT2) | MR(UF_D20) | MR(UF_D1_EXT) | MR(LF_EXT) | MR(UF_EXT2) | MR(UF_EXT3),
-    };
-#undef MR
-    uint32_t mask, v, code, type, len, i, idx;
-
-    if (case_mask == 0)
-        return 0;
-    mask = 0;
-    for(i = 0; i < 3; i++) {
-        if ((case_mask >> i) & 1)
-            mask |= tab_run_mask[i];
-    }
-    for(idx = 0; idx < countof(case_conv_table1); idx++) {
-        v = case_conv_table1[idx];
-        type = (v >> (32 - 17 - 7 - 4)) & 0xf;
-        code = v >> (32 - 17);
-        len = (v >> (32 - 17 - 7)) & 0x7f;
-        if ((mask >> type) & 1) {
-            //            printf("%d: type=%d %04x %04x\n", idx, type, code, code + len - 1);
-            switch(type) {
-            case RUN_TYPE_UL:
-                if ((case_mask & CASE_U) && (case_mask & (CASE_L | CASE_F)))
-                    goto def_case;
-                code += ((case_mask & CASE_U) != 0);
-                for(i = 0; i < len; i += 2) {
-                    if (cr_add_interval(cr, code + i, code + i + 1))
-                        return -1;
-                }
-                break;
-            case RUN_TYPE_LSU:
-                if ((case_mask & CASE_U) && (case_mask & (CASE_L | CASE_F)))
-                    goto def_case;
-                if (!(case_mask & CASE_U)) {
-                    if (cr_add_interval(cr, code, code + 1))
-                        return -1;
-                }
-                if (cr_add_interval(cr, code + 1, code + 2))
-                    return -1;
-                if (case_mask & CASE_U) {
-                    if (cr_add_interval(cr, code + 2, code + 3))
-                        return -1;
-                }
-                break;
-            default:
-            def_case:
-                if (cr_add_interval(cr, code, code + len))
-                    return -1;
-                break;
-            }
-        }
-    }
-    return 0;
-}
-
-static int point_cmp(const void *p1, const void *p2, void *arg)
-{
-    uint32_t v1 = *(uint32_t *)p1;
-    uint32_t v2 = *(uint32_t *)p2;
-    return (v1 > v2) - (v1 < v2);
-}
-
-static void cr_sort_and_remove_overlap(CharRange *cr)
-{
-    uint32_t start, end, start1, end1, i, j;
-
-    /* the resulting ranges are not necessarily sorted and may overlap */
-    rqsort(cr->points, cr->len / 2, sizeof(cr->points[0]) * 2, point_cmp, NULL);
-    j = 0;
-    for(i = 0; i < cr->len; ) {
-        start = cr->points[i];
-        end = cr->points[i + 1];
-        i += 2;
-        while (i < cr->len) {
-            start1 = cr->points[i];
-            end1 = cr->points[i + 1];
-            if (start1 > end) {
-                /* |------|
-                 *           |-------| */
-                break;
-            } else if (end1 <= end) {
-                /* |------|
-                 *    |--| */
-                i += 2;
-            } else {
-                /* |------|
-                 *     |-------| */
-                end = end1;
-                i += 2;
-            }
-        }
-        cr->points[j] = start;
-        cr->points[j + 1] = end;
-        j += 2;
-    }
-    cr->len = j;
-}
-
-/* canonicalize a character set using the JS regex case folding rules
-   (see lre_canonicalize()) */
-int cr_regexp_canonicalize(CharRange *cr, BOOL is_unicode)
-{
-    CharRange cr_inter, cr_mask, cr_result, cr_sub;
-    uint32_t v, code, len, i, idx, start, end, c, d_start, d_end, d;
-
-    cr_init(&cr_mask, cr->mem_opaque, cr->realloc_func);
-    cr_init(&cr_inter, cr->mem_opaque, cr->realloc_func);
-    cr_init(&cr_result, cr->mem_opaque, cr->realloc_func);
-    cr_init(&cr_sub, cr->mem_opaque, cr->realloc_func);
-
-    if (unicode_case1(&cr_mask, is_unicode ? CASE_F : CASE_U))
-        goto fail;
-    if (cr_op(&cr_inter, cr_mask.points, cr_mask.len, cr->points, cr->len, CR_OP_INTER))
-        goto fail;
-
-    if (cr_invert(&cr_mask))
-        goto fail;
-    if (cr_op(&cr_sub, cr_mask.points, cr_mask.len, cr->points, cr->len, CR_OP_INTER))
-        goto fail;
-
-    /* cr_inter = cr & cr_mask */
-    /* cr_sub = cr & ~cr_mask */
-
-    /* use the case conversion table to compute the result */
-    d_start = -1;
-    d_end = -1;
-    idx = 0;
-    v = case_conv_table1[idx];
-    code = v >> (32 - 17);
-    len = (v >> (32 - 17 - 7)) & 0x7f;
-    for(i = 0; i < cr_inter.len; i += 2) {
-        start = cr_inter.points[i];
-        end = cr_inter.points[i + 1];
-
-        for(c = start; c < end; c++) {
-            for(;;) {
-                if (c >= code && c < code + len)
-                    break;
-                idx++;
-                assert(idx < countof(case_conv_table1));
-                v = case_conv_table1[idx];
-                code = v >> (32 - 17);
-                len = (v >> (32 - 17 - 7)) & 0x7f;
-            }
-            d = lre_case_folding_entry(c, idx, v, is_unicode);
-            /* try to merge with the current interval */
-            if (d_start == -1) {
-                d_start = d;
-                d_end = d + 1;
-            } else if (d_end == d) {
-                d_end++;
-            } else {
-                cr_add_interval(&cr_result, d_start, d_end);
-                d_start = d;
-                d_end = d + 1;
-            }
-        }
-    }
-    if (d_start != -1) {
-        if (cr_add_interval(&cr_result, d_start, d_end))
-            goto fail;
-    }
-
-    /* the resulting ranges are not necessarily sorted and may overlap */
-    cr_sort_and_remove_overlap(&cr_result);
-
-    /* or with the character not affected by the case folding */
-    cr->len = 0;
-    if (cr_op(cr, cr_result.points, cr_result.len, cr_sub.points, cr_sub.len, CR_OP_UNION))
-        goto fail;
-
-    cr_free(&cr_inter);
-    cr_free(&cr_mask);
-    cr_free(&cr_result);
-    cr_free(&cr_sub);
-    return 0;
- fail:
-    cr_free(&cr_inter);
-    cr_free(&cr_mask);
-    cr_free(&cr_result);
-    cr_free(&cr_sub);
-    return -1;
 }
 
 typedef enum {
