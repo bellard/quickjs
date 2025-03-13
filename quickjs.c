@@ -45412,6 +45412,11 @@ static int js_json_to_str(JSContext *ctx, JSONStringifyContext *jsc,
     tab = JS_UNDEFINED;
     prop = JS_UNDEFINED;
 
+    if (js_check_stack_overflow(ctx->rt, 0)) {
+        JS_ThrowStackOverflow(ctx);
+        goto exception;
+    }
+
     if (JS_IsObject(val)) {
         p = JS_VALUE_GET_OBJ(val);
         cl = p->class_id;
