@@ -54,6 +54,9 @@ typedef enum {
 
 #define CAPTURE_COUNT_MAX 255
 #define STACK_SIZE_MAX 255
+/* must be large enough to have a negligible runtime cost and small
+   enough to call the interrupt callback often. */
+#define INTERRUPT_COUNTER_INIT 10000
 
 /* unicode code points */
 #define CP_LS   0x2028
@@ -1931,6 +1934,7 @@ typedef struct {
     BOOL multi_line;
     BOOL ignore_case;
     BOOL is_unicode;
+    int interrupt_counter;
     void *opaque; /* used for stack overflow check */
 
     size_t state_size;
@@ -1977,7 +1981,17 @@ static int push_state(REExecContext *s,
     return 0;
 }
 
-/* return 1 if match, 0 if not match or -1 if error. */
+static int lre_poll_timeout(REExecContext *s)
+{
+    if (unlikely(--s->interrupt_counter <= 0)) {
+        s->interrupt_counter = INTERRUPT_COUNTER_INIT;
+        if (lre_check_timeout(s->opaque))
+            return LRE_RET_TIMEOUT;
+    }
+    return 0;
+}
+
+/* return 1 if match, 0 if not match or < 0 if error. */
 static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                                    StackInt *stack, int stack_len,
                                    const uint8_t *pc, const uint8_t *cptr,
@@ -2008,6 +2022,8 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                 ret = 0;
             recurse:
                 for(;;) {
+                    if (lre_poll_timeout(s))
+                        return LRE_RET_TIMEOUT;
                     if (s->state_stack_len == 0)
                         return ret;
                     rs = (REExecState *)(s->state_stack +
@@ -2097,7 +2113,7 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                 ret = push_state(s, capture, stack, stack_len,
                                  pc1, cptr, RE_EXEC_STATE_SPLIT, 0);
                 if (ret < 0)
-                    return -1;
+                    return LRE_RET_MEMORY_ERROR;
                 break;
             }
         case REOP_lookahead:
@@ -2109,12 +2125,14 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                              RE_EXEC_STATE_LOOKAHEAD + opcode - REOP_lookahead,
                              0);
             if (ret < 0)
-                return -1;
+                return LRE_RET_MEMORY_ERROR;
             break;
 
         case REOP_goto:
             val = get_u32(pc);
             pc += 4 + (int)val;
+            if (lre_poll_timeout(s))
+                return LRE_RET_TIMEOUT;
             break;
         case REOP_line_start:
             if (cptr == s->cbuf)
@@ -2179,6 +2197,8 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
             pc += 4;
             if (--stack[stack_len - 1] != 0) {
                 pc += (int)val;
+                if (lre_poll_timeout(s))
+                    return LRE_RET_TIMEOUT;
             }
             break;
         case REOP_push_char_pos:
@@ -2353,9 +2373,12 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
 
                 q = 0;
                 for(;;) {
+                    if (lre_poll_timeout(s))
+                        return LRE_RET_TIMEOUT;
                     res = lre_exec_backtrack(s, capture, stack, stack_len,
                                              pc1, cptr, TRUE);
-                    if (res == -1)
+                    if (res == LRE_RET_MEMORY_ERROR ||
+                        res == LRE_RET_TIMEOUT)
                         return res;
                     if (!res)
                         break;
@@ -2373,7 +2396,7 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                                      RE_EXEC_STATE_GREEDY_QUANT,
                                      q - quant_min);
                     if (ret < 0)
-                        return -1;
+                        return LRE_RET_MEMORY_ERROR;
                 }
             }
             break;
@@ -2383,7 +2406,7 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
     }
 }
 
-/* Return 1 if match, 0 if not match or -1 if error. cindex is the
+/* Return 1 if match, 0 if not match or < 0 if error (see LRE_RET_x). cindex is the
    starting position of the match and must be such as 0 <= cindex <=
    clen. */
 int lre_exec(uint8_t **capture,
@@ -2405,6 +2428,7 @@ int lre_exec(uint8_t **capture,
     s->cbuf_type = cbuf_type;
     if (s->cbuf_type == 1 && s->is_unicode)
         s->cbuf_type = 2;
+    s->interrupt_counter = INTERRUPT_COUNTER_INIT;
     s->opaque = opaque;
 
     s->state_size = sizeof(REExecState) +

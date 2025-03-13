@@ -36,6 +36,9 @@
 #define LRE_FLAG_INDICES    (1 << 6) /* Unused by libregexp, just recorded. */
 #define LRE_FLAG_NAMED_GROUPS (1 << 7) /* named groups are present in the regexp */
 
+#define LRE_RET_MEMORY_ERROR (-1)
+#define LRE_RET_TIMEOUT      (-2)
+
 uint8_t *lre_compile(int *plen, char *error_msg, int error_msg_size,
                      const char *buf, size_t buf_len, int re_flags,
                      void *opaque);
@@ -50,6 +53,8 @@ int lre_parse_escape(const uint8_t **pp, int allow_utf16);
 
 /* must be provided by the user, return non zero if overflow */
 int lre_check_stack_overflow(void *opaque, size_t alloca_size);
+/* must be provided by the user, return non zero if time out */
+int lre_check_timeout(void *opaque);
 void *lre_realloc(void *opaque, void *ptr, size_t size);
 
 #endif /* LIBREGEXP_H */
