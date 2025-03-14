@@ -417,6 +417,7 @@ typedef struct JSMemoryUsage {
 
 void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s);
 void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt);
+void JS_DumpObjects(JSRuntime *rt);
 
 /* atom support */
 #define JS_ATOM_NULL 0

@@ -2292,17 +2292,7 @@ void JS_FreeContext(JSContext *ctx)
     JS_DumpShapes(ctx->rt);
 #endif
 #ifdef DUMP_OBJECTS
-    {
-        struct list_head *el;
-        JSGCObjectHeader *p;
-        printf("JSObjects: {\n");
-        JS_DumpObjectHeader(ctx->rt);
-        list_for_each(el, &rt->gc_obj_list) {
-            p = list_entry(el, JSGCObjectHeader, link);
-            JS_DumpGCObject(rt, p);
-        }
-        printf("}\n");
-    }
+    JS_DumpObjects(ctx-rt);
 #endif
 #ifdef DUMP_MEM
     {
@@ -5238,6 +5228,9 @@ static force_inline JSShapeProperty *find_own_property(JSProperty **ppr,
     JSShapeProperty *pr, *prop;
     intptr_t h;
     sh = p->shape;
+    if (sh == NULL) {
+        return NULL;
+    }
     h = (uintptr_t)atom & sh->prop_hash_mask;
     h = prop_hash_end(sh)[-h - 1];
     prop = get_shape_prop(sh);
@@ -6373,6 +6366,18 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
         fprintf(fp, "%-20s %8"PRId64" %8"PRId64"\n",
                 "binary objects", s->binary_object_count, s->binary_object_size);
     }
+}
+
+void JS_DumpObjects(JSRuntime *rt){
+    struct list_head *el;
+    JSGCObjectHeader *p;
+    printf("JSObjects: {\n");
+    JS_DumpObjectHeader(rt);
+    list_for_each(el, &rt->gc_obj_list) {
+        p = list_entry(el, JSGCObjectHeader, link);
+        JS_DumpGCObject(rt, p);
+    }
+    printf("}\n");
 }
 
 JSValue JS_GetGlobalObject(JSContext *ctx)
@@ -8058,6 +8063,9 @@ static JSProperty *add_property(JSContext *ctx,
     JSShape *sh, *new_sh;
 
     sh = p->shape;
+    if(sh == NULL) {
+        return NULL;
+    }
     if (sh->is_hashed) {
         /* try to find an existing shape */
         new_sh = find_hashed_shape_prop(ctx->rt, sh, prop, prop_flags);
