@@ -53,6 +53,9 @@ PREFIX?=/usr/local
 
 # include the code for BigFloat/BigDecimal and math mode
 CONFIG_BIGNUM=y
+# Include code for profiling individual function calls.
+# qjs will produce a file compatible with chrome devtools and other tools.
+# CONFIG_PROFILE_CALLS=y
 
 OBJDIR=.obj
 
@@ -147,6 +150,9 @@ ifndef CONFIG_WIN32
 ifeq ($(shell $(CC) -o /dev/null compat/test-closefrom.c 2>/dev/null && echo 1),1)
 DEFINES+=-DHAVE_CLOSEFROM
 endif
+endif
+ifdef CONFIG_PROFILE_CALLS
+DEFINES+=-DCONFIG_PROFILE_CALLS
 endif
 
 CFLAGS+=$(DEFINES)

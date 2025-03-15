@@ -289,12 +289,57 @@ void help(void)
 #endif
            "-T  --trace        trace memory allocation\n"
            "-d  --dump         dump the memory usage stats\n"
+#ifdef CONFIG_PROFILE_CALLS
+           "-p  --profile FILE dump the profiling stats to FILENAME in a format that can be open in chromium devtools\n"
+           "    --profile-sampling n collect function calls every 1/n times. Defaults to 1 (i.e. every call)\n"
+#endif
            "    --memory-limit n       limit the memory usage to 'n' bytes\n"
            "    --stack-size n         limit the stack size to 'n' bytes\n"
            "    --unhandled-rejection  dump unhandled promise rejections\n"
            "-q  --quit         just instantiate the interpreter and quit\n");
     exit(1);
 }
+
+#ifdef CONFIG_PROFILE_CALLS
+const char *get_func_name(JSContext *ctx, JSAtom func) {
+    if (func == JS_ATOM_NULL) {
+        return js_strdup(ctx, "<anonymous>");
+    }
+    const char* func_str = JS_AtomToCString(ctx, func);
+    if (func_str[0]) {
+        return func_str;
+    }
+    return js_strdup(ctx, "<anonymous>");
+}
+void profile_function_start(JSContext *ctx, JSAtom func, JSAtom filename, void *opaque) {
+    const char *func_str = get_func_name(ctx, func);
+    FILE *logfile = (FILE *)opaque;
+    // Format documented here:
+    // https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0#heading=h.yr4qxyxotyw
+    fprintf(logfile, "{"
+            "\"name\": \"%s\","
+            "\"cat\": \"js\","
+            "\"ph\": \"B\","
+            "\"ts\": %ld,"
+            "\"pid\": 1,"
+            "\"tid\": 1"
+        "},\n", func_str, clock());
+    JS_FreeCString(ctx, func_str);
+}
+void profile_function_end(JSContext *ctx, JSAtom func, JSAtom filename, void *opaque) {
+    const char *func_str = get_func_name(ctx, func);
+    FILE *logfile = (FILE *)opaque;
+    fprintf(logfile, "{"
+            "\"name\": \"%s\","
+            "\"cat\": \"js\","
+            "\"ph\": \"E\","
+            "\"ts\": %ld,"
+            "\"pid\": 1,"
+            "\"tid\": 1"
+        "},\n", func_str, clock());
+    JS_FreeCString(ctx, func_str);
+}
+#endif
 
 int main(int argc, char **argv)
 {
@@ -306,6 +351,10 @@ int main(int argc, char **argv)
     int interactive = 0;
     int dump_memory = 0;
     int trace_memory = 0;
+#ifdef CONFIG_PROFILE_CALLS
+    FILE *profile_file = NULL;
+    uint32_t profile_sampling = 1;
+#endif
     int empty_run = 0;
     int module = -1;
     int load_std = 0;
@@ -399,6 +448,29 @@ int main(int argc, char **argv)
                 trace_memory++;
                 continue;
             }
+#ifdef CONFIG_PROFILE_CALLS
+            if (opt == 'p' || !strcmp(longopt, "profile")) {
+                if (*arg) {
+                    profile_file = fopen(arg, "w");
+                    break;
+                }
+                if (optind < argc) {
+                    profile_file = fopen(argv[optind++], "w");
+                    break;
+                }
+                fprintf(stderr, "qjs: missing filename for -p\n");
+                exit(1);
+                continue;
+            }
+            if (!strcmp(longopt, "profile-sampling")) {
+                if (optind >= argc) {
+                    fprintf(stderr, "expecting profile sampling");
+                    exit(1);
+                }
+                profile_sampling = (uint32_t)strtod(argv[optind++], NULL);
+                continue;
+            }
+#endif
             if (!strcmp(longopt, "std")) {
                 load_std = 1;
                 continue;
@@ -461,6 +533,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "qjs: cannot allocate JS runtime\n");
         exit(2);
     }
+#ifdef CONFIG_PROFILE_CALLS
+    if(profile_file) {
+        JS_EnableProfileCalls(rt, profile_function_start, profile_function_end, profile_sampling, profile_file);
+        fprintf(profile_file, "{\"traceEvents\": [");
+    }
+#endif
     if (memory_limit != 0)
         JS_SetMemoryLimit(rt, memory_limit);
     if (stack_size != 0)
@@ -530,6 +608,13 @@ int main(int argc, char **argv)
     js_std_free_handlers(rt);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
+#ifdef CONFIG_PROFILE_CALLS
+    if(profile_file) {
+        // Inject an instant event at the end just to make sure it's valid JSON.
+        fprintf(profile_file, R"({"name": "end", "ph": "I", "ts": %ld, "pid": 1, "tid": 1, "s": "g"}]})", clock());
+        fclose(profile_file);
+    }
+#endif
 
     if (empty_run && dump_memory) {
         clock_t t[5];
