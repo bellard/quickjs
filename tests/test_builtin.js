@@ -779,6 +779,92 @@ function test_weak_map()
         tab[i][0] = null; /* should remove the object from the WeakMap too */
     }
     /* the WeakMap should be empty here */
+
+    // test symbol as key
+    var symbol_key = Symbol("key");
+    a = new WeakMap();
+    a.set(symbol_key, "hello");
+    assert(a.has(symbol_key), true);
+    assert(a.get(symbol_key), "hello");
+
+    symbol_key = undefined;
+    assert(a.has(symbol_key), false);
+    assert(a.get(symbol_key), undefined);
+}
+
+function test_weak_ref()
+{
+    (function case_object() {
+        var obj = {};
+        var ref = new WeakRef(obj);
+        var ref2 = new WeakRef(obj);
+
+        assert(ref.deref(), obj);
+        assert(ref2.deref(), obj);
+
+        obj = undefined;
+        /* weak ref should be released */
+        assert(ref.deref(), undefined);
+        assert(ref2.deref(), undefined);
+    })();
+
+    (function case_symbol() {
+        var sym = Symbol("sym")
+        var ref3 = new WeakRef(sym);
+        assert(ref3.deref(), sym);
+        sym = undefined;
+        assert(ref3.deref(), undefined);
+        new WeakRef(Symbol.hasInstance);
+    })();
+
+    (function case_bad_param() {
+        function should_fail(block) {
+            try {
+                block()
+            } catch (e) {
+                return
+            }
+            throw_error("weak ref should throw exception, but it not");
+        }
+
+
+        should_fail(() => new WeakRef("string"));
+        should_fail(() => new WeakRef(/* number */0));
+        should_fail(() => new WeakRef(/* registered symbol */ Symbol.for("test")));
+    })();
+
+    (function case_cycle_ref() {
+        var obj = {};
+        var ref = new WeakRef(obj);
+        obj["x"] = ref;
+    })();
+    std.gc();
+
+    (function case_lots_of_weak() {
+        var size = 1000;
+        var objs = new Array(size);
+        var weak1 = new Array(size);
+        var weak2 = new Array(size);
+        for (var i = 0; i < size; i++) {
+            objs[i] = { index: i };
+            weak1[i] = new WeakRef(objs[i]);
+            weak2[i] = new WeakRef(objs[i]);
+        }
+        for (var i = 0; i < size; i++) {
+            assert(weak1[i].deref(), objs[i]);
+            assert(weak2[i].deref(), objs[i]);
+        }
+        for (var i = 0; i < size / 2; i++) {
+            objs[i] = undefined;
+        }
+        for (var i = 0; i < size / 2; i++) {
+            assert(weak1[i].deref(), undefined);
+            assert(weak2[i].deref(), undefined);
+        }
+        weak1 = undefined;
+        weak2 = undefined;
+        objs = undefined;
+    })();
 }
 
 function test_generator()
@@ -855,4 +941,5 @@ test_regexp();
 test_symbol();
 test_map();
 test_weak_map();
+test_weak_ref();
 test_generator();
