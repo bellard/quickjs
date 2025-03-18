@@ -64,6 +64,14 @@ typedef uint32_t JSAtom;
 #define JS_NAN_BOXING
 #endif
 
+#if defined(__SIZEOF_INT128__) && (INTPTR_MAX >= INT64_MAX)
+#define JS_LIMB_BITS 64
+#else
+#define JS_LIMB_BITS 32
+#endif
+
+#define JS_SHORT_BIG_INT_BITS JS_LIMB_BITS
+    
 enum {
     /* all tags with a reference count are negative */
     JS_TAG_FIRST       = -11, /* first negative tag */
@@ -83,7 +91,8 @@ enum {
     JS_TAG_UNINITIALIZED = 4,
     JS_TAG_CATCH_OFFSET = 5,
     JS_TAG_EXCEPTION   = 6,
-    JS_TAG_FLOAT64     = 7,
+    JS_TAG_SHORT_BIG_INT = 7,
+    JS_TAG_FLOAT64     = 8,
     /* any larger tag is FLOAT64 if JS_NAN_BOXING */
 };
 
@@ -108,6 +117,7 @@ typedef const struct __JSValue *JSValueConst;
 #define JS_VALUE_GET_INT(v) (int)((intptr_t)(v) >> 4)
 #define JS_VALUE_GET_BOOL(v) JS_VALUE_GET_INT(v)
 #define JS_VALUE_GET_FLOAT64(v) (double)JS_VALUE_GET_INT(v)
+#define JS_VALUE_GET_SHORT_BIG_INT(v) JS_VALUE_GET_INT(v)
 #define JS_VALUE_GET_PTR(v) (void *)((intptr_t)(v) & ~0xf)
 
 #define JS_MKVAL(tag, val) (JSValue)(intptr_t)(((val) << 4) | (tag))
@@ -127,6 +137,11 @@ static inline JS_BOOL JS_VALUE_IS_NAN(JSValue v)
     return 0;
 }
 
+static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int32_t d)
+{
+    return JS_MKVAL(JS_TAG_SHORT_BIG_INT, d);
+}
+
 #elif defined(JS_NAN_BOXING)
 
 typedef uint64_t JSValue;
@@ -136,6 +151,7 @@ typedef uint64_t JSValue;
 #define JS_VALUE_GET_TAG(v) (int)((v) >> 32)
 #define JS_VALUE_GET_INT(v) (int)(v)
 #define JS_VALUE_GET_BOOL(v) (int)(v)
+#define JS_VALUE_GET_SHORT_BIG_INT(v) (int)(v)
 #define JS_VALUE_GET_PTR(v) (void *)(intptr_t)(v)
 
 #define JS_MKVAL(tag, val) (((uint64_t)(tag) << 32) | (uint32_t)(val))
@@ -192,12 +208,22 @@ static inline JS_BOOL JS_VALUE_IS_NAN(JSValue v)
     return tag == (JS_NAN >> 32);
 }
 
+static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int32_t d)
+{
+    return JS_MKVAL(JS_TAG_SHORT_BIG_INT, d);
+}
+
 #else /* !JS_NAN_BOXING */
 
 typedef union JSValueUnion {
     int32_t int32;
     double float64;
     void *ptr;
+#if JS_SHORT_BIG_INT_BITS == 32
+    int32_t short_big_int;
+#else
+    int64_t short_big_int;
+#endif
 } JSValueUnion;
 
 typedef struct JSValue {
@@ -213,6 +239,7 @@ typedef struct JSValue {
 #define JS_VALUE_GET_INT(v) ((v).u.int32)
 #define JS_VALUE_GET_BOOL(v) ((v).u.int32)
 #define JS_VALUE_GET_FLOAT64(v) ((v).u.float64)
+#define JS_VALUE_GET_SHORT_BIG_INT(v) ((v).u.short_big_int)
 #define JS_VALUE_GET_PTR(v) ((v).u.ptr)
 
 #define JS_MKVAL(tag, val) (JSValue){ (JSValueUnion){ .int32 = val }, tag }
@@ -240,6 +267,14 @@ static inline JS_BOOL JS_VALUE_IS_NAN(JSValue v)
         return 0;
     u.d = v.u.float64;
     return (u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000;
+}
+
+static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int64_t d)
+{
+    JSValue v;
+    v.tag = JS_TAG_SHORT_BIG_INT;
+    v.u.short_big_int = d;
+    return v;
 }
 
 #endif /* !JS_NAN_BOXING */
@@ -576,7 +611,7 @@ static inline JS_BOOL JS_IsNumber(JSValueConst v)
 static inline JS_BOOL JS_IsBigInt(JSContext *ctx, JSValueConst v)
 {
     int tag = JS_VALUE_GET_TAG(v);
-    return tag == JS_TAG_BIG_INT;
+    return tag == JS_TAG_BIG_INT || tag == JS_TAG_SHORT_BIG_INT;
 }
 
 static inline JS_BOOL JS_IsBigFloat(JSValueConst v)

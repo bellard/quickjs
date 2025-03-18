@@ -344,4 +344,24 @@ void rqsort(void *base, size_t nmemb, size_t size,
             int (*cmp)(const void *, const void *, void *),
             void *arg);
 
+static inline uint64_t float64_as_uint64(double d)
+{
+    union {
+        double d;
+        uint64_t u64;
+    } u;
+    u.d = d;
+    return u.u64;
+}
+
+static inline double uint64_as_float64(uint64_t u64)
+{
+    union {
+        double d;
+        uint64_t u64;
+    } u;
+    u.u64 = u64;
+    return u.d;
+}
+
 #endif  /* CUTILS_H */

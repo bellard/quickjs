@@ -38,7 +38,6 @@ REPL:
 
 Optimization ideas:
 - 64-bit atoms in 64-bit mode ?
-- 64-bit small bigint in 64-bit mode ?
 - reuse stack slots for disjoint scopes, if strip
 - add heuristic to avoid some cycles in closures
 - small String (0-2 charcodes) with immediate storage

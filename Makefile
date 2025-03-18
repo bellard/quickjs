@@ -51,9 +51,6 @@ PREFIX?=/usr/local
 # use UB sanitizer
 #CONFIG_UBSAN=y
 
-# include the code for BigFloat/BigDecimal and math mode
-CONFIG_BIGNUM=y
-
 OBJDIR=.obj
 
 ifdef CONFIG_ASAN
@@ -137,9 +134,6 @@ ifdef CONFIG_WERROR
 CFLAGS+=-Werror
 endif
 DEFINES:=-D_GNU_SOURCE -DCONFIG_VERSION=\"$(shell cat VERSION)\"
-ifdef CONFIG_BIGNUM
-DEFINES+=-DCONFIG_BIGNUM
-endif
 ifdef CONFIG_WIN32
 DEFINES+=-D__USE_MINGW_ANSI_STDIO # for standard snprintf behavior
 endif
@@ -201,9 +195,6 @@ else
 QJSC_CC=$(CC)
 QJSC=./qjsc$(EXE)
 endif
-ifndef CONFIG_WIN32
-PROGS+=qjscalc
-endif
 ifdef CONFIG_M32
 PROGS+=qjs32 qjs32_s
 endif
@@ -228,12 +219,9 @@ endif
 
 all: $(OBJDIR) $(OBJDIR)/quickjs.check.o $(OBJDIR)/qjs.check.o $(PROGS)
 
-QJS_LIB_OBJS=$(OBJDIR)/quickjs.o $(OBJDIR)/libregexp.o $(OBJDIR)/libunicode.o $(OBJDIR)/cutils.o $(OBJDIR)/quickjs-libc.o $(OBJDIR)/libbf.o
+QJS_LIB_OBJS=$(OBJDIR)/quickjs.o $(OBJDIR)/libregexp.o $(OBJDIR)/libunicode.o $(OBJDIR)/cutils.o $(OBJDIR)/quickjs-libc.o
 
 QJS_OBJS=$(OBJDIR)/qjs.o $(OBJDIR)/repl.o $(QJS_LIB_OBJS)
-ifdef CONFIG_BIGNUM
-QJS_OBJS+=$(OBJDIR)/qjscalc.o
-endif
 
 HOST_LIBS=-lm -ldl -lpthread
 LIBS=-lm
@@ -289,9 +277,6 @@ qjs32_s: $(patsubst %.o, %.m32s.o, $(QJS_OBJS))
 	$(CC) -m32 $(LDFLAGS) -o $@ $^ $(LIBS)
 	@size $@
 
-qjscalc: qjs
-	ln -sf $< $@
-
 ifdef CONFIG_LTO
 LTOEXT=.lto
 else
@@ -311,9 +296,6 @@ libquickjs.fuzz.a: $(patsubst %.o, %.fuzz.o, $(QJS_LIB_OBJS))
 
 repl.c: $(QJSC) repl.js
 	$(QJSC) -c -o $@ -m repl.js
-
-qjscalc.c: $(QJSC) qjscalc.js
-	$(QJSC) -fbignum -c -o $@ qjscalc.js
 
 ifneq ($(wildcard unicode/UnicodeData.txt),)
 $(OBJDIR)/libunicode.o $(OBJDIR)/libunicode.m32.o $(OBJDIR)/libunicode.m32s.o \
@@ -371,7 +353,7 @@ unicode_gen: $(OBJDIR)/unicode_gen.host.o $(OBJDIR)/cutils.host.o libunicode.c u
 	$(HOST_CC) $(LDFLAGS) $(CFLAGS) -o $@ $(OBJDIR)/unicode_gen.host.o $(OBJDIR)/cutils.host.o
 
 clean:
-	rm -f repl.c qjscalc.c out.c
+	rm -f repl.c out.c
 	rm -f *.a *.o *.d *~ unicode_gen regexp_test fuzz_eval fuzz_compile fuzz_regexp $(PROGS)
 	rm -f hello.c test_fib.c
 	rm -f examples/*.so tests/*.so
@@ -383,7 +365,6 @@ install: all
 	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
 	$(STRIP) qjs$(EXE) qjsc$(EXE)
 	install -m755 qjs$(EXE) qjsc$(EXE) "$(DESTDIR)$(PREFIX)/bin"
-	ln -sf qjs$(EXE) "$(DESTDIR)$(PREFIX)/bin/qjscalc$(EXE)"
 	mkdir -p "$(DESTDIR)$(PREFIX)/lib/quickjs"
 	install -m644 libquickjs.a "$(DESTDIR)$(PREFIX)/lib/quickjs"
 ifdef CONFIG_LTO
@@ -468,35 +449,21 @@ test: qjs
 	./qjs tests/test_language.js
 	./qjs --std tests/test_builtin.js
 	./qjs tests/test_loop.js
-	./qjs tests/test_bignum.js
+	./qjs tests/test_bigint.js
 	./qjs tests/test_std.js
 	./qjs tests/test_worker.js
 ifdef CONFIG_SHARED_LIBS
-ifdef CONFIG_BIGNUM
-	./qjs --bignum tests/test_bjson.js
-else
 	./qjs tests/test_bjson.js
-endif
 	./qjs examples/test_point.js
-endif
-ifdef CONFIG_BIGNUM
-	./qjs --bignum tests/test_op_overloading.js
-	./qjs --bignum tests/test_bigfloat.js
-	./qjs --qjscalc tests/test_qjscalc.js
 endif
 ifdef CONFIG_M32
 	./qjs32 tests/test_closure.js
 	./qjs32 tests/test_language.js
 	./qjs32 --std tests/test_builtin.js
 	./qjs32 tests/test_loop.js
-	./qjs32 tests/test_bignum.js
+	./qjs32 tests/test_bigint.js
 	./qjs32 tests/test_std.js
 	./qjs32 tests/test_worker.js
-ifdef CONFIG_BIGNUM
-	./qjs32 --bignum tests/test_op_overloading.js
-	./qjs32 --bignum tests/test_bigfloat.js
-	./qjs32 --qjscalc tests/test_qjscalc.js
-endif
 endif
 
 stats: qjs qjs32
@@ -556,7 +523,7 @@ node-test:
 	node tests/test_language.js
 	node tests/test_builtin.js
 	node tests/test_loop.js
-	node tests/test_bignum.js
+	node tests/test_bigint.js
 
 node-microbench:
 	node tests/microbench.js -s microbench-node.txt
