@@ -286,8 +286,7 @@ struct JSClass {
 
 #define JS_MODE_STRICT (1 << 0)
 #define JS_MODE_STRIP  (1 << 1)
-#define JS_MODE_MATH   (1 << 2)
-#define JS_MODE_ASYNC  (1 << 3) /* async function */
+#define JS_MODE_ASYNC  (1 << 2) /* async function */
 
 typedef struct JSStackFrame {
     struct JSStackFrame *prev_frame; /* NULL if first stack frame */
@@ -298,7 +297,7 @@ typedef struct JSStackFrame {
     const uint8_t *cur_pc; /* only used in bytecode functions : PC of the
                         instruction after the call */
     int arg_count;
-    int js_mode; /* for C functions, only JS_MODE_MATH may be set */
+    int js_mode; /* not supported for C functions */
     /* only used in generators. Current stack pointer value. NULL if
        the function is running. */
     JSValue *cur_sp;
@@ -12871,19 +12870,6 @@ static __maybe_unused void JS_DumpValueShort(JSRuntime *rt,
     case JS_TAG_FLOAT64:
         printf("%.14g", JS_VALUE_GET_FLOAT64(val));
         break;
-#if 0
-        /* XXX: TODO */
-    case JS_TAG_BIG_INT:
-        {
-            JSBigFloat *p = JS_VALUE_GET_PTR(val);
-            char *str;
-            str = bf_ftoa(NULL, &p->num, 10, 0,
-                          BF_RNDZ | BF_FTOA_FORMAT_FRAC);
-            printf("%sn", str);
-            bf_realloc(&rt->bf_ctx, str, 0);
-        }
-        break;
-#endif
     case JS_TAG_STRING:
         {
             JSString *p;
@@ -17723,8 +17709,6 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 op2 = sp[-1];
                 if (likely(JS_VALUE_IS_BOTH_INT(op1, op2))) {
                     int v1, v2;
-                    if (unlikely(sf->js_mode & JS_MODE_MATH))
-                        goto binary_arith_slow;
                     v1 = JS_VALUE_GET_INT(op1);
                     v2 = JS_VALUE_GET_INT(op2);
                     sp[-2] = JS_NewFloat64(ctx, (double)v1 / (double)v2);
@@ -44666,7 +44650,6 @@ static JSValue js_json_check(JSContext *ctx, JSONStringifyContext *jsc,
 
     /* check for object.toJSON method */
     /* ECMA specifies this is done only for Object and BigInt */
-    /* we do it for BigFloat and BigDecimal as an extension */
     if (JS_IsObject(val) || JS_IsBigInt(ctx, val)) {
         JSValue f = JS_GetProperty(ctx, val, JS_ATOM_toJSON);
         if (JS_IsException(f))

@@ -75,11 +75,9 @@ typedef uint32_t JSAtom;
 enum {
     /* all tags with a reference count are negative */
     JS_TAG_FIRST       = -11, /* first negative tag */
-    JS_TAG_BIG_DECIMAL = -11,
-    JS_TAG_BIG_INT     = -10,
-    JS_TAG_BIG_FLOAT   = -9,
-    JS_TAG_SYMBOL      = -8,
-    JS_TAG_STRING      = -7,
+    JS_TAG_BIG_INT     = -11,
+    JS_TAG_SYMBOL      = -10,
+    JS_TAG_STRING      = -9,
     JS_TAG_MODULE      = -3, /* used internally */
     JS_TAG_FUNCTION_BYTECODE = -2, /* used internally */
     JS_TAG_OBJECT      = -1,
@@ -409,12 +407,6 @@ void JS_AddIntrinsicMapSet(JSContext *ctx);
 void JS_AddIntrinsicTypedArrays(JSContext *ctx);
 void JS_AddIntrinsicPromise(JSContext *ctx);
 void JS_AddIntrinsicBigInt(JSContext *ctx);
-void JS_AddIntrinsicBigFloat(JSContext *ctx);
-void JS_AddIntrinsicBigDecimal(JSContext *ctx);
-/* enable operator overloading */
-void JS_AddIntrinsicOperators(JSContext *ctx);
-/* enable "use math" */
-void JS_EnableBignumExt(JSContext *ctx, JS_BOOL enable);
 
 JSValue js_string_codePointRange(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv);
@@ -612,18 +604,6 @@ static inline JS_BOOL JS_IsBigInt(JSContext *ctx, JSValueConst v)
 {
     int tag = JS_VALUE_GET_TAG(v);
     return tag == JS_TAG_BIG_INT || tag == JS_TAG_SHORT_BIG_INT;
-}
-
-static inline JS_BOOL JS_IsBigFloat(JSValueConst v)
-{
-    int tag = JS_VALUE_GET_TAG(v);
-    return tag == JS_TAG_BIG_FLOAT;
-}
-
-static inline JS_BOOL JS_IsBigDecimal(JSValueConst v)
-{
-    int tag = JS_VALUE_GET_TAG(v);
-    return tag == JS_TAG_BIG_DECIMAL;
 }
 
 static inline JS_BOOL JS_IsBool(JSValueConst v)
