@@ -379,7 +379,7 @@ typedef struct JSBigInt {
 
 /* this bigint structure can hold a 64 bit integer */
 typedef struct {
-    JSBigInt big_int;
+    js_limb_t big_int_buf[sizeof(JSBigInt) / sizeof(js_limb_t)]; /* for JSBigInt */
     /* must come just after */
     js_limb_t tab[(64 + JS_LIMB_BITS - 1) / JS_LIMB_BITS];
 } JSBigIntBuf;
@@ -10195,7 +10195,7 @@ static JSBigInt *js_bigint_new(JSContext *ctx, int len)
 
 static JSBigInt *js_bigint_set_si(JSBigIntBuf *buf, js_slimb_t a)
 {
-    JSBigInt *r = &buf->big_int;
+    JSBigInt *r = (JSBigInt *)buf->big_int_buf;
     r->len = 1;
     r->tab[0] = a;
     return r;
@@ -10901,7 +10901,7 @@ static JSBigInt *js_bigint_from_float64(JSContext *ctx, int *pres, double a1)
     }
     
     /* the integer is mant*2^e */
-    r = &buf.big_int;
+    r = (JSBigInt *)buf.big_int_buf;
 #if JS_LIMB_BITS == 64
     r->len = 1;
     r->tab[0] = mant;
