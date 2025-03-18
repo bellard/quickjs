@@ -149,7 +149,7 @@ function test_for_in()
 
 function test_for_in2()
 {
-    var i;
+    var i, tab;
     tab = [];
     for(i in {x:1, y: 2, z:3}) {
         if (i === "y")
