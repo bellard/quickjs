@@ -1934,6 +1934,9 @@ typedef struct {
     /* 0 = 8 bit chars, 1 = 16 bit chars, 2 = 16 bit chars, UTF-16 */
     int cbuf_type;
     int capture_count;
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    int backtrack_count;
+#endif
     int stack_size_max;
     BOOL multi_line;
     BOOL ignore_case;
@@ -2011,6 +2014,12 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
 
     for(;;) {
         //        printf("top=%p: pc=%d\n", th_list.top, (int)(pc - (bc_buf + RE_HEADER_LEN)));
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+        if (++s->backtrack_count > 1000) {
+            return -1; // backtracking limit exceeded
+        }
+#endif
+
         opcode = *pc++;
         switch(opcode) {
         case REOP_match:
@@ -2426,6 +2435,9 @@ int lre_exec(uint8_t **capture,
     s->ignore_case = (re_flags & LRE_FLAG_IGNORECASE) != 0;
     s->is_unicode = (re_flags & LRE_FLAG_UNICODE) != 0;
     s->capture_count = bc_buf[RE_HEADER_CAPTURE_COUNT];
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    s->backtrack_count = 0;
+#endif
     s->stack_size_max = bc_buf[RE_HEADER_STACK_SIZE];
     s->cbuf = cbuf;
     s->cbuf_end = cbuf + (clen << cbuf_type);
