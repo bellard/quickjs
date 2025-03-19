@@ -381,7 +381,7 @@ examples/hello: $(OBJDIR)/hello.o $(QJS_LIB_OBJS)
 
 # example of static JS compilation with modules
 HELLO_MODULE_SRCS=examples/hello_module.js
-HELLO_MODULE_OPTS=-fno-string-normalize -fno-map -fno-promise -fno-typedarray \
+HELLO_MODULE_OPTS=-fno-string-normalize -fno-map -fno-typedarray \
            -fno-typedarray -fno-regexp -fno-json -fno-eval -fno-proxy \
            -fno-date -m
 examples/hello_module: $(QJSC) libquickjs$(LTOEXT).a $(HELLO_MODULE_SRCS)
