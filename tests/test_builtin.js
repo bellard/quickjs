@@ -390,8 +390,12 @@ function test_number()
     assert((-25).toExponential(0), "-3e+1");
     assert((2.5).toPrecision(1), "3");
     assert((-2.5).toPrecision(1), "-3");
+    assert((25).toPrecision(1) === "3e+1");
     assert((1.125).toFixed(2), "1.13");
     assert((-1.125).toFixed(2), "-1.13");
+
+    assert((1.3).toString(7), "1.2046204620462046205");
+    assert((1.3).toString(35), "1.ahhhhhhhhhm");
 }
 
 function test_eval2()
