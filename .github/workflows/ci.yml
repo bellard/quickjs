@@ -37,6 +37,25 @@ jobs:
         run: |
           make microbench
 
+  linux-32bit:
+    name: Linux 32bit (Ubuntu)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install gcc-multilib
+        run: |
+          sudo apt install -y gcc-multilib
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_M32=y
+      - name: Run built-in tests
+        run: |
+          make CONFIG_M32=y test
+
   linux-asan:
     runs-on: ubuntu-latest
     steps:
@@ -141,6 +160,29 @@ jobs:
             gmake
             ./qjs -qd
             gmake test
+
+  cosmopolitan:
+    name: Cosmopolitan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Cosmopolitan
+        run: |
+          mkdir ~/cosmocc
+          cd ~/cosmocc
+          wget https://cosmo.zip/pub/cosmocc/cosmocc.zip
+          unzip cosmocc.zip
+          echo "$HOME/cosmocc/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: |
+          make CONFIG_COSMO=y
+      - name: Run built-in tests
+        run: |
+          make CONFIG_COSMO=y test
 
   qemu-alpine:
     runs-on: ubuntu-latest
