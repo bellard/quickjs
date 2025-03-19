@@ -149,11 +149,12 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - i386
-          - arm32v6
-          - arm32v7
-          - arm64v8
-          - s390x
+          - linux/386
+          - linux/riscv64
+          - linux/arm64
+          - linux/arm/v6
+          - linux/arm/v7
+          - linux/s390x
 
     steps:
       - uses: actions/checkout@v4
@@ -162,5 +163,4 @@ jobs:
       - name: Get qemu
         run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Run tests on ${{ matrix.platform }}
-        run: docker run --rm --interactive --mount type=bind,source=$(pwd),target=/host ${{ matrix.platform }}/alpine sh -c "apk add git patch make gcc libc-dev && cd /host && make test"
-
+        run: docker run --rm --interactive --mount type=bind,source=$(pwd),target=/host --platform ${{ matrix.platform }} alpine sh -c "apk add git patch make gcc libc-dev && cd /host && make test"
