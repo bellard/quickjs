@@ -34,7 +34,7 @@ endif
 #CONFIG_LTO=y
 # consider warnings as errors (for development)
 #CONFIG_WERROR=y
-# force 32 bit build for some utilities
+# force 32 bit build on x86_64
 #CONFIG_M32=y
 # cosmopolitan build (see https://github.com/jart/cosmopolitan)
 #CONFIG_COSMO=y
@@ -129,6 +129,13 @@ else
   endif
 endif
 STRIP?=$(CROSS_PREFIX)strip
+ifdef CONFIG_M32
+CFLAGS+=-msse2 -mfpmath=sse # use SSE math for correct FP rounding
+ifndef CONFIG_WIN32
+CFLAGS+=-m32
+LDFLAGS+=-m32
+endif
+endif
 CFLAGS+=-fwrapv # ensure that signed overflows behave as expected
 ifdef CONFIG_WERROR
 CFLAGS+=-Werror
@@ -195,9 +202,6 @@ else
 QJSC_CC=$(CC)
 QJSC=./qjsc$(EXE)
 endif
-ifdef CONFIG_M32
-PROGS+=qjs32 qjs32_s
-endif
 PROGS+=libquickjs.a
 ifdef CONFIG_LTO
 PROGS+=libquickjs.lto.a
@@ -208,7 +212,11 @@ ifeq ($(CROSS_PREFIX),)
 ifndef CONFIG_ASAN
 ifndef CONFIG_MSAN
 ifndef CONFIG_UBSAN
-PROGS+=examples/hello examples/hello_module examples/test_fib
+PROGS+=examples/hello examples/test_fib
+# no -m32 option in qjsc
+ifndef CONFIG_M32
+PROGS+=examples/hello_module
+endif
 ifdef CONFIG_SHARED_LIBS
 PROGS+=examples/fib.so examples/point.so
 endif
@@ -270,13 +278,6 @@ QJSC_HOST_DEFINES:=-DCONFIG_CC=\"$(HOST_CC)\" -DCONFIG_PREFIX=\"$(PREFIX)\"
 $(OBJDIR)/qjsc.o: CFLAGS+=$(QJSC_DEFINES)
 $(OBJDIR)/qjsc.host.o: CFLAGS+=$(QJSC_HOST_DEFINES)
 
-qjs32: $(patsubst %.o, %.m32.o, $(QJS_OBJS))
-	$(CC) -m32 $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS)
-
-qjs32_s: $(patsubst %.o, %.m32s.o, $(QJS_OBJS))
-	$(CC) -m32 $(LDFLAGS) -o $@ $^ $(LIBS)
-	@size $@
-
 ifdef CONFIG_LTO
 LTOEXT=.lto
 else
@@ -298,8 +299,7 @@ repl.c: $(QJSC) repl.js
 	$(QJSC) -c -o $@ -m repl.js
 
 ifneq ($(wildcard unicode/UnicodeData.txt),)
-$(OBJDIR)/libunicode.o $(OBJDIR)/libunicode.m32.o $(OBJDIR)/libunicode.m32s.o \
-    $(OBJDIR)/libunicode.nolto.o: libunicode-table.h
+$(OBJDIR)/libunicode.o $(OBJDIR)/libunicode.nolto.o: libunicode-table.h
 
 libunicode-table.h: unicode_gen
 	./unicode_gen unicode $@
@@ -311,10 +311,7 @@ run-test262: $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS)
 run-test262-debug: $(patsubst %.o, %.debug.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS))
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-run-test262-32: $(patsubst %.o, %.m32.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS))
-	$(CC) -m32 $(LDFLAGS) -o $@ $^ $(LIBS)
-
-# object suffix order: nolto, [m32|m32s]
+# object suffix order: nolto
 
 $(OBJDIR)/%.o: %.c | $(OBJDIR)
 	$(CC) $(CFLAGS_OPT) -c -o $@ $<
@@ -330,12 +327,6 @@ $(OBJDIR)/%.pic.o: %.c | $(OBJDIR)
 
 $(OBJDIR)/%.nolto.o: %.c | $(OBJDIR)
 	$(CC) $(CFLAGS_NOLTO) -c -o $@ $<
-
-$(OBJDIR)/%.m32.o: %.c | $(OBJDIR)
-	$(CC) -m32 $(CFLAGS_OPT) -c -o $@ $<
-
-$(OBJDIR)/%.m32s.o: %.c | $(OBJDIR)
-	$(CC) -m32 $(CFLAGS_SMALL) -c -o $@ $<
 
 $(OBJDIR)/%.debug.o: %.c | $(OBJDIR)
 	$(CC) $(CFLAGS_DEBUG) -c -o $@ $<
@@ -358,7 +349,7 @@ clean:
 	rm -f hello.c test_fib.c
 	rm -f examples/*.so tests/*.so
 	rm -rf $(OBJDIR)/ *.dSYM/ qjs-debug
-	rm -rf run-test262-debug run-test262-32
+	rm -rf run-test262-debug
 	rm -f run_octane run_sunspider_like
 
 install: all
@@ -385,13 +376,8 @@ HELLO_OPTS=-fno-string-normalize -fno-map -fno-promise -fno-typedarray \
 hello.c: $(QJSC) $(HELLO_SRCS)
 	$(QJSC) -e $(HELLO_OPTS) -o $@ $(HELLO_SRCS)
 
-ifdef CONFIG_M32
-examples/hello: $(OBJDIR)/hello.m32s.o $(patsubst %.o, %.m32s.o, $(QJS_LIB_OBJS))
-	$(CC) -m32 $(LDFLAGS) -o $@ $^ $(LIBS)
-else
 examples/hello: $(OBJDIR)/hello.o $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
-endif
 
 # example of static JS compilation with modules
 HELLO_MODULE_SRCS=examples/hello_module.js
@@ -440,9 +426,6 @@ doc/%.html: doc/%.html.pre
 ifdef CONFIG_SHARED_LIBS
 test: tests/bjson.so examples/point.so
 endif
-ifdef CONFIG_M32
-test: qjs32
-endif
 
 test: qjs
 	./qjs tests/test_closure.js
@@ -456,43 +439,27 @@ ifdef CONFIG_SHARED_LIBS
 	./qjs tests/test_bjson.js
 	./qjs examples/test_point.js
 endif
-ifdef CONFIG_M32
-	./qjs32 tests/test_closure.js
-	./qjs32 tests/test_language.js
-	./qjs32 --std tests/test_builtin.js
-	./qjs32 tests/test_loop.js
-	./qjs32 tests/test_bigint.js
-	./qjs32 tests/test_std.js
-	./qjs32 tests/test_worker.js
-endif
 
-stats: qjs qjs32
+stats: qjs
 	./qjs -qd
-	./qjs32 -qd
 
 microbench: qjs
 	./qjs --std tests/microbench.js
 
-microbench-32: qjs32
-	./qjs32 --std tests/microbench.js
-
 ifeq ($(wildcard test262o/tests.txt),)
-test2o test2o-32 test2o-update:
+test2o test2o-update:
 	@echo test262o tests not installed
 else
 # ES5 tests (obsolete)
 test2o: run-test262
 	time ./run-test262 -t -m -c test262o.conf
 
-test2o-32: run-test262-32
-	time ./run-test262-32 -t -m -c test262o.conf
-
 test2o-update: run-test262
 	./run-test262 -t -u -c test262o.conf
 endif
 
 ifeq ($(wildcard test262/features.txt),)
-test2 test2-32 test2-update test2-default test2-check:
+test2 test2-update test2-default test2-check:
 	@echo test262 tests not installed
 else
 # Test262 tests
@@ -501,9 +468,6 @@ test2-default: run-test262
 
 test2: run-test262
 	time ./run-test262 -t -m -c test262.conf -a
-
-test2-32: run-test262-32
-	time ./run-test262-32 -t -m -c test262.conf -a
 
 test2-update: run-test262
 	./run-test262 -t -u -c test262.conf -a
@@ -514,9 +478,7 @@ endif
 
 testall: all test microbench test2o test2
 
-testall-32: all test-32 microbench-32 test2o-32 test2-32
-
-testall-complete: testall testall-32
+testall-complete: testall
 
 node-test:
 	node tests/test_closure.js
