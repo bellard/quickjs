@@ -12870,19 +12870,32 @@ static __maybe_unused void JS_DumpValueShort(JSRuntime *rt,
     case JS_TAG_FLOAT64:
         printf("%.14g", JS_VALUE_GET_FLOAT64(val));
         break;
-#if 0
-        /* XXX: TODO */
+    case JS_TAG_SHORT_BIG_INT:
+        printf("%" PRId64 "n", (int64_t)JS_VALUE_GET_SHORT_BIG_INT(val));
+        break;
     case JS_TAG_BIG_INT:
         {
-            JSBigFloat *p = JS_VALUE_GET_PTR(val);
-            char *str;
-            str = bf_ftoa(NULL, &p->num, 10, 0,
-                          BF_RNDZ | BF_FTOA_FORMAT_FRAC);
-            printf("%sn", str);
-            bf_realloc(&rt->bf_ctx, str, 0);
+            JSBigInt *p = JS_VALUE_GET_PTR(val);
+            int sgn, i;
+            /* In order to avoid allocations we just dump the limbs */
+            sgn = js_bigint_sign(p);
+            if (sgn)
+                printf("BigInt.asIntN(%d,", p->len * JS_LIMB_BITS);
+            printf("0x");
+            for(i = p->len - 1; i >= 0; i--) {
+                if (i != p->len - 1)
+                    printf("_");
+#if JS_LIMB_BITS == 32
+                printf("%08x", p->tab[i]);
+#else
+                printf("%016" PRIx64, p->tab[i]);
+#endif
+            }
+            printf("n");
+            if (sgn)
+                printf(")");
         }
         break;
-#endif
     case JS_TAG_STRING:
         {
             JSString *p;
