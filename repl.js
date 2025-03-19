@@ -41,11 +41,6 @@ import * as os from "os";
     var isFinite = g.isFinite;
     var parseFloat = g.parseFloat;
 
-    /* XXX: use preprocessor ? */
-    var config_numcalc = (typeof os.open === "undefined");
-    var has_jscalc = (typeof Fraction === "function");
-    var has_bignum = (typeof BigFloat === "function");
-
     var colors = {
         none:    "\x1b[0m",
         black:   "\x1b[30m",
@@ -913,48 +908,6 @@ import * as os from "os";
         }
     }
 
-    function bigfloat_to_string(a, radix) {
-        var s;
-        if (!BigFloat.isFinite(a)) {
-            /* NaN, Infinite */
-            if (eval_mode !== "math") {
-                return "BigFloat(" + a.toString() + ")";
-            } else {
-                return a.toString();
-            }
-        } else {
-            if (a == 0) {
-                if (1 / a < 0)
-                    s = "-0";
-                else
-                    s = "0";
-            } else {
-                if (radix == 16) {
-                    var s;
-                    if (a < 0) {
-                        a = -a;
-                        s = "-";
-                    } else {
-                        s = "";
-                    }
-                    s += "0x" + a.toString(16);
-                } else {
-                    s = a.toString();
-                }
-            }
-            if (typeof a === "bigfloat" && eval_mode !== "math") {
-                s += "l";
-            } else if (eval_mode !== "std" && s.indexOf(".") < 0 &&
-                ((radix == 16 && s.indexOf("p") < 0) ||
-                 (radix == 10 && s.indexOf("e") < 0))) {
-                /* add a decimal point so that the floating point type
-                   is visible */
-                s += ".0";
-            }
-            return s;
-        }
-    }
-
     function bigint_to_string(a, radix) {
         var s;
         if (radix == 16) {
@@ -988,14 +941,6 @@ import * as os from "os";
                     std.puts("[circular]");
                 } else if (a instanceof Date) {
                     std.puts("Date " + a.toGMTString().__quote());
-                } else if (has_jscalc && (a instanceof Fraction ||
-                                        a instanceof Complex ||
-                                        a instanceof Mod ||
-                                        a instanceof Polynomial ||
-                                        a instanceof PolyMod ||
-                                        a instanceof RationalFunction ||
-                                        a instanceof Series)) {
-                    std.puts(a.toString());
                 } else {
                     stack.push(a);
                     if (Array.isArray(a)) {
@@ -1041,10 +986,6 @@ import * as os from "os";
                 std.puts(number_to_string(a, hex_mode ? 16 : 10));
             } else if (type === "bigint") {
                 std.puts(bigint_to_string(a, hex_mode ? 16 : 10));
-            } else if (type === "bigfloat") {
-                std.puts(bigfloat_to_string(a, hex_mode ? 16 : 10));
-            } else if (type === "bigdecimal") {
-                std.puts(a.toString() + "m");
             } else if (type === "symbol") {
                 std.puts(String(a));
             } else if (type === "function") {
@@ -1085,117 +1026,15 @@ import * as os from "os";
             hex_mode = false;
         } else if (cmd === "t") {
             show_time = !show_time;
-        } else if (has_bignum && cmd === "p") {
-            param = expr.substring(cmd.length + 1).trim().split(" ");
-            if (param.length === 1 && param[0] === "") {
-                std.puts("BigFloat precision=" + prec + " bits (~" +
-                          Math.floor(prec / log2_10) +
-                          " digits), exponent size=" + expBits + " bits\n");
-            } else if (param[0] === "f16") {
-                prec = 11;
-                expBits = 5;
-            } else if (param[0] === "f32") {
-                prec = 24;
-                expBits = 8;
-            } else if (param[0] === "f64") {
-                prec = 53;
-                expBits = 11;
-            } else if (param[0] === "f128") {
-                prec = 113;
-                expBits = 15;
-            } else {
-                prec1 = parseInt(param[0]);
-                if (param.length >= 2)
-                    expBits1 = parseInt(param[1]);
-                else
-                    expBits1 = BigFloatEnv.expBitsMax;
-                if (Number.isNaN(prec1) ||
-                    prec1 < BigFloatEnv.precMin ||
-                    prec1 > BigFloatEnv.precMax) {
-                    std.puts("Invalid precision\n");
-                    return false;
-                }
-                if (Number.isNaN(expBits1) ||
-                    expBits1 < BigFloatEnv.expBitsMin ||
-                    expBits1 > BigFloatEnv.expBitsMax) {
-                    std.puts("Invalid exponent bits\n");
-                    return false;
-                }
-                prec = prec1;
-                expBits = expBits1;
-            }
-            return false;
-        } else if (has_bignum && cmd === "digits") {
-            param = expr.substring(cmd.length + 1).trim();
-            prec1 = Math.ceil(parseFloat(param) * log2_10);
-            if (prec1 < BigFloatEnv.precMin ||
-                prec1 > BigFloatEnv.precMax) {
-                std.puts("Invalid precision\n");
-                return false;
-            }
-            prec = prec1;
-            expBits = BigFloatEnv.expBitsMax;
-            return false;
-        } else if (has_bignum && cmd === "mode") {
-            param = expr.substring(cmd.length + 1).trim();
-            if (param === "") {
-                std.puts("Running mode=" + eval_mode + "\n");
-            } else if (param === "std" || param === "math") {
-                eval_mode = param;
-            } else {
-                std.puts("Invalid mode\n");
-            }
-            return false;
         } else if (cmd === "clear") {
             std.puts("\x1b[H\x1b[J");
         } else if (cmd === "q") {
             std.exit(0);
-        } else if (has_jscalc && cmd === "a") {
-            algebraicMode = true;
-        } else if (has_jscalc && cmd === "n") {
-            algebraicMode = false;
         } else {
             std.puts("Unknown directive: " + cmd + "\n");
             return false;
         }
         return true;
-    }
-
-    if (config_numcalc) {
-        styles = {
-            'default':    'black',
-            'comment':    'white',
-            'string':     'green',
-            'regex':      'cyan',
-            'number':     'green',
-            'keyword':    'blue',
-            'function':   'gray',
-            'type':       'bright_magenta',
-            'identifier': 'yellow',
-            'error':      'bright_red',
-            'result':     'black',
-            'error_msg':  'bright_red',
-        };
-
-        ps1 = "> ";
-
-        /* called by the GUI */
-        g.execCmd = function (cmd) {
-            switch(cmd) {
-            case "dec":
-                hex_mode = false;
-                break;
-            case "hex":
-                hex_mode = true;
-                break;
-            case "num":
-                algebraicMode = false;
-                break;
-            case "alg":
-                algebraicMode = true;
-                break;
-            }
-        }
     }
 
     function help() {
@@ -1206,40 +1045,12 @@ import * as os from "os";
                  "\\x         " + sel(hex_mode) + "hexadecimal number display\n" +
                  "\\d         " + sel(!hex_mode) + "decimal number display\n" +
                  "\\t         " + sel(show_time) + "toggle timing display\n" +
-                  "\\clear      clear the terminal\n");
-        if (has_jscalc) {
-            std.puts("\\a         " + sel(algebraicMode) + "algebraic mode\n" +
-                     "\\n         " + sel(!algebraicMode) + "numeric mode\n");
-        }
-        if (has_bignum) {
-            std.puts("\\p [m [e]]  set the BigFloat precision to 'm' bits\n" +
-                     "\\digits n   set the BigFloat precision to 'ceil(n*log2(10))' bits\n");
-            if (!has_jscalc) {
-                std.puts("\\mode [std|math] change the running mode (current = " + eval_mode + ")\n");
-            }
-        }
-        if (!config_numcalc) {
-            std.puts("\\q          exit\n");
-        }
+                  "\\clear      clear the terminal\n" +
+                 "\\q          exit\n");
     }
 
     function cmd_start() {
-        if (!config_numcalc) {
-            if (has_jscalc)
-                std.puts('QJSCalc - Type "\\h" for help\n');
-            else
-                std.puts('QuickJS - Type "\\h" for help\n');
-        }
-        if (has_bignum) {
-            log2_10 = Math.log(10) / Math.log(2);
-            prec = 113;
-            expBits = 15;
-            if (has_jscalc) {
-                eval_mode = "math";
-                /* XXX: numeric mode should always be the default ? */
-                g.algebraicMode = config_numcalc;
-            }
-        }
+        std.puts('QuickJS - Type "\\h" for help\n');
 
         cmd_readline_start();
     }
@@ -1287,13 +1098,8 @@ import * as os from "os";
         }
         mexpr = "";
 
-        if (has_bignum) {
-            /* XXX: async is not supported in this case */
-            BigFloatEnv.setPrec(eval_and_print_start.bind(null, expr, false),
-                                prec, expBits);
-        } else {
-            eval_and_print_start(expr, true);
-        }
+        eval_and_print_start(expr, true);
+
         return true;
     }
 
@@ -1301,8 +1107,6 @@ import * as os from "os";
         var result;
 
         try {
-            if (eval_mode === "math")
-                expr = '"use math"; void 0;' + expr;
             eval_start_time = os.now();
             /* eval as a script */
             result = std.evalScript(expr, { backtrace_barrier: true, async: is_async });

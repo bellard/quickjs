@@ -404,7 +404,7 @@ examples/point.so: $(OBJDIR)/examples/point.pic.o
 ###############################################################################
 # documentation
 
-DOCS=doc/quickjs.pdf doc/quickjs.html doc/jsbignum.pdf doc/jsbignum.html
+DOCS=doc/quickjs.pdf doc/quickjs.html
 
 build_doc: $(DOCS)
 
