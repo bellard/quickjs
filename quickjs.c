@@ -10192,9 +10192,29 @@ static JSBigInt *js_bigint_new(JSContext *ctx, int len)
 static JSBigInt *js_bigint_set_si(JSBigIntBuf *buf, js_slimb_t a)
 {
     JSBigInt *r = (JSBigInt *)buf->big_int_buf;
+    r->header.ref_count = 0; /* fail safe */
     r->len = 1;
     r->tab[0] = a;
     return r;
+}
+
+static JSBigInt *js_bigint_set_si64(JSBigIntBuf *buf, int64_t a)
+{
+#if JS_LIMB_BITS == 64
+    return js_bigint_set_si(buf, a);
+#else
+    JSBigInt *r = (JSBigInt *)buf->big_int_buf;
+    r->header.ref_count = 0; /* fail safe */
+    if (a >= INT32_MIN && a <= INT32_MAX) {
+        r->len = 1;
+        r->tab[0] = a;
+    } else {
+        r->len = 2;
+        r->tab[0] = a;
+        r->tab[1] = a >> JS_LIMB_BITS;
+    }
+    return r;
+#endif
 }
 
 /* val must be a short big int */
@@ -10862,7 +10882,7 @@ static JSBigInt *js_bigint_from_float64(JSContext *ctx, int *pres, double a1)
     int sgn, e, shift;
     uint64_t mant;
     JSBigIntBuf buf;
-    JSBigInt *r, *r1;
+    JSBigInt *r;
     
     sgn = a >> 63;
     e = (a >> 52) & ((1 << 11) - 1);
@@ -10895,40 +10915,12 @@ static JSBigInt *js_bigint_from_float64(JSContext *ctx, int *pres, double a1)
     } else {
         e -= 52;
     }
-    
+    if (sgn)
+        mant = -mant;
     /* the integer is mant*2^e */
-    r = (JSBigInt *)buf.big_int_buf;
-#if JS_LIMB_BITS == 64
-    r->len = 1;
-    r->tab[0] = mant;
-#else
-    if (mant <= INT32_MAX) {
-        r->len = 1;
-        r->tab[0] = mant;
-    } else {
-        r->len = 2;
-        r->tab[0] = mant;
-        r->tab[1] = mant >> 32;
-    }
-#endif
-    /* XXX: optimize */
-    if (sgn) {
-        r = js_bigint_neg(ctx, r);
-        if (!r)
-            goto fail;
-        r1 = js_bigint_shl(ctx, r, e);
-        js_free(ctx, r);
-        if (!r1)
-            goto fail;
-        r = r1;
-    } else {
-        r = js_bigint_shl(ctx, r, e);
-    }
+    r = js_bigint_set_si64(&buf, (int64_t)mant);
     *pres = 0;
-    return r;
- fail:
-    *pres = 0;
-    return NULL;
+    return js_bigint_shl(ctx, r, e);
 }
 
 /* return -1, 0, 1 or (2) (unordered) */
