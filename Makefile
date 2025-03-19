@@ -371,7 +371,7 @@ endif
 HELLO_SRCS=examples/hello.js
 HELLO_OPTS=-fno-string-normalize -fno-map -fno-promise -fno-typedarray \
            -fno-typedarray -fno-regexp -fno-json -fno-eval -fno-proxy \
-           -fno-date -fno-module-loader -fno-bigint
+           -fno-date -fno-module-loader
 
 hello.c: $(QJSC) $(HELLO_SRCS)
 	$(QJSC) -e $(HELLO_OPTS) -o $@ $(HELLO_SRCS)

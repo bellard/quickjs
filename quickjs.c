@@ -2035,7 +2035,6 @@ JSContext *JS_NewContext(JSRuntime *rt)
     JS_AddIntrinsicMapSet(ctx);
     JS_AddIntrinsicTypedArrays(ctx);
     JS_AddIntrinsicPromise(ctx);
-    JS_AddIntrinsicBigInt(ctx);
     return ctx;
 }
 
@@ -3060,8 +3059,6 @@ static JSValue JS_AtomIsNumericIndex1(JSContext *ctx, JSAtom atom)
                 return JS_UNDEFINED;
         }
     }
-    /* XXX: bignum: would be better to only accept integer to avoid
-       relying on current floating point precision */
     /* this is ECMA CanonicalNumericIndexString primitive */
     num = JS_ToNumber(ctx, JS_MKPTR(JS_TAG_STRING, p));
     if (JS_IsException(num))
@@ -46477,7 +46474,9 @@ static uint32_t map_hash_key(JSContext *ctx, JSValueConst key)
     uint32_t h;
     double d;
     JSFloat64Union u;
-
+    JSBigInt *p;
+    JSBigIntBuf buf;
+    
     switch(tag) {
     case JS_TAG_BOOL:
         h = JS_VALUE_GET_INT(key);
@@ -46500,9 +46499,24 @@ static uint32_t map_hash_key(JSContext *ctx, JSValueConst key)
     hash_float64:
         u.d = d;
         h = (u.u32[0] ^ u.u32[1]) * 3163;
-        return h ^= JS_TAG_FLOAT64;
+        return h ^ JS_TAG_FLOAT64;
+    case JS_TAG_SHORT_BIG_INT:
+        p = js_bigint_set_short(&buf, key);
+        goto hash_bigint;
+    case JS_TAG_BIG_INT:
+        p = JS_VALUE_GET_PTR(key);
+    hash_bigint:
+        {
+            int i;
+            h = 1;
+            for(i = p->len - 1; i >= 0; i--) {
+                h = h * 263 + p->tab[i];
+            }
+            h *= 3163;
+        }
+        break;
     default:
-        h = 0; /* XXX: bignum support */
+        h = 0;
         break;
     }
     h ^= tag;
@@ -50167,7 +50181,7 @@ static const JSCFunctionListEntry js_bigint_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "BigInt", JS_PROP_CONFIGURABLE ),
 };
 
-void JS_AddIntrinsicBigInt(JSContext *ctx)
+static void JS_AddIntrinsicBigInt(JSContext *ctx)
 {
     JSValueConst obj1;
 
@@ -50454,6 +50468,9 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
     JS_DefinePropertyValue(ctx, ctx->global_obj, JS_ATOM_globalThis,
                            JS_DupValue(ctx, ctx->global_obj),
                            JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
+
+    /* BigInt */
+    JS_AddIntrinsicBigInt(ctx);
 }
 
 /* Typed Arrays */

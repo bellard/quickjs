@@ -714,29 +714,26 @@ function test_symbol()
     assert(b.toString(), "Symbol(aaa)");
 }
 
-function test_map()
+function test_map1(key_type, n)
 {
-    var a, i, n, tab, o, v;
-    n = 1000;
-
-    a = new Map();
-    for (var i = 0; i < n; i++) {
-        a.set(i, i);
-    }
-    a.set(-2147483648, 1);
-    assert(a.get(-2147483648), 1);
-    assert(a.get(-2147483647 - 1), 1);
-    assert(a.get(-2147483647.5 - 0.5), 1);
-
-    a.set(1n, 1n);
-    assert(a.get(1n), 1n);
-    assert(a.get(2n**1000n - (2n**1000n - 1n)), 1n);
-
+    var a, i, tab, o, v;
     a = new Map();
     tab = [];
     for(i = 0; i < n; i++) {
         v = { };
-        o = { id: i };
+        switch(key_type) {
+        case "small_bigint":
+            o = BigInt(i);
+            break;
+        case "bigint":
+            o = BigInt(i) + (1n << 128n);
+            break;
+        case "object":
+            o = { id: i };
+            break;
+        default:
+            assert(false);
+        }
         tab[i] = [o, v];
         a.set(o, v);
     }
@@ -755,6 +752,29 @@ function test_map()
     });
 
     assert(a.size, 0);
+}
+
+function test_map()
+{
+    var a, i, n, tab, o, v;
+    n = 1000;
+
+    a = new Map();
+    for (var i = 0; i < n; i++) {
+        a.set(i, i);
+    }
+    a.set(-2147483648, 1);
+    assert(a.get(-2147483648), 1);
+    assert(a.get(-2147483647 - 1), 1);
+    assert(a.get(-2147483647.5 - 0.5), 1);
+
+    a.set(1n, 1n);
+    assert(a.get(1n), 1n);
+    assert(a.get(2n**1000n - (2n**1000n - 1n)), 1n);
+
+    test_map1("object", n);
+    test_map1("small_bigint", n);
+    test_map1("bigint", n);
 }
 
 function test_weak_map()

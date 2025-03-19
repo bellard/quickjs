@@ -76,7 +76,6 @@ static const FeatureEntry feature_list[] = {
     { "promise", "Promise" },
 #define FE_MODULE_LOADER 9
     { "module-loader", NULL },
-    { "bigint", "BigInt" },
 };
 
 void namelist_add(namelist_t *lp, const char *name, const char *short_name,
@@ -359,7 +358,6 @@ void help(void)
     {
         int i;
         printf("-flto       use link time optimization\n");
-        printf("-fbignum    enable bignum extensions\n");
         printf("-fno-[");
         for(i = 0; i < countof(feature_list); i++) {
             if (i != 0)

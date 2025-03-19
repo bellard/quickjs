@@ -406,7 +406,6 @@ void JS_AddIntrinsicProxy(JSContext *ctx);
 void JS_AddIntrinsicMapSet(JSContext *ctx);
 void JS_AddIntrinsicTypedArrays(JSContext *ctx);
 void JS_AddIntrinsicPromise(JSContext *ctx);
-void JS_AddIntrinsicBigInt(JSContext *ctx);
 
 JSValue js_string_codePointRange(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv);
