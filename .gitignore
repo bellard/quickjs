@@ -9,7 +9,10 @@ examples/hello_module
 hello.c
 microbench*.txt
 qjs
+qjs.exe
 qjsc
+qjsc.exe
+host-qjsc
 qjscalc
 qjscalc.c
 repl.c
