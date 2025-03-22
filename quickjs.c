@@ -45960,7 +45960,7 @@ typedef struct JSMapRecord {
     struct JSMapState *map;
     struct JSMapRecord *next_weak_ref;
     struct list_head link;
-    struct list_head hash_link;
+    struct JSMapRecord *hash_next;
     JSValue key;
     JSValue value;
 } JSMapRecord;
@@ -45969,7 +45969,7 @@ typedef struct JSMapState {
     BOOL is_weak; /* TRUE if WeakSet/WeakMap */
     struct list_head records; /* list of JSMapRecord.link */
     uint32_t record_count;
-    struct list_head *hash_table;
+    JSMapRecord **hash_table;
     uint32_t hash_size; /* must be a power of two */
     uint32_t record_count_threshold; /* count at which a hash table
                                         resize is needed */
@@ -45998,10 +45998,9 @@ static JSValue js_map_constructor(JSContext *ctx, JSValueConst new_target,
     s->is_weak = is_weak;
     JS_SetOpaque(obj, s);
     s->hash_size = 1;
-    s->hash_table = js_malloc(ctx, sizeof(s->hash_table[0]) * s->hash_size);
+    s->hash_table = js_mallocz(ctx, sizeof(s->hash_table[0]) * s->hash_size);
     if (!s->hash_table)
         goto fail;
-    init_list_head(&s->hash_table[0]);
     s->record_count_threshold = 4;
 
     arr = JS_UNDEFINED;
@@ -46100,7 +46099,7 @@ static JSValueConst map_normalize_key(JSContext *ctx, JSValueConst key)
 }
 
 /* XXX: better hash ? */
-static uint32_t map_hash_key(JSContext *ctx, JSValueConst key)
+static uint32_t map_hash_key(JSValueConst key)
 {
     uint32_t tag = JS_VALUE_GET_NORM_TAG(key);
     uint32_t h;
@@ -46158,12 +46157,10 @@ static uint32_t map_hash_key(JSContext *ctx, JSValueConst key)
 static JSMapRecord *map_find_record(JSContext *ctx, JSMapState *s,
                                     JSValueConst key)
 {
-    struct list_head *el;
     JSMapRecord *mr;
     uint32_t h;
-    h = map_hash_key(ctx, key) & (s->hash_size - 1);
-    list_for_each(el, &s->hash_table[h]) {
-        mr = list_entry(el, JSMapRecord, hash_link);
+    h = map_hash_key(key) & (s->hash_size - 1);
+    for(mr = s->hash_table[h]; mr != NULL; mr = mr->hash_next) {
         if (js_same_value_zero(ctx, mr->key, key))
             return mr;
     }
@@ -46172,10 +46169,10 @@ static JSMapRecord *map_find_record(JSContext *ctx, JSMapState *s,
 
 static void map_hash_resize(JSContext *ctx, JSMapState *s)
 {
-    uint32_t new_hash_size, i, h;
+    uint32_t new_hash_size, h;
     size_t slack;
-    struct list_head *new_hash_table, *el;
-    JSMapRecord *mr;
+    struct list_head *el;
+    JSMapRecord *mr, **new_hash_table;
 
     /* XXX: no reporting of memory allocation failure */
     if (s->hash_size == 1)
@@ -46187,14 +46184,14 @@ static void map_hash_resize(JSContext *ctx, JSMapState *s)
     if (!new_hash_table)
         return;
 
-    for(i = 0; i < new_hash_size; i++)
-        init_list_head(&new_hash_table[i]);
+    memset(new_hash_table, 0, sizeof(new_hash_table[0]) * new_hash_size);
 
     list_for_each(el, &s->records) {
         mr = list_entry(el, JSMapRecord, link);
         if (!mr->empty) {
-            h = map_hash_key(ctx, mr->key) & (new_hash_size - 1);
-            list_add_tail(&mr->hash_link, &new_hash_table[h]);
+            h = map_hash_key(mr->key) & (new_hash_size - 1);
+            mr->hash_next = new_hash_table[h];
+            new_hash_table[h] = mr;
         }
     }
     s->hash_table = new_hash_table;
@@ -46223,8 +46220,9 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
         JS_DupValue(ctx, key);
     }
     mr->key = (JSValue)key;
-    h = map_hash_key(ctx, key) & (s->hash_size - 1);
-    list_add_tail(&mr->hash_link, &s->hash_table[h]);
+    h = map_hash_key(key) & (s->hash_size - 1);
+    mr->hash_next = s->hash_table[h];
+    s->hash_table[h] = mr;
     list_add_tail(&mr->link, &s->records);
     s->record_count++;
     if (s->record_count >= s->record_count_threshold) {
@@ -46236,7 +46234,7 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
 /* Remove the weak reference from the object weak
    reference list. we don't use a doubly linked list to
    save space, assuming a given object has few weak
-       references to it */
+   references to it */
 static void delete_weak_ref(JSRuntime *rt, JSMapRecord *mr)
 {
     JSMapRecord **pmr, *mr1;
@@ -46254,11 +46252,12 @@ static void delete_weak_ref(JSRuntime *rt, JSMapRecord *mr)
     *pmr = mr1->next_weak_ref;
 }
 
+/* warning: the record must be removed from the hash table before */
 static void map_delete_record(JSRuntime *rt, JSMapState *s, JSMapRecord *mr)
 {
     if (mr->empty)
         return;
-    list_del(&mr->hash_link);
+    
     if (s->is_weak) {
         delete_weak_ref(rt, mr);
     } else {
@@ -46289,16 +46288,31 @@ static void map_decref_record(JSRuntime *rt, JSMapRecord *mr)
 
 static void reset_weak_ref(JSRuntime *rt, JSObject *p)
 {
-    JSMapRecord *mr, *mr_next;
+    JSMapRecord *mr, *mr_next, **pmr, *mr1;
     JSMapState *s;
-
+    uint32_t h;
+    JSValue key;
+    
     /* first pass to remove the records from the WeakMap/WeakSet
        lists */
+    key = JS_MKPTR(JS_TAG_OBJECT, p);
     for(mr = p->first_weak_ref; mr != NULL; mr = mr->next_weak_ref) {
         s = mr->map;
         assert(s->is_weak);
         assert(!mr->empty); /* no iterator on WeakMap/WeakSet */
-        list_del(&mr->hash_link);
+
+        /* remove the record from hash table */
+        h = map_hash_key(key) & (s->hash_size - 1);
+        pmr = &s->hash_table[h];
+        for(;;) {
+            mr1 = *pmr;
+            assert(mr1 != NULL);
+            if (mr1 == mr)
+                break;
+            pmr = &mr1->hash_next;
+        }
+        *pmr = mr->hash_next;
+        
         list_del(&mr->link);
     }
 
@@ -46376,15 +46390,28 @@ static JSValue js_map_delete(JSContext *ctx, JSValueConst this_val,
                              int argc, JSValueConst *argv, int magic)
 {
     JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
-    JSMapRecord *mr;
+    JSMapRecord *mr, **pmr;
     JSValueConst key;
+    uint32_t h;
 
     if (!s)
         return JS_EXCEPTION;
     key = map_normalize_key(ctx, argv[0]);
-    mr = map_find_record(ctx, s, key);
-    if (!mr)
-        return JS_FALSE;
+    
+    h = map_hash_key(key) & (s->hash_size - 1);
+    pmr = &s->hash_table[h];
+    for(;;) {
+        mr = *pmr;
+        if (mr == NULL)
+            return JS_FALSE;
+        if (js_same_value_zero(ctx, mr->key, key))
+            break;
+        pmr = &mr->hash_next;
+    }
+
+    /* remove from the hash table */
+    *pmr = mr->hash_next;
+    
     map_delete_record(ctx->rt, s, mr);
     return JS_TRUE;
 }
@@ -46398,6 +46425,10 @@ static JSValue js_map_clear(JSContext *ctx, JSValueConst this_val,
 
     if (!s)
         return JS_EXCEPTION;
+
+    /* remove from the hash table */
+    memset(s->hash_table, 0, sizeof(s->hash_table[0]) * s->hash_size);
+    
     list_for_each_safe(el, el1, &s->records) {
         mr = list_entry(el, JSMapRecord, link);
         map_delete_record(ctx->rt, s, mr);
