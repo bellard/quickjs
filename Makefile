@@ -38,6 +38,8 @@ endif
 #CONFIG_M32=y
 # cosmopolitan build (see https://github.com/jart/cosmopolitan)
 #CONFIG_COSMO=y
+# do not use pthreads, disables related features - atomics and workers
+#CONFIG_NO_PTHREADS=y
 
 # installation directory
 PREFIX?=/usr/local
@@ -150,6 +152,14 @@ DEFINES+=-DHAVE_CLOSEFROM
 endif
 endif
 
+ifdef CONFIG_WIN32
+CONFIG_NO_PTHREADS=y
+endif
+
+ifdef CONFIG_NO_PTHREADS
+DEFINES+=-DCONFIG_NO_PTHREADS
+endif
+
 CFLAGS+=$(DEFINES)
 CFLAGS_DEBUG=$(CFLAGS) -O0
 CFLAGS_SMALL=$(CFLAGS) -Os
@@ -189,11 +199,17 @@ endif
 
 ifndef CONFIG_COSMO
 ifndef CONFIG_DARWIN
+ifndef CONFIG_WIN32
 CONFIG_SHARED_LIBS=y # building shared libraries is supported
 endif
 endif
+endif
 
-PROGS=qjs$(EXE) qjsc$(EXE) run-test262
+PROGS=qjs$(EXE) qjsc$(EXE)
+ifndef CONFIG_NO_PTHREADS
+PROGS+=run-test262
+endif
+
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
 QJSC=./host-qjsc
@@ -231,10 +247,16 @@ QJS_LIB_OBJS=$(OBJDIR)/quickjs.o $(OBJDIR)/dtoa.o $(OBJDIR)/libregexp.o $(OBJDIR
 
 QJS_OBJS=$(OBJDIR)/qjs.o $(OBJDIR)/repl.o $(QJS_LIB_OBJS)
 
-HOST_LIBS=-lm -ldl -lpthread
+HOST_LIBS=-lm -ldl
+ifndef CONFIG_NO_PTHREADS
+HOST_LIBS+=-lpthread
+endif
 LIBS=-lm
 ifndef CONFIG_WIN32
-LIBS+=-ldl -lpthread
+LIBS+=-ldl
+ifndef CONFIG_NO_PTHREADS
+LIBS+=-lpthread
+endif
 endif
 LIBS+=$(EXTRA_LIBS)
 
@@ -427,24 +449,28 @@ ifdef CONFIG_SHARED_LIBS
 test: tests/bjson.so examples/point.so
 endif
 
-test: qjs
-	./qjs tests/test_closure.js
-	./qjs tests/test_language.js
-	./qjs --std tests/test_builtin.js
-	./qjs tests/test_loop.js
-	./qjs tests/test_bigint.js
+test: qjs$(EXE)
+	./qjs$(EXE) tests/test_closure.js
+	./qjs$(EXE) tests/test_language.js
+	./qjs$(EXE) --std tests/test_builtin.js
+	./qjs$(EXE) tests/test_loop.js
+	./qjs$(EXE) tests/test_bigint.js
+ifndef CONFIG_WIN32
 	./qjs tests/test_std.js
-	./qjs tests/test_worker.js
+endif
+ifndef CONFIG_NO_PTHREADS
+	./qjs$(EXE) tests/test_worker.js
+endif
 ifdef CONFIG_SHARED_LIBS
-	./qjs tests/test_bjson.js
-	./qjs examples/test_point.js
+	./qjs$(EXE) tests/test_bjson.js
+	./qjs$(EXE) examples/test_point.js
 endif
 
-stats: qjs
-	./qjs -qd
+stats: qjs$(EXE)
+	./qjs$(EXE) -qd
 
-microbench: qjs
-	./qjs --std tests/microbench.js
+microbench: qjs$(EXE)
+	./qjs$(EXE) --std tests/microbench.js
 
 ifeq ($(wildcard test262o/tests.txt),)
 test2o test2o-update:

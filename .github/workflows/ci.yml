@@ -37,6 +37,25 @@ jobs:
         run: |
           make microbench
 
+  linux-32bit:
+    name: Linux 32bit (Ubuntu)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install gcc-multilib
+        run: |
+          sudo apt install -y gcc-multilib
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_M32=y
+      - name: Run built-in tests
+        run: |
+          make CONFIG_M32=y test
+
   linux-asan:
     runs-on: ubuntu-latest
     steps:
@@ -141,6 +160,64 @@ jobs:
             gmake
             ./qjs -qd
             gmake test
+
+  cosmopolitan:
+    name: Cosmopolitan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Cosmopolitan
+        run: |
+          mkdir ~/cosmocc
+          cd ~/cosmocc
+          wget https://cosmo.zip/pub/cosmocc/cosmocc.zip
+          unzip cosmocc.zip
+          echo "$HOME/cosmocc/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: |
+          make CONFIG_COSMO=y
+      - name: Run built-in tests
+        run: |
+          make CONFIG_COSMO=y test
+
+  windows-mingw:
+    name: MinGW cross-compile for Windows on Linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install MinGW and Wine
+        run: |
+          sudo apt install -y wine mingw-w64
+      - name: Setup Wine
+        run: |
+          wine --version
+          winecfg /v win10
+          # This would allow executing `make test` directly
+          # however, GitHub Actions doesn't allow installing it
+          #sudo apt install -y binfmt-support wine-binfmt
+          #echo ":Wine:M::MZ::/usr/bin/wine:" > /etc/binfmt.d/wine.conf
+          #sudo systemctl restart systemd-binfmt
+      - name: Build
+        run: |
+          make CONFIG_WIN32=y
+      - name: Run built-in tests
+        run: |
+          # If binfmt support worked, could just run `make CONFIG_WIN32=y test`
+          echo "Running tests with wine"
+          wine ./qjs.exe tests/test_closure.js
+          wine ./qjs.exe tests/test_language.js
+          wine ./qjs.exe --std tests/test_builtin.js
+          wine ./qjs.exe tests/test_loop.js
+          wine ./qjs.exe tests/test_bigint.js
+          echo "Finished running tests with wine"
 
   qemu-alpine:
     runs-on: ubuntu-latest
