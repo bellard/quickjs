@@ -1107,14 +1107,88 @@ function int_to_string(n)
     return n * 2;
 }
 
+function int_to_string(n)
+{
+    var s, r, j;
+    r = 0;
+    for(j = 0; j < n; j++) {
+        s = (j % 10) + '';
+        s = (j % 100) + '';
+        s = (j) + '';
+    }
+    return n * 3;
+}
+
+function int_toString(n)
+{
+    var s, r, j;
+    r = 0;
+    for(j = 0; j < n; j++) {
+        s = (j % 10).toString();
+        s = (j % 100).toString();
+        s = (j).toString();
+    }
+    return n * 3;
+}
+
 function float_to_string(n)
 {
-    var s, j;
+    var s, r, j;
+    r = 0;
     for(j = 0; j < n; j++) {
-        s = (j + 0.1).toString();
+        s = (j % 10 + 0.1) + '';
+        s = (j + 0.1) + '';
+        s = (j * 12345678 + 0.1) + '';
     }
-    global_res = s;
-    return n;
+    return n * 3;
+}
+
+function float_toString(n)
+{
+    var s, r, j;
+    r = 0;
+    for(j = 0; j < n; j++) {
+        s = (j % 10 + 0.1).toString();
+        s = (j + 0.1).toString();
+        s = (j * 12345678 + 0.1).toString();
+    }
+    return n * 3;
+}
+
+function float_toFixed(n)
+{
+    var s, r, j;
+    r = 0;
+    for(j = 0; j < n; j++) {
+        s = (j % 10 + 0.1).toFixed(j % 16);
+        s = (j + 0.1).toFixed(j % 16);
+        s = (j * 12345678 + 0.1).toFixed(j % 16);
+    }
+    return n * 3;
+}
+
+function float_toPrecision(n)
+{
+    var s, r, j;
+    r = 0;
+    for(j = 0; j < n; j++) {
+        s = (j % 10 + 0.1).toPrecision(j % 16 + 1);
+        s = (j + 0.1).toPrecision(j % 16 + 1);
+        s = (j * 12345678 + 0.1).toPrecision(j % 16 + 1);
+    }
+    return n * 3;
+}
+
+function float_toExponential(n)
+{
+    var s, r, j;
+    r = 0;
+    for(j = 0; j < n; j++) {
+        s = (j % 10 + 0.1).toExponential(j % 16);
+        s = (j + 0.1).toExponential(j % 16);
+        s = (j * 12345678 + 0.1).toExponential(j % 16);
+    }
+    return n * 3;
 }
 
 function string_to_int(n)
@@ -1263,7 +1337,12 @@ function main(argc, argv, g)
         string_build3,
         string_build4,
         int_to_string,
+        int_toString,
         float_to_string,
+        float_toString,
+        float_toFixed,
+        float_toPrecision,
+        float_toExponential,
         string_to_int,
         string_to_float,
     ];
