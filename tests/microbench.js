@@ -720,21 +720,78 @@ function bigint256_arith(n)
     return bigint_arith(n, 256);
 }
 
-function set_collection_add(n)
+function map_set(n)
 {
     var s, i, j, len = 100;
     for(j = 0; j < n; j++) {
-        s = new Set();
+        s = new Map();
         for(i = 0; i < len; i++) {
-            s.add(String(i), i);
+            s.set(String(i), i);
         }
         for(i = 0; i < len; i++) {
             if (!s.has(String(i)))
-                throw Error("bug in Set");
+                throw Error("bug in Map");
         }
     }
     return n * len;
 }
+
+function map_delete(n)
+{
+    var a, i, j;
+
+    len = 1000;
+    for(j = 0; j < n; j++) {
+        a = new Map();
+        for(i = 0; i < len; i++) {
+            a.set(String(i), i);
+        }
+        for(i = 0; i < len; i++) {
+            a.delete(String(i));
+        }
+    }
+    return len * n;
+}
+
+function weak_map_set(n)
+{
+    var a, i, j, tab;
+
+    len = 1000;
+    tab = [];
+    for(i = 0; i < len; i++) {
+        tab.push({ key: i });
+    }
+    for(j = 0; j < n; j++) {
+        a = new WeakMap();
+        for(i = 0; i < len; i++) {
+            a.set(tab[i], i);
+        }
+    }
+    return len * n;
+}
+
+function weak_map_delete(n)
+{
+    var a, i, j, tab;
+
+    len = 1000;
+    for(j = 0; j < n; j++) {
+        tab = [];
+        for(i = 0; i < len; i++) {
+            tab.push({ key: i });
+        }
+        a = new WeakMap();
+        for(i = 0; i < len; i++) {
+            a.set(tab[i], i);
+        }
+        for(i = 0; i < len; i++) {
+            tab[i] = null;
+        }
+    }
+    return len * n;
+}
+
 
 function array_for(n)
 {
@@ -1189,7 +1246,10 @@ function main(argc, argv, g)
         func_closure_call,
         int_arith,
         float_arith,
-        set_collection_add,
+        map_set,
+        map_delete,
+        weak_map_set,
+        weak_map_delete,
         array_for,
         array_for_in,
         array_for_of,

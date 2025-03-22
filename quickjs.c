@@ -46186,7 +46186,6 @@ static void map_hash_resize(JSContext *ctx, JSMapState *s)
                                  sizeof(new_hash_table[0]) * new_hash_size, &slack);
     if (!new_hash_table)
         return;
-    new_hash_size += slack / sizeof(*new_hash_table);
 
     for(i = 0; i < new_hash_size; i++)
         init_list_head(&new_hash_table[i]);
