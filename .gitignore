@@ -6,14 +6,20 @@ test_fib.c
 examples/*.so
 examples/hello
 examples/hello_module
+examples/hello.exe
+examples/test_fib.exe
 hello.c
 microbench*.txt
 qjs
+qjs.exe
 qjsc
+qjsc.exe
+host-qjsc
 qjscalc
 qjscalc.c
 repl.c
 run-test262
+run-test262.exe
 test262
 test262_*.txt
 test262o
@@ -22,3 +28,4 @@ unicode
 unicode_gen
 run_octane
 run_sunspider_like
+libwinpthread*.dll
