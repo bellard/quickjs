@@ -1,8 +1,185 @@
-test262/test/annexB/language/eval-code/direct/script-decl-lex-collision-in-sloppy-mode.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/annexB/language/comments/single-line-html-close-first-line-1.js:1: unexpected error type: SyntaxError: unexpected token in expression: '>'
+test262/test/annexB/language/comments/single-line-html-close-first-line-2.js:1: unexpected error type: SyntaxError: unexpected token in expression: '>'
+test262/test/annexB/language/comments/single-line-html-close-first-line-3.js:1: unexpected error type: SyntaxError: unexpected token in expression: '>'
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js:64: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js:64: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js:69: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js:69: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-iterator-next-rejected-promise-close.js:59: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-iterator-next-rejected-promise-close.js:59: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-next-rejected-promise-close.js:64: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-next-rejected-promise-close.js:64: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js:74: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js:74: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js:52: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js:52: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js:81: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js:81: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-get-return-undefined.js:64: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-get-return-undefined.js:64: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js:68: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js:68: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-not-object.js:72: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-not-object.js:72: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-object.js:66: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-object.js:66: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined.js:41: TypeError: $DONE() not called
+test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined.js:41: strict mode: TypeError: $DONE() not called
+test262/test/built-ins/Date/prototype/setDate/date-value-read-before-tonumber-when-date-is-invalid.js:25: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setDate/date-value-read-before-tonumber-when-date-is-invalid.js:25: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setHours/date-value-read-before-tonumber-when-date-is-invalid.js:28: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setHours/date-value-read-before-tonumber-when-date-is-invalid.js:28: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setMilliseconds/date-value-read-before-tonumber-when-date-is-invalid.js:25: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setMilliseconds/date-value-read-before-tonumber-when-date-is-invalid.js:25: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setMinutes/date-value-read-before-tonumber-when-date-is-invalid.js:27: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setMinutes/date-value-read-before-tonumber-when-date-is-invalid.js:27: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setMonth/date-value-read-before-tonumber-when-date-is-invalid.js:26: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setMonth/date-value-read-before-tonumber-when-date-is-invalid.js:26: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setSeconds/date-value-read-before-tonumber-when-date-is-invalid.js:26: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setSeconds/date-value-read-before-tonumber-when-date-is-invalid.js:26: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCDate/date-value-read-before-tonumber-when-date-is-invalid.js:25: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCDate/date-value-read-before-tonumber-when-date-is-invalid.js:25: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCHours/date-value-read-before-tonumber-when-date-is-invalid.js:28: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCHours/date-value-read-before-tonumber-when-date-is-invalid.js:28: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCMilliseconds/date-value-read-before-tonumber-when-date-is-invalid.js:25: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCMilliseconds/date-value-read-before-tonumber-when-date-is-invalid.js:25: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCMinutes/date-value-read-before-tonumber-when-date-is-invalid.js:27: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCMinutes/date-value-read-before-tonumber-when-date-is-invalid.js:27: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCMonth/date-value-read-before-tonumber-when-date-is-invalid.js:26: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCMonth/date-value-read-before-tonumber-when-date-is-invalid.js:26: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCSeconds/date-value-read-before-tonumber-when-date-is-invalid.js:26: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Date/prototype/setUTCSeconds/date-value-read-before-tonumber-when-date-is-invalid.js:26: strict mode: Test262Error: time updated in valueOf Expected SameValue(«NaN», «0») to be true
+test262/test/built-ins/Function/prototype/arguments/prop-desc.js:31: Test262Error: Function.prototype.arguments property getter/setter are the same function Expected SameValue(«function () {
+    [native code]
+}», «function () {
+    [native code]
+}») to be true
+test262/test/built-ins/Function/prototype/arguments/prop-desc.js:31: strict mode: Test262Error: Function.prototype.arguments property getter/setter are the same function Expected SameValue(«function () {
+    [native code]
+}», «function () {
+    [native code]
+}») to be true
+test262/test/built-ins/Function/prototype/caller/prop-desc.js:29: Test262Error: Caller property getter/setter are the same function Expected SameValue(«function () {
+    [native code]
+}», «function () {
+    [native code]
+}») to be true
+test262/test/built-ins/Function/prototype/caller/prop-desc.js:29: strict mode: Test262Error: Caller property getter/setter are the same function Expected SameValue(«function () {
+    [native code]
+}», «function () {
+    [native code]
+}») to be true
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-negative-cases.js:63: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-negative-cases.js:63: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-positive-cases.js:60: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-digit-class-escape-positive-cases.js:60: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-negative-cases.js:60: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-negative-cases.js:60: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-positive-cases.js:63: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-digit-class-escape-positive-cases.js:63: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-negative-cases.js:70: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-negative-cases.js:70: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-positive-cases.js:72: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-whitespace-class-escape-positive-cases.js:72: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-negative-cases.js:64: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-negative-cases.js:64: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-positive-cases.js:67: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-non-word-class-escape-positive-cases.js:67: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-negative-cases.js:72: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-negative-cases.js:72: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-positive-cases.js:70: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-whitespace-class-escape-positive-cases.js:70: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-word-class-escape-negative-cases.js:67: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-word-class-escape-negative-cases.js:67: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-word-class-escape-positive-cases.js:64: SyntaxError: invalid regular expression flags
+test262/test/built-ins/RegExp/CharacterClassEscapes/character-class-word-class-escape-positive-cases.js:64: strict mode: SyntaxError: invalid regular expression flags
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-bigint-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-bigint-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-boolean-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-boolean-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-number-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-number-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-string-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/match/cstm-matcher-on-string-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/matchAll/cstm-matchall-on-bigint-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/matchAll/cstm-matchall-on-bigint-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/matchAll/cstm-matchall-on-number-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/matchAll/cstm-matchall-on-number-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/matchAll/cstm-matchall-on-string-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/matchAll/cstm-matchall-on-string-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-bigint-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-bigint-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-boolean-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-boolean-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-number-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-number-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-string-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replace/cstm-replace-on-string-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-bigint-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-bigint-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-boolean-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-boolean-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-number-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-number-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-string-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/replaceAll/cstm-replaceall-on-string-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-bigint-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-bigint-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-boolean-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-boolean-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-number-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-number-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-string-primitive.js:21: Test262Error: should not be called
+test262/test/built-ins/String/prototype/search/cstm-search-on-string-primitive.js:21: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-bigint-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-bigint-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-boolean-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-boolean-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-number-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-number-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-string-primitive.js:22: Test262Error: should not be called
+test262/test/built-ins/String/prototype/split/cstm-split-on-string-primitive.js:22: strict mode: Test262Error: should not be called
+test262/test/built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-prototype-chain-set.js:35: Test262Error: value should not be coerced Expected SameValue(«22», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-prototype-chain-set.js:35: strict mode: Test262Error: value should not be coerced Expected SameValue(«22», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-reflect-set.js:35: Test262Error: value should not be coerced Expected SameValue(«32», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/BigInt/key-is-canonical-invalid-index-reflect-set.js:35: strict mode: Test262Error: value should not be coerced Expected SameValue(«32», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-prototype-chain-set.js:35: Test262Error: value should not be coerced Expected SameValue(«99», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-prototype-chain-set.js:35: strict mode: Test262Error: value should not be coerced Expected SameValue(«99», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-reflect-set.js:35: Test262Error: value should not be coerced Expected SameValue(«144», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-canonical-invalid-index-reflect-set.js:35: strict mode: Test262Error: value should not be coerced Expected SameValue(«144», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-object.js:19: Test262Error: valueOf is not called Expected SameValue(«1», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-object.js:19: strict mode: Test262Error: valueOf is not called Expected SameValue(«1», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-typed-array.js:19: Test262Error: valueOf is not called Expected SameValue(«1», «0») to be true
+test262/test/built-ins/TypedArrayConstructors/internals/Set/key-is-out-of-bounds-receiver-is-not-typed-array.js:19: strict mode: Test262Error: valueOf is not called Expected SameValue(«1», «0») to be true
+test262/test/language/destructuring/binding/keyed-destructuring-property-reference-target-evaluation-order-with-bindings.js:73: Test262Error: Actual [binding::source, binding::sourceKey, sourceKey, get source, binding::defaultValue, binding::varTarget] and expected [binding::source, binding::sourceKey, sourceKey, binding::varTarget, get source, binding::defaultValue] should have the same contents. 
+test262/test/language/expressions/assignment/destructuring/iterator-destructuring-property-reference-target-evaluation-order.js:42: Test262Error: Actual [source, iterator, target, target-key, target-key-tostring, iterator-step, iterator-done, set] and expected [source, iterator, target, target-key, iterator-step, iterator-done, target-key-tostring, set] should have the same contents. 
+test262/test/language/expressions/assignment/destructuring/iterator-destructuring-property-reference-target-evaluation-order.js:42: strict mode: Test262Error: Actual [source, iterator, target, target-key, target-key-tostring, iterator-step, iterator-done, set] and expected [source, iterator, target, target-key, iterator-step, iterator-done, target-key-tostring, set] should have the same contents. 
+test262/test/language/expressions/assignment/destructuring/keyed-destructuring-property-reference-target-evaluation-order-with-bindings.js:37: Test262Error: Actual [binding::source, binding::sourceKey, sourceKey, binding::target, binding::targetKey, targetKey, get source, binding::defaultValue, set target] and expected [binding::source, binding::sourceKey, sourceKey, binding::target, binding::targetKey, get source, binding::defaultValue, targetKey, set target] should have the same contents. 
+test262/test/language/expressions/assignment/destructuring/keyed-destructuring-property-reference-target-evaluation-order.js:32: Test262Error: Actual [source, source-key, source-key-tostring, target, target-key, target-key-tostring, get, set] and expected [source, source-key, source-key-tostring, target, target-key, get, target-key-tostring, set] should have the same contents. 
+test262/test/language/expressions/assignment/destructuring/keyed-destructuring-property-reference-target-evaluation-order.js:32: strict mode: Test262Error: Actual [source, source-key, source-key-tostring, target, target-key, target-key-tostring, get, set] and expected [source, source-key, source-key-tostring, target, target-key, get, target-key-tostring, set] should have the same contents. 
 test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: Test262Error: Expected a DummyError but got a TypeError
 test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
+test262/test/language/expressions/assignment/target-member-computed-reference.js:22: Test262Error: Expected a DummyError but got a Test262Error
+test262/test/language/expressions/assignment/target-member-computed-reference.js:22: strict mode: Test262Error: Expected a DummyError but got a Test262Error
+test262/test/language/expressions/assignment/target-super-computed-reference.js:20: Test262Error: Expected a DummyError but got a Test262Error
+test262/test/language/expressions/assignment/target-super-computed-reference.js:20: strict mode: Test262Error: Expected a DummyError but got a Test262Error
 test262/test/language/expressions/in/private-field-invalid-assignment-target.js:23: unexpected error type: Test262: This statement should not be evaluated.
 test262/test/language/expressions/in/private-field-invalid-assignment-target.js:23: strict mode: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/global-code/script-decl-lex-var-declared-via-eval-sloppy.js:13: Test262Error: variable Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/expressions/member-expression/computed-reference-null-or-undefined.js:28: Test262Error: Expected a TypeError but got a Test262Error
+test262/test/language/expressions/member-expression/computed-reference-null-or-undefined.js:28: strict mode: Test262Error: Expected a TypeError but got a Test262Error
+test262/test/language/expressions/object/computed-property-name-topropertykey-before-value-evaluation.js:31: Test262Error: Expected SameValue(«"bad"», «"ok"») to be true
+test262/test/language/expressions/object/computed-property-name-topropertykey-before-value-evaluation.js:31: strict mode: Test262Error: Expected SameValue(«"bad"», «"ok"») to be true
+test262/test/language/module-code/top-level-await/async-module-does-not-block-sibling-modules.js:13: SyntaxError: Could not find export 'check' in module 'test262/test/language/module-code/top-level-await/async-module-sync_FIXTURE.js'
+test262/test/language/module-code/top-level-await/module-graphs-does-not-hang.js:10: TypeError: $DONE() not called
+test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-get-followed-by-generator-asi.js:40: SyntaxError: invalid property name
+test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-get-followed-by-generator-asi.js:40: strict mode: SyntaxError: invalid property name
+test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-set-followed-by-generator-asi.js:40: SyntaxError: invalid property name
+test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-set-followed-by-generator-asi.js:40: strict mode: SyntaxError: invalid property name
+test262/test/language/statements/with/get-binding-value-call-with-proxy-env.js:39: Test262Error: Actual [has:Object, get:Symbol(Symbol.unscopables), get:Object] and expected [has:Object, get:Symbol(Symbol.unscopables), has:Object, get:Object] should have the same contents. 
+test262/test/language/statements/with/get-binding-value-idref-with-proxy-env.js:39: Test262Error: Actual [has:Object, get:Symbol(Symbol.unscopables), get:Object] and expected [has:Object, get:Symbol(Symbol.unscopables), has:Object, get:Object] should have the same contents. 
+test262/test/language/statements/with/get-mutable-binding-binding-deleted-in-get-unscopables-strict-mode.js:21: Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all
+test262/test/language/statements/with/set-mutable-binding-binding-deleted-with-typed-array-in-proto-chain.js:20: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
+test262/test/language/statements/with/set-mutable-binding-idref-compound-assign-with-proxy-env.js:58: Test262Error: Actual [has:p, get:Symbol(Symbol.unscopables), get:p, set:p, getOwnPropertyDescriptor:p, defineProperty:p] and expected [has:p, get:Symbol(Symbol.unscopables), has:p, get:p, has:p, set:p, getOwnPropertyDescriptor:p, defineProperty:p] should have the same contents. 
+test262/test/language/statements/with/set-mutable-binding-idref-with-proxy-env.js:50: Test262Error: Actual [has:p, get:Symbol(Symbol.unscopables), set:p, getOwnPropertyDescriptor:p, defineProperty:p] and expected [has:p, get:Symbol(Symbol.unscopables), has:p, set:p, getOwnPropertyDescriptor:p, defineProperty:p] should have the same contents. 
