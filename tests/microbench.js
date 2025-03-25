@@ -957,6 +957,32 @@ function string_build4(n)
     return n * 1000;
 }
 
+/* append */
+function string_build_large1(n)
+{
+    var i, j, r, len = 20000;
+    for(j = 0; j < n; j++) {
+        r = "";
+        for(i = 0; i < len; i++)
+            r += "abcdef";
+        global_res = r;
+    }
+    return n * len;
+}
+
+/* prepend */
+function string_build_large2(n)
+{
+    var i, j, r, len = 20000;
+    for(j = 0; j < n; j++) {
+        r = "";
+        for(i = 0; i < len; i++)
+            r = "abcdef" + r;
+        global_res = r;
+    }
+    return n * len;
+}
+
 /* sort bench */
 
 function sort_bench(text) {
@@ -1336,6 +1362,8 @@ function main(argc, argv, g)
         string_build2,
         string_build3,
         string_build4,
+        string_build_large1,
+        string_build_large2,
         int_to_string,
         int_toString,
         float_to_string,

@@ -864,6 +864,32 @@ function test_generator()
     assert(v.value === 6 && v.done === true);
 }
 
+function rope_concat(n, dir)
+{
+    var i, s;
+    s = "";
+    if (dir > 0) {
+        for(i = 0; i < n; i++)
+            s += String.fromCharCode(i & 0xffff);
+    } else {
+        for(i = n - 1; i >= 0; i--)
+            s = String.fromCharCode(i & 0xffff) + s;
+    }
+    
+    for(i = 0; i < n; i++) {
+        /* test before the assert to go faster */
+        if (s.charCodeAt(i) != (i & 0xffff)) {
+            assert(s.charCodeAt(i), i & 0xffff);
+        }
+    }
+}
+
+function test_rope()
+{
+    rope_concat(100000, 1);
+    rope_concat(100000, -1);
+}
+
 test();
 test_function();
 test_enum();
@@ -880,3 +906,4 @@ test_symbol();
 test_map();
 test_weak_map();
 test_generator();
+test_rope();
