@@ -49241,7 +49241,7 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
 {
     // _field(obj, first_field, end_field, args, is_local)
     double fields[9];
-    int res, first_field, end_field, is_local, i, n;
+    int res, first_field, end_field, is_local, i, n, res1;
     double d, a;
 
     d = NAN;
@@ -49252,7 +49252,8 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
     res = get_date_fields(ctx, this_val, fields, is_local, first_field == 0);
     if (res < 0)
         return JS_EXCEPTION;
-
+    res1 = res;
+    
     // Argument coercion is observable and must be done unconditionally.
     n = min_int(argc, end_field - first_field);
     for(i = 0; i < n; i++) {
@@ -49262,6 +49263,10 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
             res = FALSE;
         fields[first_field + i] = trunc(a);
     }
+
+    if (!res1)
+        return JS_NAN; /* thisTimeValue is NaN */
+
     if (res && argc > 0)
         d = set_date_fields(fields, is_local);
 
