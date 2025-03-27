@@ -1098,24 +1098,20 @@ import * as os from "os";
         }
         mexpr = "";
 
-        eval_and_print_start(expr, true);
+        eval_and_print_start(expr);
 
         return true;
     }
 
-    function eval_and_print_start(expr, is_async) {
+    function eval_and_print_start(expr) {
         var result;
 
         try {
             eval_start_time = os.now();
             /* eval as a script */
-            result = std.evalScript(expr, { backtrace_barrier: true, async: is_async });
-            if (is_async) {
-                /* result is a promise */
-                result.then(print_eval_result, print_eval_error);
-            } else {
-                print_eval_result({ value: result });
-            }
+            result = std.evalScript(expr, { backtrace_barrier: true, async: true });
+            /* result is a promise */
+            result.then(print_eval_result, print_eval_error);
         } catch (error) {
             print_eval_error(error);
         }

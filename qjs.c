@@ -465,6 +465,7 @@ int main(int argc, char **argv)
                 goto fail;
         }
         if (interactive) {
+            JS_SetHostPromiseRejectionTracker(rt, NULL, NULL);
             js_std_eval_binary(ctx, qjsc_repl, qjsc_repl_size, 0);
         }
         js_std_loop(ctx);
