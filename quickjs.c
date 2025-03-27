@@ -8757,17 +8757,21 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                             return -1;
                         }
                     typed_array_oob:
-                        /* must convert the argument even if out of bound access */
-                        if (p1->class_id == JS_CLASS_BIG_INT64_ARRAY ||
-                            p1->class_id == JS_CLASS_BIG_UINT64_ARRAY) {
-                            int64_t v;
-                            if (JS_ToBigInt64Free(ctx, &v, val))
-                                return -1;
+                        if (p == p1) {
+                            /* must convert the argument even if out of bound access */
+                            if (p1->class_id == JS_CLASS_BIG_INT64_ARRAY ||
+                                p1->class_id == JS_CLASS_BIG_UINT64_ARRAY) {
+                                int64_t v;
+                                if (JS_ToBigInt64Free(ctx, &v, val))
+                                    return -1;
+                            } else {
+                                val = JS_ToNumberFree(ctx, val);
+                                JS_FreeValue(ctx, val);
+                                if (JS_IsException(val))
+                                    return -1;
+                            }
                         } else {
-                            val = JS_ToNumberFree(ctx, val);
                             JS_FreeValue(ctx, val);
-                            if (JS_IsException(val))
-                                return -1;
                         }
                         return TRUE;
                     }
