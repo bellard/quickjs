@@ -274,7 +274,7 @@ void help(void)
            "-d  --dump         dump the memory usage stats\n"
            "    --memory-limit n       limit the memory usage to 'n' bytes\n"
            "    --stack-size n         limit the stack size to 'n' bytes\n"
-           "    --unhandled-rejection  dump unhandled promise rejections\n"
+           "    --no-unhandled-rejection  ignore unhandled promise rejections\n"
            "-q  --quit         just instantiate the interpreter and quit\n");
     exit(1);
 }
@@ -292,7 +292,7 @@ int main(int argc, char **argv)
     int empty_run = 0;
     int module = -1;
     int load_std = 0;
-    int dump_unhandled_promise_rejection = 0;
+    int dump_unhandled_promise_rejection = 1;
     size_t memory_limit = 0;
     char *include_list[32];
     int i, include_count = 0;
@@ -371,8 +371,8 @@ int main(int argc, char **argv)
                 load_std = 1;
                 continue;
             }
-            if (!strcmp(longopt, "unhandled-rejection")) {
-                dump_unhandled_promise_rejection = 1;
+            if (!strcmp(longopt, "no-unhandled-rejection")) {
+                dump_unhandled_promise_rejection = 0;
                 continue;
             }
             if (opt == 'q' || !strcmp(longopt, "quit")) {
