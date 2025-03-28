@@ -15227,6 +15227,21 @@ static __exception int js_for_of_next(JSContext *ctx, JSValue *sp, int offset)
     return 0;
 }
 
+static __exception int js_for_await_of_next(JSContext *ctx, JSValue *sp)
+{
+    JSValue obj, iter, next;
+
+    sp[-1] = JS_UNDEFINED; /* disable the catch offset so that
+                              exceptions do not close the iterator */
+    iter = sp[-3];
+    next = sp[-2];
+    obj = JS_Call(ctx, next, iter, 0, NULL);
+    if (JS_IsException(obj))
+        return -1;
+    sp[0] = obj;
+    return 0;
+}
+
 static JSValue JS_IteratorGetCompleteValue(JSContext *ctx, JSValueConst obj,
                                            BOOL *pdone)
 {
@@ -15259,6 +15274,9 @@ static __exception int js_iterator_get_value_done(JSContext *ctx, JSValue *sp)
     if (JS_IsException(value))
         return -1;
     JS_FreeValue(ctx, obj);
+    /* put again the catch offset so that exceptions close the
+       iterator */
+    sp[-2] = JS_NewCatchOffset(ctx, 0); 
     sp[-1] = value;
     sp[0] = JS_NewBool(ctx, done);
     return 0;
@@ -17213,6 +17231,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     goto exception;
                 sp += 2;
             }
+            BREAK;
+        CASE(OP_for_await_of_next):
+            if (js_for_await_of_next(ctx, sp))
+                goto exception;
+            sp++;
             BREAK;
         CASE(OP_for_await_of_start):
             if (js_for_of_start(ctx, sp, TRUE))
@@ -26138,12 +26161,9 @@ static __exception int js_parse_for_in_of(JSParseState *s, int label_name,
     emit_label(s, label_cont);
     if (is_for_of) {
         if (is_async) {
-            /* call the next method */
             /* stack: iter_obj next catch_offset */
-            emit_op(s, OP_dup3);
-            emit_op(s, OP_drop);
-            emit_op(s, OP_call_method);
-            emit_u16(s, 0);
+            /* call the next method */
+            emit_op(s, OP_for_await_of_next); 
             /* get the result of the promise */
             emit_op(s, OP_await);
             /* unwrap the value and done values */
@@ -48426,25 +48446,6 @@ static const JSCFunctionListEntry js_async_function_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "AsyncFunction", JS_PROP_CONFIGURABLE ),
 };
 
-static JSValue js_async_from_sync_iterator_unwrap(JSContext *ctx,
-                                                  JSValueConst this_val,
-                                                  int argc, JSValueConst *argv,
-                                                  int magic, JSValue *func_data)
-{
-    return js_create_iterator_result(ctx, JS_DupValue(ctx, argv[0]),
-                                     JS_ToBool(ctx, func_data[0]));
-}
-
-static JSValue js_async_from_sync_iterator_unwrap_func_create(JSContext *ctx,
-                                                              BOOL done)
-{
-    JSValueConst func_data[1];
-
-    func_data[0] = (JSValueConst)JS_NewBool(ctx, done);
-    return JS_NewCFunctionData(ctx, js_async_from_sync_iterator_unwrap,
-                               1, 0, 1, func_data);
-}
-
 /* AsyncIteratorPrototype */
 
 static const JSCFunctionListEntry js_async_iterator_proto_funcs[] = {
@@ -48506,6 +48507,41 @@ static JSValue JS_CreateAsyncFromSyncIterator(JSContext *ctx,
     return async_iter;
 }
 
+static JSValue js_async_from_sync_iterator_unwrap(JSContext *ctx,
+                                                  JSValueConst this_val,
+                                                  int argc, JSValueConst *argv,
+                                                  int magic, JSValue *func_data)
+{
+    return js_create_iterator_result(ctx, JS_DupValue(ctx, argv[0]),
+                                     JS_ToBool(ctx, func_data[0]));
+}
+
+static JSValue js_async_from_sync_iterator_unwrap_func_create(JSContext *ctx,
+                                                              BOOL done)
+{
+    JSValueConst func_data[1];
+
+    func_data[0] = (JSValueConst)JS_NewBool(ctx, done);
+    return JS_NewCFunctionData(ctx, js_async_from_sync_iterator_unwrap,
+                               1, 0, 1, func_data);
+}
+
+static JSValue js_async_from_sync_iterator_close_wrap(JSContext *ctx,
+                                                      JSValueConst this_val,
+                                                      int argc, JSValueConst *argv,
+                                                      int magic, JSValue *func_data)
+{
+    JS_Throw(ctx, JS_DupValue(ctx, argv[0]));
+    JS_IteratorClose(ctx, func_data[0], TRUE);
+    return JS_EXCEPTION;
+}
+
+static JSValue js_async_from_sync_iterator_close_wrap_func_create(JSContext *ctx, JSValueConst sync_iter)
+{
+    return JS_NewCFunctionData(ctx, js_async_from_sync_iterator_close_wrap,
+                               1, 0, 1, &sync_iter);
+}
+
 static JSValue js_async_from_sync_iterator_next(JSContext *ctx, JSValueConst this_val,
                                                 int argc, JSValueConst *argv,
                                                 int magic)
@@ -48536,11 +48572,13 @@ static JSValue js_async_from_sync_iterator_next(JSContext *ctx, JSValueConst thi
             if (magic == GEN_MAGIC_RETURN) {
                 err = js_create_iterator_result(ctx, JS_DupValue(ctx, argv[0]), TRUE);
                 is_reject = 0;
+                goto done_resolve;
             } else {
-                err = JS_DupValue(ctx, argv[0]);
-                is_reject = 1;
+                if (JS_IteratorClose(ctx, s->sync_iter, FALSE))
+                    goto reject;
+                JS_ThrowTypeError(ctx, "throw is not a method");
+                goto reject;
             }
-            goto done_resolve;
         }
     }
     value = JS_IteratorNext2(ctx, s->sync_iter, method,
@@ -48555,21 +48593,9 @@ static JSValue js_async_from_sync_iterator_next(JSContext *ctx, JSValueConst thi
         if (JS_IsException(value))
             goto reject;
     }
-
-    if (JS_IsException(value)) {
-        JSValue res2;
-    reject:
-        err = JS_GetException(ctx);
-        is_reject = 1;
-    done_resolve:
-        res2 = JS_Call(ctx, resolving_funcs[is_reject], JS_UNDEFINED,
-                       1, (JSValueConst *)&err);
-        JS_FreeValue(ctx, err);
-        JS_FreeValue(ctx, res2);
-        JS_FreeValue(ctx, resolving_funcs[0]);
-        JS_FreeValue(ctx, resolving_funcs[1]);
-        return promise;
-    }
+    
+    if (JS_IsException(value))
+        goto reject;
     {
         JSValue value_wrapper_promise, resolve_reject[2];
         int res;
@@ -48577,8 +48603,22 @@ static JSValue js_async_from_sync_iterator_next(JSContext *ctx, JSValueConst thi
         value_wrapper_promise = js_promise_resolve(ctx, ctx->promise_ctor,
                                                    1, (JSValueConst *)&value, 0);
         if (JS_IsException(value_wrapper_promise)) {
+            JSValue res2;
             JS_FreeValue(ctx, value);
-            goto reject;
+            if (magic != GEN_MAGIC_RETURN && !done) {
+                JS_IteratorClose(ctx, s->sync_iter, TRUE);
+            }
+        reject:
+            err = JS_GetException(ctx);
+            is_reject = 1;
+        done_resolve:
+            res2 = JS_Call(ctx, resolving_funcs[is_reject], JS_UNDEFINED,
+                           1, (JSValueConst *)&err);
+            JS_FreeValue(ctx, err);
+            JS_FreeValue(ctx, res2);
+            JS_FreeValue(ctx, resolving_funcs[0]);
+            JS_FreeValue(ctx, resolving_funcs[1]);
+            return promise;
         }
 
         resolve_reject[0] =
@@ -48587,13 +48627,23 @@ static JSValue js_async_from_sync_iterator_next(JSContext *ctx, JSValueConst thi
             JS_FreeValue(ctx, value_wrapper_promise);
             goto fail;
         }
+        if (done || magic == GEN_MAGIC_RETURN) {
+            resolve_reject[1] = JS_UNDEFINED;
+        } else {
+            resolve_reject[1] =
+                js_async_from_sync_iterator_close_wrap_func_create(ctx, s->sync_iter);
+            if (JS_IsException(resolve_reject[1])) {
+                JS_FreeValue(ctx, value_wrapper_promise);
+                JS_FreeValue(ctx, resolve_reject[0]);
+                goto fail;
+            }
+        }
         JS_FreeValue(ctx, value);
-        resolve_reject[1] = JS_UNDEFINED;
-
         res = perform_promise_then(ctx, value_wrapper_promise,
                                    (JSValueConst *)resolve_reject,
                                    (JSValueConst *)resolving_funcs);
         JS_FreeValue(ctx, resolve_reject[0]);
+        JS_FreeValue(ctx, resolve_reject[1]);
         JS_FreeValue(ctx, value_wrapper_promise);
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);

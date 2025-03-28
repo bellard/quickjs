@@ -1,30 +1,6 @@
 test262/test/annexB/language/comments/single-line-html-close-first-line-1.js:1: unexpected error type: SyntaxError: unexpected token in expression: '>'
 test262/test/annexB/language/comments/single-line-html-close-first-line-2.js:1: unexpected error type: SyntaxError: unexpected token in expression: '>'
 test262/test/annexB/language/comments/single-line-html-close-first-line-3.js:1: unexpected error type: SyntaxError: unexpected token in expression: '>'
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js:64: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js:64: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js:69: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js:69: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-iterator-next-rejected-promise-close.js:59: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-iterator-next-rejected-promise-close.js:59: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-next-rejected-promise-close.js:64: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/next/yield-next-rejected-promise-close.js:64: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js:74: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js:74: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js:52: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js:52: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js:81: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js:81: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-get-return-undefined.js:64: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-get-return-undefined.js:64: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js:68: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js:68: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-not-object.js:72: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-not-object.js:72: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-object.js:66: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-object.js:66: strict mode: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined.js:41: TypeError: $DONE() not called
-test262/test/built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined.js:41: strict mode: TypeError: $DONE() not called
 test262/test/built-ins/Function/prototype/arguments/prop-desc.js:31: Test262Error: Function.prototype.arguments property getter/setter are the same function Expected SameValue(«function () {
     [native code]
 }», «function () {

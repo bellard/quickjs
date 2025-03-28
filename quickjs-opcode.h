@@ -207,8 +207,9 @@ DEF(   for_of_start, 1, 1, 3, none)
 DEF(for_await_of_start, 1, 1, 3, none)
 DEF(    for_in_next, 1, 1, 3, none)
 DEF(    for_of_next, 2, 3, 5, u8)
+DEF(for_await_of_next, 1, 3, 4, none) /* iter next catch_offset -> iter next catch_offset obj */
 DEF(iterator_check_object, 1, 1, 1, none)
-DEF(iterator_get_value_done, 1, 1, 2, none)
+DEF(iterator_get_value_done, 1, 2, 3, none) /* catch_offset obj -> catch_offset value done */
 DEF( iterator_close, 1, 3, 0, none)
 DEF(  iterator_next, 1, 4, 4, none)
 DEF(  iterator_call, 2, 4, 5, u8)
