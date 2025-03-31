@@ -193,7 +193,9 @@ typedef enum JSErrorEnum {
     JS_NATIVE_ERROR_COUNT, /* number of different NativeError objects */
 } JSErrorEnum;
 
-#define JS_MAX_LOCAL_VARS 65535
+/* the variable and scope indexes must fit on 16 bits. The (-1) and
+   ARG_SCOPE_END values are reserved. */
+#define JS_MAX_LOCAL_VARS 65534
 #define JS_STACK_SIZE_MAX 65534
 #define JS_STRING_LEN_MAX ((1 << 30) - 1)
 
@@ -16611,7 +16613,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 JSValueConst obj;
                 int scope_idx;
                 call_argc = get_u16(pc);
-                scope_idx = get_u16(pc + 2) - 1;
+                scope_idx = get_u16(pc + 2) + ARG_SCOPE_END;
                 pc += 4;
                 call_argv = sp - call_argc;
                 sf->cur_pc = pc;
@@ -16642,7 +16644,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 JSValue *tab;
                 JSValueConst obj;
 
-                scope_idx = get_u16(pc) - 1;
+                scope_idx = get_u16(pc) + ARG_SCOPE_END;
                 pc += 2;
                 tab = build_arg_list(ctx, &len, sp[-1]);
                 if (!tab)
@@ -31281,14 +31283,14 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
                 mark_eval_captured_variables(ctx, s, scope);
                 dbuf_putc(&bc_out, op);
                 dbuf_put_u16(&bc_out, call_argc);
-                dbuf_put_u16(&bc_out, s->scopes[scope].first + 1);
+                dbuf_put_u16(&bc_out, s->scopes[scope].first - ARG_SCOPE_END);
             }
             break;
         case OP_apply_eval: /* convert scope index to adjusted variable index */
             scope = get_u16(bc_buf + pos + 1);
             mark_eval_captured_variables(ctx, s, scope);
             dbuf_putc(&bc_out, op);
-            dbuf_put_u16(&bc_out, s->scopes[scope].first + 1);
+            dbuf_put_u16(&bc_out, s->scopes[scope].first - ARG_SCOPE_END);
             break;
         case OP_scope_get_var_checkthis:
         case OP_scope_get_var_undef:
