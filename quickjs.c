@@ -15107,6 +15107,7 @@ static JSValue JS_IteratorNext2(JSContext *ctx, JSValueConst enum_obj,
     return JS_EXCEPTION;
 }
 
+/* Note: always return JS_UNDEFINED when *pdone = TRUE. */
 static JSValue JS_IteratorNext(JSContext *ctx, JSValueConst enum_obj,
                                JSValueConst method,
                                int argc, JSValueConst *argv, BOOL *pdone)
@@ -15117,9 +15118,13 @@ static JSValue JS_IteratorNext(JSContext *ctx, JSValueConst enum_obj,
     obj = JS_IteratorNext2(ctx, enum_obj, method, argc, argv, &done);
     if (JS_IsException(obj))
         goto fail;
-    if (done != 2) {
-        *pdone = done;
+    if (likely(done == 0)) {
+        *pdone = FALSE;
         return obj;
+    } else if (done != 2) {
+        JS_FreeValue(ctx, obj);
+        *pdone = TRUE;
+        return JS_UNDEFINED;
     } else {
         done_val = JS_GetProperty(ctx, obj, JS_ATOM_done);
         if (JS_IsException(done_val))
@@ -37510,10 +37515,8 @@ static JSValue js_object_fromEntries(JSContext *ctx, JSValueConst this_val,
         item = JS_IteratorNext(ctx, iter, next_method, 0, NULL, &done);
         if (JS_IsException(item))
             goto fail;
-        if (done) {
-            JS_FreeValue(ctx, item);
+        if (done)
             break;
-        }
 
         key = JS_UNDEFINED;
         value = JS_UNDEFINED;
@@ -46550,10 +46553,8 @@ static JSValue js_map_constructor(JSContext *ctx, JSValueConst new_target,
             item = JS_IteratorNext(ctx, iter, next_method, 0, NULL, &done);
             if (JS_IsException(item))
                 goto fail;
-            if (done) {
-                JS_FreeValue(ctx, item);
+            if (done)
                 break;
-            }
             if (is_set) {
                 ret = JS_Call(ctx, adder, obj, 1, (JSValueConst *)&item);
                 if (JS_IsException(ret)) {
@@ -52686,10 +52687,8 @@ static JSValue js_array_from_iterator(JSContext *ctx, uint32_t *plen,
         val = JS_IteratorNext(ctx, iter, next_method, 0, NULL, &done);
         if (JS_IsException(val))
             goto fail;
-        if (done) {
-            JS_FreeValue(ctx, val);
+        if (done)
             break;
-        }
         if (JS_CreateDataPropertyUint32(ctx, arr, k, val, JS_PROP_THROW) < 0)
             goto fail;
         k++;
