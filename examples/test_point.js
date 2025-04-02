@@ -1,5 +1,6 @@
 /* example of JS module importing a C module */
 import { Point } from "./point.so";
+import { PointEnumerable } from "./point.so";
 
 function assert(b, str)
 {
@@ -22,7 +23,7 @@ class ColorPoint extends Point {
 
 function main()
 {
-    var pt, pt2;
+    var pt, pt2, pt3;
 
     pt = new Point(2, 3);
     assert(pt.x === 2);
@@ -35,6 +36,10 @@ function main()
     assert(pt2.x === 2);
     assert(pt2.color === 0xffffff);
     assert(pt2.get_color() === 0xffffff);
+
+    pt3 = new PointEnumerable(2, 3);
+    assert(JSON.stringify(pt) === "{}");
+    assert(JSON.stringify(pt3) === "{\"x\":2,\"y\":3}");
 }
 
 main();
