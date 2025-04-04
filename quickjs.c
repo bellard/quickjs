@@ -7860,6 +7860,17 @@ static int __exception JS_GetOwnPropertyNamesInternal(JSContext *ctx,
 
     /* fill them */
 
+    /* check for possible max_int overflow */
+    if(unlikely(
+         num_keys_count > 100000000
+      || str_keys_count > 100000000
+      || sym_keys_count > 100000000
+      || exotic_keys_count > 100000000
+    )) {
+        js_free_prop_enum(ctx, tab_exotic, exotic_count);
+        JS_ThrowOutOfMemory(ctx);
+        return -1;
+    }
     atom_count = num_keys_count + str_keys_count + sym_keys_count + exotic_keys_count;
     /* avoid allocating 0 bytes */
     tab_atom = js_malloc(ctx, sizeof(tab_atom[0]) * max_int(atom_count, 1));

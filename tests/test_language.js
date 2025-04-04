@@ -413,6 +413,15 @@ function test_spread()
 
     x = [ ...[ , ] ];
     assert(Object.getOwnPropertyNames(x).toString(), "0,length");
+
+    /* large property count doesn't segfault */
+    f = function many_props() {
+        const arr = new Int8Array(2147483646);
+        arr["foo"] = 1;
+        arr[Symbol("bar")] = 2;
+        obj = {...arr};
+    }
+    assert_throws(InternalError, f);
 }
 
 function test_function_length()
