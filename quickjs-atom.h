@@ -210,6 +210,8 @@ DEF(Float32Array, "Float32Array")
 DEF(Float64Array, "Float64Array")
 DEF(DataView, "DataView")
 DEF(BigInt, "BigInt")
+DEF(WeakRef, "WeakRef")
+DEF(FinalizationRegistry, "FinalizationRegistry")
 DEF(Map, "Map")
 DEF(Set, "Set") /* Map + 1 */
 DEF(WeakMap, "WeakMap") /* Map + 2 */

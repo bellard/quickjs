@@ -789,20 +789,68 @@ function test_weak_map()
     tab = [];
     for(i = 0; i < n; i++) {
         v = { };
-        o = { id: i };
+        if (i & 1)
+            o = Symbol("x" + i);
+        else
+            o = { id: i };
         tab[i] = [o, v];
         a.set(o, v);
     }
     o = null;
 
-    n2 = n >> 1;
+    n2 = 5;
     for(i = 0; i < n2; i++) {
         a.delete(tab[i][0]);
     }
     for(i = n2; i < n; i++) {
         tab[i][0] = null; /* should remove the object from the WeakMap too */
     }
+    std.gc();
     /* the WeakMap should be empty here */
+}
+
+function test_weak_ref()
+{
+    var w1, w2, o, i;
+
+    for(i = 0; i < 2; i++) {
+        if (i == 0)
+            o = { };
+        else
+            o = Symbol("x");
+        w1 = new WeakRef(o);
+        assert(w1.deref(), o);
+        w2 = new WeakRef(o);
+        assert(w2.deref(), o);
+        
+        o = null;
+        std.gc();
+        assert(w1.deref(), undefined);
+        assert(w2.deref(), undefined);
+    }
+}
+
+function test_finalization_registry()
+{
+    {
+        let expected = {};
+        let actual;
+        let finrec = new FinalizationRegistry(v => { actual = v });
+        finrec.register({}, expected);
+        os.setTimeout(() => {
+            assert(actual, expected);
+        }, 0);
+    }
+    {
+        let expected = 42;
+        let actual;
+        let finrec = new FinalizationRegistry(v => { actual = v });
+        finrec.register({}, expected);
+        os.setTimeout(() => {
+            assert(actual, expected);
+        }, 0);
+    }
+    std.gc();
 }
 
 function test_generator()
@@ -905,5 +953,7 @@ test_regexp();
 test_symbol();
 test_map();
 test_weak_map();
+test_weak_ref();
+test_finalization_registry();
 test_generator();
 test_rope();
