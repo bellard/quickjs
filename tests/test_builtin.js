@@ -849,6 +849,8 @@ function test_weak_ref()
         assert(w2.deref(), o);
         
         o = null;
+        assert(w1.deref(), undefined);
+        assert(w2.deref(), undefined);
         std.gc();
         assert(w1.deref(), undefined);
         assert(w2.deref(), undefined);

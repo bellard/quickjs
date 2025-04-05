@@ -46594,6 +46594,7 @@ static BOOL js_weakref_is_target(JSValueConst val)
 }
 
 /* JS_UNDEFINED is considered as a live weakref */
+/* XXX: add a specific JSWeakRef value type ? */
 static BOOL js_weakref_is_live(JSValueConst val)
 {
     int *pref_count;
@@ -53884,7 +53885,10 @@ static JSValue js_weakref_deref(JSContext *ctx, JSValueConst this_val, int argc,
     JSWeakRefData *wrd = JS_GetOpaque2(ctx, this_val, JS_CLASS_WEAK_REF);
     if (!wrd)
         return JS_EXCEPTION;
-    return JS_DupValue(ctx, wrd->target);
+    if (js_weakref_is_live(wrd->target)) 
+        return JS_DupValue(ctx, wrd->target);
+    else
+        return JS_UNDEFINED;
 }
 
 static const JSCFunctionListEntry js_weakref_proto_funcs[] = {
@@ -54051,7 +54055,7 @@ static JSValue js_finrec_unregister(JSContext *ctx, JSValueConst this_val, int a
     removed = FALSE;
     list_for_each_safe(el, el1, &frd->entries) {
         JSFinRecEntry *fre = list_entry(el, JSFinRecEntry, link);
-        if (js_same_value(ctx, fre->token, token)) {
+        if (js_weakref_is_live(fre->token) && js_same_value(ctx, fre->token, token)) {
             js_weakref_free(ctx->rt, fre->target);
             js_weakref_free(ctx->rt, fre->token);
             JS_FreeValue(ctx, fre->held_val);
