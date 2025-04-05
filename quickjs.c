@@ -5765,6 +5765,8 @@ static void free_object(JSRuntime *rt, JSObject *p)
         /* keep the object structure in case there are weak references to it */
         if (p->weakref_count == 0) {
             js_free_rt(rt, p);
+        } else {
+            p->header.mark = 0; /* reset the mark so that the weakref can be freed */
         }
     }
 }
@@ -5850,6 +5852,7 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
             if (rt->gc_phase != JS_GC_PHASE_REMOVE_CYCLES) {
                 list_del(&p->link);
                 list_add(&p->link, &rt->gc_zero_ref_count_list);
+                p->mark = 1; /* indicate that the object is about to be freed */
                 if (rt->gc_phase == JS_GC_PHASE_NONE) {
                     free_zero_refcount(rt);
                 }
@@ -46607,13 +46610,12 @@ static void js_weakref_free(JSRuntime *rt, JSValue val)
         JSObject *p = JS_VALUE_GET_OBJ(val);
         assert(p->weakref_count >= 1);
         p->weakref_count--;
-        if (p->weakref_count == 0 && p->header.ref_count == 0) {
-            if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && p->header.mark) {
-                /* cannot remove now the structure if it is involved in a cycle */
-            } else {
-                /* can remove the dummy structure */
-                js_free_rt(rt, p);
-            }
+        /* 'mark' is tested to avoid freeing the object structure when
+           it is about to be freed in a cycle or in
+           free_zero_refcount() */
+        if (p->weakref_count == 0 && p->header.ref_count == 0 &&
+            p->header.mark == 0) {
+            js_free_rt(rt, p);
         }
     } else if (JS_VALUE_GET_TAG(val) == JS_TAG_SYMBOL) {
         JSString *p = JS_VALUE_GET_STRING(val);
