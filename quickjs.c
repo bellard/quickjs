@@ -7936,7 +7936,21 @@ static int __exception JS_GetOwnPropertyNamesInternal(JSContext *ctx,
 
     /* fill them */
 
-    atom_count = num_keys_count + str_keys_count + sym_keys_count + exotic_keys_count;
+    atom_count = num_keys_count + str_keys_count;
+    if (atom_count < str_keys_count)
+        goto add_overflow;
+    atom_count += sym_keys_count;
+    if (atom_count < sym_keys_count)
+        goto add_overflow;
+    atom_count += exotic_keys_count;
+    if (atom_count < exotic_keys_count || atom_count > INT32_MAX) {
+    add_overflow:
+        JS_ThrowOutOfMemory(ctx);
+        js_free_prop_enum(ctx, tab_exotic, exotic_count);
+        return -1;
+    }
+    /* XXX: need generic way to test for js_malloc(ctx, a * b) overflow */
+    
     /* avoid allocating 0 bytes */
     tab_atom = js_malloc(ctx, sizeof(tab_atom[0]) * max_int(atom_count, 1));
     if (!tab_atom) {
