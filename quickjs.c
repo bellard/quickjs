@@ -7428,12 +7428,14 @@ static int JS_AutoInitProperty(JSContext *ctx, JSObject *p, JSAtom prop,
     JSValue val;
     JSContext *realm;
     JSAutoInitFunc *func;
-
+    JSAutoInitIDEnum id;
+    
     if (js_shape_prepare_update(ctx, p, &prs))
         return -1;
 
     realm = js_autoinit_get_realm(pr);
-    func = js_autoinit_func_table[js_autoinit_get_id(pr)];
+    id = js_autoinit_get_id(pr);
+    func = js_autoinit_func_table[id];
     /* 'func' shall not modify the object properties 'pr' */
     val = func(realm, p, prop, pr->u.init.opaque);
     js_autoinit_free(ctx->rt, pr);
@@ -7441,7 +7443,15 @@ static int JS_AutoInitProperty(JSContext *ctx, JSObject *p, JSAtom prop,
     pr->u.value = JS_UNDEFINED;
     if (JS_IsException(val))
         return -1;
-    pr->u.value = val;
+    if (id == JS_AUTOINIT_ID_MODULE_NS &&
+        JS_VALUE_GET_TAG(val) == JS_TAG_STRING) {
+        /* WARNING: a varref is returned as a string  ! */
+        prs->flags |= JS_PROP_VARREF;
+        pr->u.var_ref = JS_VALUE_GET_PTR(val);
+        pr->u.var_ref->header.ref_count++;
+    } else {
+        pr->u.value = val;
+    }
     return 0;
 }
 
@@ -27600,7 +27610,7 @@ static void js_resolve_export_throw_error(JSContext *ctx,
 typedef enum {
     EXPORTED_NAME_AMBIGUOUS,
     EXPORTED_NAME_NORMAL,
-    EXPORTED_NAME_NS,
+    EXPORTED_NAME_DELAYED,
 } ExportedNameEntryEnum;
 
 typedef struct ExportedNameEntry {
@@ -27609,7 +27619,6 @@ typedef struct ExportedNameEntry {
     union {
         JSExportEntry *me; /* using when the list is built */
         JSVarRef *var_ref; /* EXPORTED_NAME_NORMAL */
-        JSModuleDef *module; /* for EXPORTED_NAME_NS */
     } u;
 } ExportedNameEntry;
 
@@ -27719,7 +27728,29 @@ static JSValue js_module_ns_autoinit(JSContext *ctx, JSObject *p, JSAtom atom,
                                      void *opaque)
 {
     JSModuleDef *m = opaque;
-    return JS_GetModuleNamespace(ctx, m);
+    JSResolveResultEnum res;
+    JSExportEntry *res_me;
+    JSModuleDef *res_m;
+    JSVarRef *var_ref;
+
+    res = js_resolve_export(ctx, &res_m, &res_me, m, atom);
+    if (res != JS_RESOLVE_RES_FOUND) {
+        /* fail safe: normally no error should happen here except for memory */
+        js_resolve_export_throw_error(ctx, res, m, atom);
+        return JS_EXCEPTION;
+    }
+    if (res_me->local_name == JS_ATOM__star_) {
+        return JS_GetModuleNamespace(ctx, res_m->req_module_entries[res_me->u.req_module_idx].module);
+    } else {
+        if (res_me->u.local.var_ref) {
+            var_ref = res_me->u.local.var_ref;
+        } else {
+            JSObject *p1 = JS_VALUE_GET_OBJ(res_m->func_obj);
+            var_ref = p1->u.func.var_refs[res_me->u.local.var_idx];
+        }
+        /* WARNING: a varref is returned as a string ! */
+        return JS_MKPTR(JS_TAG_STRING, var_ref);
+    }
 }
 
 static JSValue js_build_module_ns(JSContext *ctx, JSModuleDef *m)
@@ -27764,17 +27795,18 @@ static JSValue js_build_module_ns(JSContext *ctx, JSModuleDef *m)
             en->export_type = EXPORTED_NAME_AMBIGUOUS;
         } else {
             if (res_me->local_name == JS_ATOM__star_) {
-                en->export_type = EXPORTED_NAME_NS;
-                en->u.module = res_m->req_module_entries[res_me->u.req_module_idx].module;
+                en->export_type = EXPORTED_NAME_DELAYED;
             } else {
-                en->export_type = EXPORTED_NAME_NORMAL;
                 if (res_me->u.local.var_ref) {
                     en->u.var_ref = res_me->u.local.var_ref;
                 } else {
                     JSObject *p1 = JS_VALUE_GET_OBJ(res_m->func_obj);
-                    p1 = JS_VALUE_GET_OBJ(res_m->func_obj);
                     en->u.var_ref = p1->u.func.var_refs[res_me->u.local.var_idx];
                 }
+                if (en->u.var_ref == NULL)
+                    en->export_type = EXPORTED_NAME_DELAYED;
+                else
+                    en->export_type = EXPORTED_NAME_NORMAL;
             }
         }
     }
@@ -27798,13 +27830,13 @@ static JSValue js_build_module_ns(JSContext *ctx, JSModuleDef *m)
                 pr->u.var_ref = var_ref;
             }
             break;
-        case EXPORTED_NAME_NS:
-            /* the exported namespace must be created on demand */
+        case EXPORTED_NAME_DELAYED:
+            /* the exported namespace or reference may depend on
+               circular references, so we resolve it lazily */
             if (JS_DefineAutoInitProperty(ctx, obj,
                                           en->export_name,
                                           JS_AUTOINIT_ID_MODULE_NS,
-                                          en->u.module, JS_PROP_ENUMERABLE | JS_PROP_WRITABLE) < 0)
-                goto fail;
+                                          m, JS_PROP_ENUMERABLE | JS_PROP_WRITABLE) < 0)
             break;
         default:
             break;

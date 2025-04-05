@@ -435,6 +435,7 @@ test: qjs
 	./qjs tests/test_bigint.js
 	./qjs tests/test_std.js
 	./qjs tests/test_worker.js
+	./qjs tests/test_cyclic_import.js
 ifdef CONFIG_SHARED_LIBS
 	./qjs tests/test_bjson.js
 	./qjs examples/test_point.js
