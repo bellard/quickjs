@@ -23731,7 +23731,7 @@ static __exception int js_define_var(JSParseState *s, JSAtom name, int tok)
     &&  (fd->js_mode & JS_MODE_STRICT)) {
         return js_parse_error(s, "invalid variable name in strict mode");
     }
-    if ((name == JS_ATOM_let || name == JS_ATOM_undefined)
+    if (name == JS_ATOM_let
     &&  (tok == TOK_LET || tok == TOK_CONST)) {
         return js_parse_error(s, "invalid lexical variable name");
     }
