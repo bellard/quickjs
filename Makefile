@@ -41,6 +41,7 @@ endif
 
 # installation directory
 PREFIX?=/usr/local
+LIBDIR?=lib
 
 # use the gprof profiler
 #CONFIG_PROFILE=y
@@ -194,6 +195,7 @@ endif
 endif
 
 PROGS=qjs$(EXE) qjsc$(EXE) run-test262
+PROGS+=libquickjs.so quickjs.pc qjs-shared$(EXE) qjsc-shared$(EXE)
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
 QJSC=./host-qjsc
@@ -237,6 +239,7 @@ ifndef CONFIG_WIN32
 LIBS+=-ldl -lpthread
 endif
 LIBS+=$(EXTRA_LIBS)
+LIBS_SHARED=-L. -lquickjs $(LIBS)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR) $(OBJDIR)/examples $(OBJDIR)/tests
@@ -244,11 +247,17 @@ $(OBJDIR):
 qjs$(EXE): $(QJS_OBJS)
 	$(CC) $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS)
 
+qjs-shared$(EXE): $(OBJDIR)/qjs.o $(OBJDIR)/repl.o
+	$(CC) $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS_SHARED)
+
 qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS))
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+qjsc-shared$(EXE): $(OBJDIR)/qjsc.o
+	$(CC) $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS_SHARED)
 
 fuzz_eval: $(OBJDIR)/fuzz_eval.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
 	$(CC) $(CFLAGS_OPT) $^ -o fuzz_eval $(LIB_FUZZING_ENGINE)
@@ -283,6 +292,15 @@ LTOEXT=.lto
 else
 LTOEXT=
 endif
+
+quickjs.pc: quickjs.pc.in
+	cp $^ $@
+	sed -i s,@prefix@,$(PREFIX),g $@
+	sed -i s,@libdir@,$(PREFIX)/$(LIBDIR),g $@
+	sed -i s,@version@,$(shell cat VERSION),g $@
+
+libquickjs.so: $(patsubst %.o, %.pic.o, $(QJS_LIB_OBJS))
+	$(CC) $(LDFLAGS) $(LDEXPORT) -shared -o $@ $^ 
 
 libquickjs$(LTOEXT).a: $(QJS_LIB_OBJS)
 	$(AR) rcs $@ $^
@@ -361,8 +379,11 @@ install: all
 ifdef CONFIG_LTO
 	install -m644 libquickjs.lto.a "$(DESTDIR)$(PREFIX)/lib/quickjs"
 endif
+	install -m777 libquickjs.so "$(DESTDIR)$(PREFIX)/$(LIBDIR)"
 	mkdir -p "$(DESTDIR)$(PREFIX)/include/quickjs"
 	install -m644 quickjs.h quickjs-libc.h "$(DESTDIR)$(PREFIX)/include/quickjs"
+	mkdir -p "$(DESTDIR)$(PREFIX)/$(LIBDIR)/pkgconfig"
+	install -m644 quickjs.pc "$(DESTDIR)$(PREFIX)/$(LIBDIR)/pkgconfig"
 
 ###############################################################################
 # examples
