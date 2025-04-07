@@ -720,9 +720,9 @@ function bigint256_arith(n)
     return bigint_arith(n, 256);
 }
 
-function map_set(n)
+function map_set_string(n)
 {
-    var s, i, j, len = 100;
+    var s, i, j, len = 1000;
     for(j = 0; j < n; j++) {
         s = new Map();
         for(i = 0; i < len; i++) {
@@ -730,6 +730,38 @@ function map_set(n)
         }
         for(i = 0; i < len; i++) {
             if (!s.has(String(i)))
+                throw Error("bug in Map");
+        }
+    }
+    return n * len;
+}
+
+function map_set_int(n)
+{
+    var s, i, j, len = 1000;
+    for(j = 0; j < n; j++) {
+        s = new Map();
+        for(i = 0; i < len; i++) {
+            s.set(i, i);
+        }
+        for(i = 0; i < len; i++) {
+            if (!s.has(i))
+                throw Error("bug in Map");
+        }
+    }
+    return n * len;
+}
+
+function map_set_bigint(n)
+{
+    var s, i, j, len = 1000;
+    for(j = 0; j < n; j++) {
+        s = new Map();
+        for(i = 0; i < len; i++) {
+            s.set(BigInt(i), i);
+        }
+        for(i = 0; i < len; i++) {
+            if (!s.has(BigInt(i)))
                 throw Error("bug in Map");
         }
     }
@@ -1346,7 +1378,9 @@ function main(argc, argv, g)
         func_closure_call,
         int_arith,
         float_arith,
-        map_set,
+        map_set_string,
+        map_set_int,
+        map_set_bigint,
         map_delete,
         weak_map_set,
         weak_map_delete,
