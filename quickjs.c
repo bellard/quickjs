@@ -46992,10 +46992,29 @@ static void map_delete_weakrefs(JSRuntime *rt, JSWeakRefHeader *wh)
 {
     JSMapState *s = container_of(wh, JSMapState, weakref_header);
     struct list_head *el, *el1;
+    JSMapRecord *mr1, **pmr;
+    uint32_t h;
 
     list_for_each_safe(el, el1, &s->records) {
         JSMapRecord *mr = list_entry(el, JSMapRecord, link);
         if (!js_weakref_is_live(mr->key)) {
+
+            /* even if key is not live it can be hashed as a pointer */
+            h = map_hash_key(mr->key) & (s->hash_size - 1);
+            pmr = &s->hash_table[h];
+            for(;;) {
+                mr1 = *pmr;
+                /* the entry may already be removed from the hash
+                   table if the map was resized */
+                if (mr1 == NULL)
+                    goto done; 
+                if (mr1 == mr)
+                    break;
+                pmr = &mr1->hash_next;
+            }
+            /* remove from the hash table */
+            *pmr = mr1->hash_next;
+        done:
             map_delete_record(rt, s, mr);
         }
     }
