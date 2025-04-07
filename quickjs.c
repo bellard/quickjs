@@ -19794,7 +19794,8 @@ typedef struct BlockEnv {
     int drop_count; /* number of stack elements to drop */
     int label_finally; /* -1 if none */
     int scope_level;
-    int has_iterator;
+    uint8_t has_iterator : 1;
+    uint8_t is_regular_stmt : 1; /* i.e. not a loop statement */
 } BlockEnv;
 
 typedef struct JSGlobalVar {
@@ -25763,6 +25764,7 @@ static void push_break_entry(JSFunctionDef *fd, BlockEnv *be,
     be->label_finally = -1;
     be->scope_level = fd->scope_level;
     be->has_iterator = FALSE;
+    be->is_regular_stmt = FALSE;
 }
 
 static void pop_break_entry(JSFunctionDef *fd)
@@ -25791,7 +25793,8 @@ static __exception int emit_break(JSParseState *s, JSAtom name, int is_cont)
         }
         if (!is_cont &&
             top->label_break != -1 &&
-            (name == JS_ATOM_NULL || top->label_name == name)) {
+            ((name == JS_ATOM_NULL && !top->is_regular_stmt) ||
+             top->label_name == name)) {
             emit_goto(s, OP_goto, top->label_break);
             return 0;
         }
@@ -26355,6 +26358,7 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
             label_break = new_label(s);
             push_break_entry(s->cur_func, &break_entry,
                              label_name, label_break, -1, 0);
+            break_entry.is_regular_stmt = TRUE;
             if (!(s->cur_func->js_mode & JS_MODE_STRICT) &&
                 (decl_mask & DECL_MASK_FUNC_WITH_LABEL)) {
                 mask = DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL;

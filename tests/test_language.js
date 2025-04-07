@@ -398,6 +398,24 @@ function test_labels()
     while (0) x: { break x; };
 }
 
+function test_labels2()
+{
+    while (1) label: break
+    var i = 0
+    while (i < 3) label: {
+        if (i > 0)
+            break
+        i++
+    }
+    assert(i, 1)
+    for (;;) label: break
+    for (i = 0; i < 3; i++) label: {
+        if (i > 0)
+            break
+    }
+    assert(i, 1)
+}
+
 function test_destructuring()
 {
     function * g () { return 0; };
@@ -618,6 +636,7 @@ test_template_skip();
 test_object_literal();
 test_regexp_skip();
 test_labels();
+test_labels2();
 test_destructuring();
 test_spread();
 test_function_length();
