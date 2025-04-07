@@ -13857,7 +13857,7 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
                 goto bigint_sar;
             }
         bigint_shl:
-            vd = (js_sdlimb_t)v1 << v2;
+            vd = (js_dlimb_t)v1 << v2;
             if (likely(vd >= JS_SHORT_BIG_INT_MIN &&
                        vd <= JS_SHORT_BIG_INT_MAX)) {
                 v = vd;
