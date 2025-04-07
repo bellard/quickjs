@@ -257,6 +257,32 @@ static const JSMallocFunctions trace_mf = {
     js_trace_malloc_usable_size,
 };
 
+static size_t get_suffixed_size(const char *str)
+{
+    char *p;
+    size_t v;
+    v = (size_t)strtod(str, &p);
+    switch(*p) {
+    case 'G':
+        v <<= 30;
+        break;
+    case 'M':
+        v <<= 20;
+        break;
+    case 'k':
+    case 'K':
+        v <<= 10;
+        break;
+    default:
+        if (*p != '\0') {
+            fprintf(stderr, "qjs: invalid suffix: %s\n", p);
+            exit(1);
+        }
+        break;
+    }
+    return v;
+}
+
 #define PROG_NAME "qjs"
 
 void help(void)
@@ -272,8 +298,8 @@ void help(void)
            "    --std          make 'std' and 'os' available to the loaded script\n"
            "-T  --trace        trace memory allocation\n"
            "-d  --dump         dump the memory usage stats\n"
-           "    --memory-limit n       limit the memory usage to 'n' bytes\n"
-           "    --stack-size n         limit the stack size to 'n' bytes\n"
+           "    --memory-limit n  limit the memory usage to 'n' bytes (SI suffixes allowed)\n"
+           "    --stack-size n    limit the stack size to 'n' bytes (SI suffixes allowed)\n"
            "    --no-unhandled-rejection  ignore unhandled promise rejections\n"
            "-q  --quit         just instantiate the interpreter and quit\n");
     exit(1);
@@ -384,7 +410,7 @@ int main(int argc, char **argv)
                     fprintf(stderr, "expecting memory limit");
                     exit(1);
                 }
-                memory_limit = (size_t)strtod(argv[optind++], NULL);
+                memory_limit = get_suffixed_size(argv[optind++]);
                 continue;
             }
             if (!strcmp(longopt, "stack-size")) {
@@ -392,7 +418,7 @@ int main(int argc, char **argv)
                     fprintf(stderr, "expecting stack size");
                     exit(1);
                 }
-                stack_size = (size_t)strtod(argv[optind++], NULL);
+                stack_size = get_suffixed_size(argv[optind++]);
                 continue;
             }
             if (opt) {
