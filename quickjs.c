@@ -13397,6 +13397,7 @@ static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
             switch(op) {
             case OP_plus:
                 JS_ThrowTypeError(ctx, "bigint argument with unary +");
+                JS_FreeValue(ctx, op1);
                 goto exception;
             case OP_inc:
             case OP_dec:
