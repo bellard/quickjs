@@ -1,3 +1,11 @@
+- removed the bignum extensions and qjscalc
+- new BigInt implementation optimized for small numbers
+- added WeakRef, FinalizationRegistry and symbols as weakrefs
+- added builtin float64 printing and parsing functions for more correctness
+- faster repeated string concatenation
+- qjs: promise unhandled rejections are fatal errors by default
+- misc bug fixes
+
 2024-01-13:
 
 - top-level-await support in modules
