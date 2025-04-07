@@ -46898,7 +46898,6 @@ static JSMapRecord *map_find_record(JSContext *ctx, JSMapState *s,
 static void map_hash_resize(JSContext *ctx, JSMapState *s)
 {
     uint32_t new_hash_size, h;
-    size_t slack;
     struct list_head *el;
     JSMapRecord *mr, **new_hash_table;
 
@@ -46907,8 +46906,8 @@ static void map_hash_resize(JSContext *ctx, JSMapState *s)
         new_hash_size = 4;
     else
         new_hash_size = s->hash_size * 2;
-    new_hash_table = js_realloc2(ctx, s->hash_table,
-                                 sizeof(new_hash_table[0]) * new_hash_size, &slack);
+    new_hash_table = js_realloc(ctx, s->hash_table,
+                                sizeof(new_hash_table[0]) * new_hash_size);
     if (!new_hash_table)
         return;
 
