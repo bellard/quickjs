@@ -371,6 +371,16 @@ function test_try_catch8()
     assert(s === "xafyaf");
 }
 
+function test_cyclic_labels()
+{
+    /* just check that it compiles without a crash */
+    for (;;) {
+        l: break l;
+        l: break l;
+        l: break l;
+    }
+}
+
 test_while();
 test_while_break();
 test_do_while();

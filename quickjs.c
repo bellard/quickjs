@@ -31821,10 +31821,11 @@ static BOOL code_has_label(CodeContext *s, int pos, int label)
 /* return the target label, following the OP_goto jumps
    the first opcode at destination is stored in *pop
  */
-static int find_jump_target(JSFunctionDef *s, int label, int *pop, int *pline)
+static int find_jump_target(JSFunctionDef *s, int label0, int *pop, int *pline)
 {
-    int i, pos, op;
+    int i, pos, op, label;
 
+    label = label0;
     update_label(s, label, -1);
     for (i = 0; i < 10; i++) {
         assert(label >= 0 && label < s->label_count);
@@ -31855,6 +31856,19 @@ static int find_jump_target(JSFunctionDef *s, int label, int *pop, int *pline)
         }
     }
     /* cycle detected, could issue a warning */
+    /* XXX: the combination of find_jump_target() and skip_dead_code()
+       seems incorrect with cyclic labels. See for exemple:
+
+       for (;;) {
+       l:break l;
+       l:break l;
+       l:break l;
+       l:break l;
+       }
+
+       Avoiding changing the target is just a workaround and might not
+       suffice to completely fix the problem. */
+    label = label0;
  done:
     *pop = op;
     update_label(s, label, +1);
