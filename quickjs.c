@@ -2880,7 +2880,7 @@ JSAtom JS_NewAtomLen(JSContext *ctx, const char *str, size_t len)
     if (len == 0 ||
         (!is_digit(*str) &&
          count_ascii((const uint8_t *)str, len) == len)) {
-            JSAtom atom = __JS_FindAtom(ctx->rt, str, len, JS_ATOM_TYPE_STRING);
+        JSAtom atom = __JS_FindAtom(ctx->rt, str, len, JS_ATOM_TYPE_STRING);
         if (atom)
             return atom;
     }
