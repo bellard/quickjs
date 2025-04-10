@@ -622,6 +622,12 @@ function test_optional_chaining()
     assert((a?.["b"])().c, 42);
 }
 
+function test_unicode_ident()
+{
+    var Ãµ = 3;
+    assert(typeof õ, "undefined");
+}
+
 test_op1();
 test_cvt();
 test_eq();
@@ -645,3 +651,4 @@ test_function_expr_name();
 test_parse_semicolon();
 test_optional_chaining();
 test_parse_arrow_function();
+test_unicode_ident();

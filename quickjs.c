@@ -2861,14 +2861,26 @@ static JSAtom JS_NewAtomStr(JSContext *ctx, JSString *p)
     return __JS_NewAtom(rt, p, JS_ATOM_TYPE_STRING);
 }
 
+/* XXX: optimize */
+static size_t count_ascii(const uint8_t *buf, size_t len)
+{
+    const uint8_t *p, *p_end;
+    p = buf;
+    p_end = buf + len;
+    while (p < p_end && *p < 128)
+        p++;
+    return p - buf;
+}
+
 /* str is UTF-8 encoded */
 JSAtom JS_NewAtomLen(JSContext *ctx, const char *str, size_t len)
 {
     JSValue val;
 
-    if (len == 0 || !is_digit(*str)) {
-        // XXX: this will not work if UTF-8 encoded str contains non ASCII bytes
-        JSAtom atom = __JS_FindAtom(ctx->rt, str, len, JS_ATOM_TYPE_STRING);
+    if (len == 0 ||
+        (!is_digit(*str) &&
+         count_ascii((const uint8_t *)str, len) == len)) {
+            JSAtom atom = __JS_FindAtom(ctx->rt, str, len, JS_ATOM_TYPE_STRING);
         if (atom)
             return atom;
     }
@@ -3810,10 +3822,8 @@ JSValue JS_NewStringLen(JSContext *ctx, const char *buf, size_t buf_len)
 
     p_start = (const uint8_t *)buf;
     p_end = p_start + buf_len;
-    p = p_start;
-    while (p < p_end && *p < 128)
-        p++;
-    len1 = p - p_start;
+    len1 = count_ascii(p_start, buf_len);
+    p = p_start + len1;
     if (len1 > JS_STRING_LEN_MAX)
         return JS_ThrowInternalError(ctx, "string too long");
     if (p == p_end) {
