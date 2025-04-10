@@ -634,7 +634,8 @@ static inline JS_BOOL JS_IsUninitialized(JSValueConst v)
 
 static inline JS_BOOL JS_IsString(JSValueConst v)
 {
-    return JS_VALUE_GET_TAG(v) == JS_TAG_STRING;
+    return JS_VALUE_GET_TAG(v) == JS_TAG_STRING ||
+        JS_VALUE_GET_TAG(v) == JS_TAG_STRING_ROPE;
 }
 
 static inline JS_BOOL JS_IsSymbol(JSValueConst v)
