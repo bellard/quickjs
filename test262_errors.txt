@@ -23,10 +23,6 @@ test262/test/language/expressions/object/computed-property-name-topropertykey-be
 test262/test/language/expressions/object/computed-property-name-topropertykey-before-value-evaluation.js:31: strict mode: Test262Error: Expected SameValue(«"bad"», «"ok"») to be true
 test262/test/language/module-code/top-level-await/async-module-does-not-block-sibling-modules.js:13: SyntaxError: Could not find export 'check' in module 'test262/test/language/module-code/top-level-await/async-module-sync_FIXTURE.js'
 test262/test/language/module-code/top-level-await/module-graphs-does-not-hang.js:10: TypeError: $DONE() not called
-test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-get-followed-by-generator-asi.js:40: SyntaxError: invalid property name
-test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-get-followed-by-generator-asi.js:40: strict mode: SyntaxError: invalid property name
-test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-set-followed-by-generator-asi.js:40: SyntaxError: invalid property name
-test262/test/language/statements/class/elements/syntax/valid/grammar-field-named-set-followed-by-generator-asi.js:40: strict mode: SyntaxError: invalid property name
 test262/test/language/statements/with/get-binding-value-call-with-proxy-env.js:39: Test262Error: Actual [has:Object, get:Symbol(Symbol.unscopables), get:Object] and expected [has:Object, get:Symbol(Symbol.unscopables), has:Object, get:Object] should have the same contents. 
 test262/test/language/statements/with/get-binding-value-idref-with-proxy-env.js:39: Test262Error: Actual [has:Object, get:Symbol(Symbol.unscopables), get:Object] and expected [has:Object, get:Symbol(Symbol.unscopables), has:Object, get:Object] should have the same contents. 
 test262/test/language/statements/with/get-mutable-binding-binding-deleted-in-get-unscopables-strict-mode.js:21: Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all

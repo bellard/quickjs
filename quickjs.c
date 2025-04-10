@@ -22248,15 +22248,20 @@ static int __exception js_parse_property_name(JSParseState *s,
 
     prop_type = PROP_TYPE_IDENT;
     if (allow_method) {
-        if (token_is_pseudo_keyword(s, JS_ATOM_get)
-        ||  token_is_pseudo_keyword(s, JS_ATOM_set)) {
+        /* if allow_private is true (for class field parsing) and
+           get/set is following by ';' (or LF with ASI), then it
+           is a field name */
+        if ((token_is_pseudo_keyword(s, JS_ATOM_get) ||
+             token_is_pseudo_keyword(s, JS_ATOM_set)) &&
+            (!allow_private || peek_token(s, TRUE) != '\n')) {
             /* get x(), set x() */
             name = JS_DupAtom(s->ctx, s->token.u.ident.atom);
             if (next_token(s))
                 goto fail1;
             if (s->token.val == ':' || s->token.val == ',' ||
                 s->token.val == '}' || s->token.val == '(' ||
-                s->token.val == '=') {
+                s->token.val == '=' ||
+                (s->token.val == ';' && allow_private)) {
                 is_non_reserved_ident = TRUE;
                 goto ident_found;
             }
