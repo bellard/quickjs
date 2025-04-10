@@ -14721,21 +14721,15 @@ static __exception int js_operator_delete(JSContext *ctx, JSValue *sp)
     return 0;
 }
 
-static JSValue js_throw_type_error(JSContext *ctx, JSValueConst this_val,
-                                   int argc, JSValueConst *argv)
-{
-    return JS_ThrowTypeError(ctx, "invalid property access");
-}
-
 /* XXX: not 100% compatible, but mozilla seems to use a similar
    implementation to ensure that caller in non strict mode does not
    throw (ES5 compatibility) */
-static JSValue js_function_proto_caller(JSContext *ctx, JSValueConst this_val,
-                                        int argc, JSValueConst *argv)
+static JSValue js_throw_type_error(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
 {
     JSFunctionBytecode *b = JS_GetFunctionBytecode(this_val);
-    if (!b || (b->js_mode & JS_MODE_STRICT) || !b->has_prototype) {
-        return js_throw_type_error(ctx, this_val, 0, NULL);
+    if (!b || (b->js_mode & JS_MODE_STRICT) || !b->has_prototype || argc >= 1) {
+        return JS_ThrowTypeError(ctx, "invalid property access");
     }
     return JS_UNDEFINED;
 }
@@ -50719,16 +50713,14 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
     ctx->throw_type_error = JS_NewCFunction(ctx, js_throw_type_error, NULL, 0);
 
     /* add caller and arguments properties to throw a TypeError */
-    obj1 = JS_NewCFunction(ctx, js_function_proto_caller, NULL, 0);
     JS_DefineProperty(ctx, ctx->function_proto, JS_ATOM_caller, JS_UNDEFINED,
-                      obj1, ctx->throw_type_error,
+                      ctx->throw_type_error, ctx->throw_type_error,
                       JS_PROP_HAS_GET | JS_PROP_HAS_SET |
                       JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE);
     JS_DefineProperty(ctx, ctx->function_proto, JS_ATOM_arguments, JS_UNDEFINED,
-                      obj1, ctx->throw_type_error,
+                      ctx->throw_type_error, ctx->throw_type_error,
                       JS_PROP_HAS_GET | JS_PROP_HAS_SET |
                       JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE);
-    JS_FreeValue(ctx, obj1);
     JS_FreeValue(ctx, js_object_seal(ctx, JS_UNDEFINED, 1, (JSValueConst *)&ctx->throw_type_error, 1));
 
     ctx->global_obj = JS_NewObject(ctx);
