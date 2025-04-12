@@ -1571,7 +1571,7 @@ int run_test_buf(const char *filename, const char *harness, namelist_t *ip,
 
     for (i = 0; i < ip->count; i++) {
         if (eval_file(ctx, harness, ip->array[i],
-                      JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRIP)) {
+                      JS_EVAL_TYPE_GLOBAL)) {
             fatal(1, "error including %s for %s", ip->array[i], filename);
         }
     }

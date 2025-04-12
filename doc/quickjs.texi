@@ -264,16 +264,6 @@ The following features are not supported yet:
 
 ECMA402 (Internationalization API) is not supported.
 
-@subsection Extensions
-
-@itemize
-
-@item The directive @code{"use strip"} indicates that the debug information (including the source code of the functions) should not be retained to save memory. As @code{"use strict"}, the directive can be global to a script or local to a function.
-
-@item The first line of a script beginning with @code{#!} is ignored.
-
-@end itemize
-
 @section Modules
 
 ES6 modules are fully supported. The default name resolution is the

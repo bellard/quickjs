@@ -296,7 +296,7 @@ libquickjs.fuzz.a: $(patsubst %.o, %.fuzz.o, $(QJS_LIB_OBJS))
 	$(AR) rcs $@ $^
 
 repl.c: $(QJSC) repl.js
-	$(QJSC) -c -o $@ -m repl.js
+	$(QJSC) -s -c -o $@ -m repl.js
 
 ifneq ($(wildcard unicode/UnicodeData.txt),)
 $(OBJDIR)/libunicode.o $(OBJDIR)/libunicode.nolto.o: libunicode-table.h

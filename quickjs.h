@@ -334,7 +334,6 @@ static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int64_t d)
 #define JS_EVAL_TYPE_MASK     (3 << 0)
 
 #define JS_EVAL_FLAG_STRICT   (1 << 3) /* force 'strict' mode */
-#define JS_EVAL_FLAG_STRIP    (1 << 4) /* force 'strip' mode */
 /* compile but do not run. The result is an object with a
    JS_TAG_FUNCTION_BYTECODE or JS_TAG_MODULE tag. It can be executed
    with JS_EvalFunction(). */
@@ -902,6 +901,12 @@ typedef int JSInterruptHandler(JSRuntime *rt, void *opaque);
 void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque);
 /* if can_block is TRUE, Atomics.wait() can be used */
 void JS_SetCanBlock(JSRuntime *rt, JS_BOOL can_block);
+/* select which debug info is stripped from the compiled code */
+#define JS_STRIP_SOURCE (1 << 0) /* strip source code */
+#define JS_STRIP_DEBUG  (1 << 1) /* strip all debug info including source code */
+void JS_SetStripInfo(JSRuntime *rt, int flags);
+int JS_GetStripInfo(JSRuntime *rt);
+
 /* set the [IsHTMLDDA] internal slot */
 void JS_SetIsHTMLDDA(JSContext *ctx, JSValueConst obj);
 

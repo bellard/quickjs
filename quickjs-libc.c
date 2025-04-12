@@ -3220,6 +3220,7 @@ typedef struct {
     char *filename; /* module filename */
     char *basename; /* module base name */
     JSWorkerMessagePipe *recv_pipe, *send_pipe;
+    int strip_flags;
 } WorkerFuncArgs;
 
 typedef struct {
@@ -3367,6 +3368,7 @@ static void *worker_func(void *opaque)
         fprintf(stderr, "JS_NewRuntime failure");
         exit(1);
     }
+    JS_SetStripInfo(rt, args->strip_flags);
     js_std_init_handlers(rt);
 
     JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
@@ -3484,6 +3486,8 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
     if (!args->send_pipe)
         goto oom_fail;
 
+    args->strip_flags = JS_GetStripInfo(rt);
+    
     obj = js_worker_ctor_internal(ctx, new_target,
                                   args->send_pipe, args->recv_pipe);
     if (JS_IsException(obj))
