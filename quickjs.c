@@ -16677,8 +16677,25 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             BREAK;
         CASE(OP_check_ctor):
             if (JS_IsUndefined(new_target)) {
+            non_ctor_call:
                 JS_ThrowTypeError(ctx, "class constructors must be invoked with 'new'");
                 goto exception;
+            }
+            BREAK;
+        CASE(OP_init_ctor):
+            {
+                JSValue super, ret;
+                sf->cur_pc = pc;
+                if (JS_IsUndefined(new_target))
+                    goto non_ctor_call;
+                super = JS_GetPrototype(ctx, func_obj);
+                if (JS_IsException(super))
+                    goto exception;
+                ret = JS_CallConstructor2(ctx, super, new_target, argc, (JSValueConst *)argv);
+                JS_FreeValue(ctx, super);
+                if (JS_IsException(ret))
+                    goto exception;
+                *sp++ = ret;
             }
             BREAK;
         CASE(OP_check_brand):
@@ -22714,45 +22731,73 @@ static __exception int js_parse_object_literal(JSParseState *s)
 #define PF_POW_FORBIDDEN (1 << 3)
 
 static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags);
+static void emit_class_field_init(JSParseState *s);
+static JSFunctionDef *js_new_function_def(JSContext *ctx,
+                                          JSFunctionDef *parent,
+                                          BOOL is_eval,
+                                          BOOL is_func_expr,
+                                          const char *filename, int line_num);
+static void emit_return(JSParseState *s, BOOL hasval);
 
 static __exception int js_parse_left_hand_side_expr(JSParseState *s)
 {
     return js_parse_postfix_expr(s, PF_POSTFIX_CALL);
 }
 
-/* XXX: could generate specific bytecode */
 static __exception int js_parse_class_default_ctor(JSParseState *s,
                                                    BOOL has_super,
                                                    JSFunctionDef **pfd)
 {
-    JSParsePos pos;
-    const char *str;
-    int ret, line_num;
     JSParseFunctionEnum func_type;
-    const uint8_t *saved_buf_end;
+    JSFunctionDef *fd = s->cur_func;
+    int idx;
 
-    js_parse_get_pos(s, &pos);
+    fd = js_new_function_def(s->ctx, fd, FALSE, FALSE, s->filename,
+                             s->token.line_num);
+    if (!fd)
+        return -1;
+
+    s->cur_func = fd;
+    fd->has_home_object = TRUE;
+    fd->super_allowed = TRUE;
+    fd->has_prototype = FALSE;
+    fd->has_this_binding = TRUE;
+    fd->new_target_allowed = TRUE;
+
+    push_scope(s);  /* enter body scope */
+    fd->body_scope = fd->scope_level;
     if (has_super) {
-        /* spec change: no argument evaluation */
-        str = "(){super(...arguments);}";
+        fd->is_derived_class_constructor = TRUE;
+        fd->super_call_allowed = TRUE;
+        fd->arguments_allowed = TRUE;
+        fd->has_arguments_binding = TRUE;
         func_type = JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
+        emit_op(s, OP_init_ctor);
+        // TODO(bnoordhuis) roll into OP_init_ctor
+        emit_op(s, OP_scope_put_var_init);
+        emit_atom(s, JS_ATOM_this);
+        emit_u16(s, 0);
+        emit_class_field_init(s);
     } else {
-        str = "(){}";
         func_type = JS_PARSE_FUNC_CLASS_CONSTRUCTOR;
+        /* error if not invoked as a constructor */
+        emit_op(s, OP_check_ctor);
+        emit_class_field_init(s);
     }
-    line_num = s->token.line_num;
-    saved_buf_end = s->buf_end;
-    s->buf_ptr = (uint8_t *)str;
-    s->buf_end = (uint8_t *)(str + strlen(str));
-    ret = next_token(s);
-    if (!ret) {
-        ret = js_parse_function_decl2(s, func_type, JS_FUNC_NORMAL,
-                                      JS_ATOM_NULL, (uint8_t *)str,
-                                      line_num, JS_PARSE_EXPORT_NONE, pfd);
-    }
-    s->buf_end = saved_buf_end;
-    ret |= js_parse_seek_token(s, &pos);
-    return ret;
+
+    fd->func_kind = JS_FUNC_NORMAL;
+    fd->func_type = func_type;
+    emit_return(s, FALSE);
+
+    s->cur_func = fd->parent;
+    if (pfd)
+        *pfd = fd;
+
+    /* the real object will be set at the end of the compilation */
+    idx = cpool_add(s, JS_NULL);
+    fd->parent_cpool_idx = idx;
+
+    return 0;
 }
 
 /* find field in the current scope */
@@ -25465,8 +25510,6 @@ static __exception int js_parse_cond_expr(JSParseState *s, int parse_flags)
     }
     return 0;
 }
-
-static void emit_return(JSParseState *s, BOOL hasval);
 
 /* allowed parse_flags: PF_IN_ACCEPTED */
 static __exception int js_parse_assign_expr2(JSParseState *s, int parse_flags)

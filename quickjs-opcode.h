@@ -110,6 +110,7 @@ DEF(         return, 1, 1, 0, none)
 DEF(   return_undef, 1, 0, 0, none)
 DEF(check_ctor_return, 1, 1, 2, none)
 DEF(     check_ctor, 1, 0, 0, none)
+DEF(      init_ctor, 1, 0, 1, none)
 DEF(    check_brand, 1, 2, 2, none) /* this_obj func -> this_obj func */
 DEF(      add_brand, 1, 2, 0, none) /* this_obj home_obj -> */
 DEF(   return_async, 1, 1, 0, none)
