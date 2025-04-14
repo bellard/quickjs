@@ -508,6 +508,42 @@ function test_typed_array()
     assert(a.toString(), "1,2,10,11");
 }
 
+function check_error_pos(e, expected_error, line_num, col_num)
+{
+    var expected_pos;
+    expected_pos = ":" + line_num + ":" + col_num;
+    if (expected_error === SyntaxError)
+        expected_pos += "\n";
+    else
+        expected_pos += ")";
+    if (e.stack.indexOf(expected_pos) < 0) {
+        throw_error("unexpected line or column number. error=" + e.message +
+                    ".got |" + e.stack +
+                    "|, expected |" + expected_pos + "|");
+    }
+}
+
+function assert_json_error(str, line_num, col_num)
+{
+    var err = false;
+    var expected_pos;
+    
+    try {
+        JSON.parse(str);
+    } catch(e) {
+        err = true;
+        if (!(e instanceof SyntaxError)) {
+            throw_error("unexpected exception type");
+            return;
+        }
+        /* XXX: the way quickjs returns JSON errors is not similar to Node or spiderMonkey */
+        check_error_pos(e, SyntaxError, line_num, col_num);
+    }
+    if (!err) {
+        throw_error("expected exception");
+    }
+}
+
 function test_json()
 {
     var a, s;
@@ -531,6 +567,9 @@ function test_json()
   3
  ]
 ]`);
+
+    assert_json_error('\n"  \\x"', 2, 4);
+    assert_json_error('\n{ "a": x }"', 2, 8);
 }
 
 function test_date()
@@ -965,6 +1004,55 @@ function test_rope()
     rope_concat(100000, -1);
 }
 
+
+function eval_error(eval_str, expected_error, line_num, col_num)
+{
+    var err = false;
+    var expected_pos;
+    
+    try {
+        eval(eval_str);
+    } catch(e) {
+        err = true;
+        if (!(e instanceof expected_error)) {
+            throw_error("unexpected exception type");
+            return;
+        }
+        check_error_pos(e, expected_error, line_num, col_num);
+    }
+    if (!err) {
+        throw_error("expected exception");
+    }
+}
+
+function test_line_column_numbers()
+{
+    var f, e;
+
+    /* parsing */
+    eval_error("\n 123 a ", SyntaxError, 2, 6);
+    eval_error("\n  /*  ", SyntaxError, 2, 3);
+    eval_error("function f  a", SyntaxError, 1, 13);
+    /* currently regexp syntax errors point to the start of the regexp */
+    eval_error("\n  /aaa]/u", SyntaxError, 2, 3); 
+
+    /* function definitions */
+    
+    e = eval("\n   function f() { }; f;");
+    assert(e.lineNumber, 2);
+    assert(e.columnNumber, 4);
+
+    /* errors */
+    e = eval('\n  Error("hello");');
+    check_error_pos(e, Error, 2, 8);
+    eval_error('\n  throw Error("hello");', Error, 2, 14);
+    eval_error('\n  2 * Symbol();', TypeError, 2, 5);
+    eval_error('\n  "café" * Symbol();', TypeError, 2, 10);
+    eval_error('\n null[0];', TypeError, 2, 6); 
+    eval_error('\n null . abcd;', TypeError, 2, 7); 
+    eval_error('\n null ( 1234 );', TypeError, 2, 7); 
+}
+
 test();
 test_function();
 test_enum();
@@ -985,3 +1073,4 @@ test_weak_ref();
 test_finalization_registry();
 test_generator();
 test_rope();
+test_line_column_numbers();
