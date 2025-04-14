@@ -42978,7 +42978,6 @@ static const JSCFunctionListEntry js_string_proto_funcs[] = {
     JS_CFUNC_DEF("toString", 0, js_string_toString ),
     JS_CFUNC_DEF("valueOf", 0, js_string_toString ),
     JS_CFUNC_DEF("__quote", 1, js_string___quote ),
-    JS_CFUNC_DEF("localeCompare", 1, js_string_localeCompare ),
     JS_CFUNC_MAGIC_DEF("toLowerCase", 0, js_string_toLowerCase, 1 ),
     JS_CFUNC_MAGIC_DEF("toUpperCase", 0, js_string_toLowerCase, 0 ),
     JS_CFUNC_MAGIC_DEF("toLocaleLowerCase", 0, js_string_toLowerCase, 1 ),
@@ -43005,18 +43004,17 @@ static const JSCFunctionListEntry js_string_iterator_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "String Iterator", JS_PROP_CONFIGURABLE ),
 };
 
-#ifdef CONFIG_ALL_UNICODE
 static const JSCFunctionListEntry js_string_proto_normalize[] = {
+#ifdef CONFIG_ALL_UNICODE
     JS_CFUNC_DEF("normalize", 0, js_string_normalize ),
-};
 #endif
+    JS_CFUNC_DEF("localeCompare", 1, js_string_localeCompare ),
+};
 
 void JS_AddIntrinsicStringNormalize(JSContext *ctx)
 {
-#ifdef CONFIG_ALL_UNICODE
     JS_SetPropertyFunctionList(ctx, ctx->class_proto[JS_CLASS_STRING], js_string_proto_normalize,
                                countof(js_string_proto_normalize));
-#endif
 }
 
 /* Math */
