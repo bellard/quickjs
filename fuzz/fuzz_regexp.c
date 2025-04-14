@@ -16,6 +16,7 @@
 #include "libregexp.h"
 #include "quickjs-libc.h"
 
+static int nbinterrupts = 0;
 
 int lre_check_stack_overflow(void *opaque, size_t alloca_size) { return 0; }
 
@@ -23,6 +24,12 @@ void *lre_realloc(void *opaque, void *ptr, size_t size)
 {
     return realloc(ptr, size);
 }
+
+int lre_check_timeout(void *opaque)
+ {
+    nbinterrupts++;
+    return (nbinterrupts > 100);
+ }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     int len, ret, i;
