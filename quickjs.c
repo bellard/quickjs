@@ -8355,6 +8355,11 @@ static JSValue JS_GetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         }
     } else {
     slow_path:
+        /* ToObject() must be done before ToPropertyKey() */
+        if (JS_IsNull(this_obj) || JS_IsUndefined(this_obj)) {
+            JS_FreeValue(ctx, prop);
+            return JS_ThrowTypeError(ctx, "cannot read property of %s", JS_IsNull(this_obj) ? "null" : "undefined");
+        }
         atom = JS_ValueToAtom(ctx, prop);
         JS_FreeValue(ctx, prop);
         if (unlikely(atom == JS_ATOM_NULL))
@@ -22789,6 +22794,10 @@ static __exception int js_parse_object_literal(JSParseState *s)
             }
             emit_u8(s, op_flags | OP_DEFINE_METHOD_ENUMERABLE);
         } else {
+            if (name == JS_ATOM_NULL) {
+                /* must be done before evaluating expr */
+                emit_op(s, OP_to_propkey);
+            }
             if (js_parse_expect(s, ':'))
                 goto fail;
             if (js_parse_assign_expr(s))
