@@ -3088,7 +3088,7 @@ static JSValue JS_AtomIsNumericIndex1(JSContext *ctx, JSAtom atom)
     JSRuntime *rt = ctx->rt;
     JSAtomStruct *p1;
     JSString *p;
-    int c, len, ret;
+    int c, ret;
     JSValue num, str;
 
     if (__JS_AtomIsTaggedInt(atom))
@@ -3097,52 +3097,24 @@ static JSValue JS_AtomIsNumericIndex1(JSContext *ctx, JSAtom atom)
     p1 = rt->atom_array[atom];
     if (p1->atom_type != JS_ATOM_TYPE_STRING)
         return JS_UNDEFINED;
-    p = p1;
-    len = p->len;
-    if (p->is_wide_char) {
-        const uint16_t *r = p->u.str16, *r_end = p->u.str16 + len;
-        if (r >= r_end)
-            return JS_UNDEFINED;
-        c = *r;
-        if (c == '-') {
-            if (r >= r_end)
-                return JS_UNDEFINED;
-            r++;
-            c = *r;
-            /* -0 case is specific */
-            if (c == '0' && len == 2)
-                goto minus_zero;
-        }
-        /* XXX: should test NaN, but the tests do not check it */
-        if (!is_num(c)) {
-            /* XXX: String should be normalized, therefore 8-bit only */
-            const uint16_t nfinity16[7] = { 'n', 'f', 'i', 'n', 'i', 't', 'y' };
-            if (!(c =='I' && (r_end - r) == 8 &&
-                  !memcmp(r + 1, nfinity16, sizeof(nfinity16))))
-                return JS_UNDEFINED;
-        }
-    } else {
-        const uint8_t *r = p->u.str8, *r_end = p->u.str8 + len;
-        if (r >= r_end)
-            return JS_UNDEFINED;
-        c = *r;
-        if (c == '-') {
-            if (r >= r_end)
-                return JS_UNDEFINED;
-            r++;
-            c = *r;
-            /* -0 case is specific */
-            if (c == '0' && len == 2) {
-            minus_zero:
-                return __JS_NewFloat64(ctx, -0.0);
-            }
-        }
-        if (!is_num(c)) {
-            if (!(c =='I' && (r_end - r) == 8 &&
-                  !memcmp(r + 1, "nfinity", 7)))
-                return JS_UNDEFINED;
-        }
+    switch(atom) {
+    case JS_ATOM_minus_zero:
+        return __JS_NewFloat64(ctx, -0.0);
+    case JS_ATOM_Infinity:
+        return __JS_NewFloat64(ctx, INFINITY);
+    case JS_ATOM_minus_Infinity:
+        return __JS_NewFloat64(ctx, -INFINITY);
+    case JS_ATOM_NaN:
+        return __JS_NewFloat64(ctx, NAN);
+    default:
+        break;
     }
+    p = p1;
+    if (p->len == 0)
+        return JS_UNDEFINED;
+    c = string_get(p, 0);
+    if (!is_num(c) && c != '-')
+        return JS_UNDEFINED;
     /* this is ECMA CanonicalNumericIndexString primitive */
     num = JS_ToNumber(ctx, JS_MKPTR(JS_TAG_STRING, p));
     if (JS_IsException(num))

@@ -1,2 +1,1 @@
 test262/test/language/module-code/top-level-await/module-graphs-does-not-hang.js:10: TypeError: $DONE() not called
-test262/test/language/statements/with/set-mutable-binding-binding-deleted-with-typed-array-in-proto-chain.js:20: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
