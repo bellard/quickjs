@@ -46327,6 +46327,14 @@ static int js_proxy_get_own_property(JSContext *ctx, JSPropertyDescriptor *pdesc
         if (res < 0)
             return -1;
 
+        /* convert the result_desc.flags to property flags */
+        if (result_desc.flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
+            result_desc.flags |= JS_PROP_GETSET;
+        } else {
+            result_desc.flags |= JS_PROP_NORMAL;
+        }
+        result_desc.flags &= (JS_PROP_C_W_E | JS_PROP_TMASK);
+        
         if (target_desc_ret) {
             /* convert result_desc.flags to defineProperty flags */
             flags1 = result_desc.flags | JS_PROP_HAS_CONFIGURABLE | JS_PROP_HAS_ENUMERABLE;
