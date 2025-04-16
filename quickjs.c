@@ -41422,7 +41422,9 @@ static JSValue js_string_constructor(JSContext *ctx, JSValueConst new_target,
         JSString *p1 = JS_VALUE_GET_STRING(val);
 
         obj = js_create_from_ctor(ctx, new_target, JS_CLASS_STRING);
-        if (!JS_IsException(obj)) {
+        if (JS_IsException(obj)) {
+            JS_FreeValue(ctx, val);
+        } else {
             JS_SetObjectData(ctx, obj, val);
             JS_DefinePropertyValue(ctx, obj, JS_ATOM_length, JS_NewInt32(ctx, p1->len), 0);
         }
