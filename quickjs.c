@@ -51128,6 +51128,7 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
     {
         /* initialize Array.prototype[Symbol.unscopables] */
         static const char unscopables[] =
+            "at" "\0"
             "copyWithin" "\0"
             "entries" "\0"
             "fill" "\0"
