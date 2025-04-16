@@ -196,7 +196,6 @@ DEF(   with_put_var, 10, 2, 1, atom_label_u8)     /* must be in the same order a
 DEF(with_delete_var, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
 DEF(  with_make_ref, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
 DEF(   with_get_ref, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
-DEF(with_get_ref_undef, 10, 1, 0, atom_label_u8)
 
 DEF(   make_loc_ref, 7, 0, 2, atom_u16)
 DEF(   make_arg_ref, 7, 0, 2, atom_u16)

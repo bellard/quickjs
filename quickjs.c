@@ -10100,6 +10100,9 @@ static int JS_SetGlobalVar(JSContext *ctx, JSAtom prop, JSValue val,
         set_value(ctx, &pr->u.value, val);
         return 0;
     }
+    /* XXX: add a fast path where the property exists and the object
+       is not exotic. Otherwise do as in OP_put_ref_value and remove
+       JS_PROP_NO_ADD which is no longer necessary */
     flags = JS_PROP_THROW_STRICT;
     if (is_strict_mode(ctx))
         flags |= JS_PROP_NO_ADD;
@@ -17780,16 +17783,33 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         CASE(OP_get_ref_value):
             {
                 JSValue val;
+                JSAtom atom;
+                int ret;
+                
+                atom = JS_ValueToAtom(ctx, sp[-1]);
+                if (atom == JS_ATOM_NULL)
+                    goto exception;
                 if (unlikely(JS_IsUndefined(sp[-2]))) {
-                    JSAtom atom = JS_ValueToAtom(ctx, sp[-1]);
-                    if (atom != JS_ATOM_NULL) {
-                        JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                        JS_FreeAtom(ctx, atom);
-                    }
+                    JS_ThrowReferenceErrorNotDefined(ctx, atom);
+                    JS_FreeAtom(ctx, atom);
                     goto exception;
                 }
-                val = JS_GetPropertyValue(ctx, sp[-2],
-                                          JS_DupValue(ctx, sp[-1]));
+                ret = JS_HasProperty(ctx, sp[-2], atom);
+                if (unlikely(ret <= 0)) {
+                    if (ret < 0) {
+                        JS_FreeAtom(ctx, atom);
+                        goto exception;
+                    }
+                    if (is_strict_mode(ctx)) {
+                        JS_ThrowReferenceErrorNotDefined(ctx, atom);
+                        JS_FreeAtom(ctx, atom);
+                        goto exception;
+                    } 
+                    val = JS_UNDEFINED;
+                } else {
+                    val = JS_GetProperty(ctx, sp[-2], atom);
+                }
+                JS_FreeAtom(ctx, atom);
                 if (unlikely(JS_IsException(val)))
                     goto exception;
                 sp[0] = val;
@@ -17830,24 +17850,35 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 
         CASE(OP_put_ref_value):
             {
-                int ret, flags;
-                flags = JS_PROP_THROW_STRICT;
+                int ret;
+                JSAtom atom;
+                atom = JS_ValueToAtom(ctx, sp[-2]);
+                if (unlikely(atom == JS_ATOM_NULL))
+                    goto exception;
                 if (unlikely(JS_IsUndefined(sp[-3]))) {
                     if (is_strict_mode(ctx)) {
-                        JSAtom atom = JS_ValueToAtom(ctx, sp[-2]);
-                        if (atom != JS_ATOM_NULL) {
-                            JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                            JS_FreeAtom(ctx, atom);
-                        }
+                        JS_ThrowReferenceErrorNotDefined(ctx, atom);
+                        JS_FreeAtom(ctx, atom);
                         goto exception;
                     } else {
                         sp[-3] = JS_DupValue(ctx, ctx->global_obj);
                     }
-                } else {
-                    if (is_strict_mode(ctx))
-                        flags |= JS_PROP_NO_ADD;
                 }
-                ret = JS_SetPropertyValue(ctx, sp[-3], sp[-2], sp[-1], flags);
+                ret = JS_HasProperty(ctx, sp[-3], atom);
+                if (unlikely(ret <= 0)) {
+                    if (unlikely(ret < 0)) {
+                        JS_FreeAtom(ctx, atom);
+                        goto exception;
+                    }
+                    if (is_strict_mode(ctx)) {
+                        JS_ThrowReferenceErrorNotDefined(ctx, atom);
+                        JS_FreeAtom(ctx, atom);
+                        goto exception;
+                    }
+                }
+                ret = JS_SetPropertyInternal(ctx, sp[-3], atom, sp[-1], sp[-3], JS_PROP_THROW_STRICT);
+                JS_FreeAtom(ctx, atom);
+                JS_FreeValue(ctx, sp[-2]);
                 JS_FreeValue(ctx, sp[-3]);
                 sp -= 3;
                 if (unlikely(ret < 0))
@@ -18479,7 +18510,6 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         CASE(OP_with_delete_var):
         CASE(OP_with_make_ref):
         CASE(OP_with_get_ref):
-        CASE(OP_with_get_ref_undef):
             {
                 JSAtom atom;
                 int32_t diff;
@@ -18504,13 +18534,34 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     }
                     switch (opcode) {
                     case OP_with_get_var:
-                        val = JS_GetProperty(ctx, obj, atom);
-                        if (unlikely(JS_IsException(val)))
-                            goto exception;
+                        /* in Object Environment Records, GetBindingValue() calls HasProperty() */
+                        ret = JS_HasProperty(ctx, obj, atom);
+                        if (unlikely(ret <= 0)) {
+                            if (ret < 0)
+                                goto exception;
+                            if (is_strict_mode(ctx)) {
+                                JS_ThrowReferenceErrorNotDefined(ctx, atom);
+                                goto exception;
+                            } 
+                            val = JS_UNDEFINED;
+                        } else {
+                            val = JS_GetProperty(ctx, obj, atom);
+                            if (unlikely(JS_IsException(val)))
+                                goto exception;
+                        }
                         set_value(ctx, &sp[-1], val);
                         break;
-                    case OP_with_put_var:
-                        /* XXX: check if strict mode */
+                    case OP_with_put_var: /* used e.g. in for in/of */
+                        /* in Object Environment Records, SetMutableBinding() calls HasProperty() */
+                        ret = JS_HasProperty(ctx, obj, atom);
+                        if (unlikely(ret <= 0)) {
+                            if (ret < 0)
+                                goto exception;
+                            if (is_strict_mode(ctx)) {
+                                JS_ThrowReferenceErrorNotDefined(ctx, atom);
+                                goto exception;
+                            } 
+                        }
                         ret = JS_SetPropertyInternal(ctx, obj, atom, sp[-2], obj,
                                                      JS_PROP_THROW_STRICT);
                         JS_FreeValue(ctx, sp[-1]);
@@ -18531,18 +18582,17 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         break;
                     case OP_with_get_ref:
                         /* produce a pair object/method on the stack */
-                        val = JS_GetProperty(ctx, obj, atom);
-                        if (unlikely(JS_IsException(val)))
+                        /* in Object Environment Records, GetBindingValue() calls HasProperty() */
+                        ret = JS_HasProperty(ctx, obj, atom);
+                        if (unlikely(ret < 0))
                             goto exception;
-                        *sp++ = val;
-                        break;
-                    case OP_with_get_ref_undef:
-                        /* produce a pair undefined/function on the stack */
-                        val = JS_GetProperty(ctx, obj, atom);
-                        if (unlikely(JS_IsException(val)))
-                            goto exception;
-                        JS_FreeValue(ctx, sp[-1]);
-                        sp[-1] = JS_UNDEFINED;
+                        if (!ret) {
+                            val = JS_UNDEFINED;
+                        } else {
+                            val = JS_GetProperty(ctx, obj, atom);
+                            if (unlikely(JS_IsException(val)))
+                                goto exception;
+                        }
                         *sp++ = val;
                         break;
                     }
@@ -32554,7 +32604,6 @@ static __exception int resolve_labels(JSContext *ctx, JSFunctionDef *s)
         case OP_with_delete_var:
         case OP_with_make_ref:
         case OP_with_get_ref:
-        case OP_with_get_ref_undef:
             {
                 JSAtom atom;
                 int is_with;
@@ -33329,7 +33378,6 @@ static __exception int compute_stack_size(JSContext *ctx,
             break;
         case OP_with_make_ref:
         case OP_with_get_ref:
-        case OP_with_get_ref_undef:
             diff = get_u32(bc_buf + pos + 5);
             if (ss_check(ctx, s, pos + 5 + diff, op, stack_len + 2, catch_pos))
                 goto fail;
