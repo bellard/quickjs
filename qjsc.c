@@ -690,7 +690,11 @@ int main(int argc, char **argv)
 
     if (!out_filename) {
         if (output_type == OUTPUT_EXECUTABLE) {
+#ifdef _WIN32
+            out_filename = "a.exe";
+#else
             out_filename = "a.out";
+#endif
         } else {
             out_filename = "out.c";
         }
