@@ -374,10 +374,20 @@ void help(void)
     exit(1);
 }
 
-#if defined(CONFIG_CC) && !defined(_WIN32)
+#if defined(CONFIG_CC)
 
 int exec_cmd(char **argv)
 {
+#ifdef _WIN32
+    int ret;
+
+    ret = _spawnvp(_P_WAIT, argv[0], (const char * const *)argv);
+    if (ret == -1) {
+        return -1;
+    }
+
+    return ret;
+#else
     int pid, status, ret;
 
     pid = fork();
@@ -392,6 +402,7 @@ int exec_cmd(char **argv)
             break;
     }
     return WEXITSTATUS(status);
+#endif
 }
 
 static int output_executable(const char *out_filename, const char *cfilename,
