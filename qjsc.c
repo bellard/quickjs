@@ -379,14 +379,7 @@ void help(void)
 int exec_cmd(char **argv)
 {
 #ifdef _WIN32
-    int ret;
-
-    ret = _spawnvp(_P_WAIT, argv[0], (const char * const *)argv);
-    if (ret == -1) {
-        return -1;
-    }
-
-    return ret;
+    return _spawnvp(_P_WAIT, argv[0], (const char * const *)argv);
 #else
     int pid, status, ret;
 
