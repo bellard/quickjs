@@ -1260,6 +1260,8 @@ static void map_delete_weakrefs(JSRuntime *rt, JSWeakRefHeader *wh);
 static void weakref_delete_weakref(JSRuntime *rt, JSWeakRefHeader *wh);
 static void finrec_delete_weakref(JSRuntime *rt, JSWeakRefHeader *wh);
 static void JS_RunGCInternal(JSRuntime *rt, BOOL remove_weak_objects);
+static JSValue js_array_from_iterator(JSContext *ctx, uint32_t *plen,
+                                      JSValueConst obj, JSValueConst method);
 
 static const JSClassExoticMethods js_arguments_exotic_methods;
 static const JSClassExoticMethods js_string_exotic_methods;
@@ -39000,8 +39002,7 @@ static JSValue js_array_from(JSContext *ctx, JSValueConst this_val,
     // from(items, mapfn = void 0, this_arg = void 0)
     JSValueConst items = argv[0], mapfn, this_arg;
     JSValueConst args[2];
-    JSValue stack[2];
-    JSValue iter, r, v, v2, arrayLike;
+    JSValue iter, r, v, v2, arrayLike, next_method, enum_obj;
     int64_t k, len;
     int done, mapping;
 
@@ -39010,8 +39011,9 @@ static JSValue js_array_from(JSContext *ctx, JSValueConst this_val,
     this_arg = JS_UNDEFINED;
     r = JS_UNDEFINED;
     arrayLike = JS_UNDEFINED;
-    stack[0] = JS_UNDEFINED;
-    stack[1] = JS_UNDEFINED;
+    iter = JS_UNDEFINED;
+    enum_obj = JS_UNDEFINED;
+    next_method = JS_UNDEFINED;
 
     if (argc > 1) {
         mapfn = argv[1];
@@ -39026,21 +39028,27 @@ static JSValue js_array_from(JSContext *ctx, JSValueConst this_val,
     iter = JS_GetProperty(ctx, items, JS_ATOM_Symbol_iterator);
     if (JS_IsException(iter))
         goto exception;
-    if (!JS_IsUndefined(iter)) {
-        JS_FreeValue(ctx, iter);
+    if (!JS_IsUndefined(iter) && !JS_IsNull(iter)) {
+        if (!JS_IsFunction(ctx, iter)) {
+            JS_ThrowTypeError(ctx, "value is not iterable");
+            goto exception;
+        }
         if (JS_IsConstructor(ctx, this_val))
             r = JS_CallConstructor(ctx, this_val, 0, NULL);
         else
             r = JS_NewArray(ctx);
         if (JS_IsException(r))
             goto exception;
-        stack[0] = JS_DupValue(ctx, items);
-        if (js_for_of_start(ctx, &stack[1], FALSE))
+        enum_obj = JS_GetIterator2(ctx, items, iter);
+        if (JS_IsException(enum_obj))
+            goto exception;
+        next_method = JS_GetProperty(ctx, enum_obj, JS_ATOM_next);
+        if (JS_IsException(next_method))
             goto exception;
         for (k = 0;; k++) {
-            v = JS_IteratorNext(ctx, stack[0], stack[1], 0, NULL, &done);
+            v = JS_IteratorNext(ctx, enum_obj, next_method, 0, NULL, &done);
             if (JS_IsException(v))
-                goto exception_close;
+                goto exception;
             if (done)
                 break;
             if (mapping) {
@@ -39095,15 +39103,15 @@ static JSValue js_array_from(JSContext *ctx, JSValueConst this_val,
     goto done;
 
  exception_close:
-    if (!JS_IsUndefined(stack[0]))
-        JS_IteratorClose(ctx, stack[0], TRUE);
+    JS_IteratorClose(ctx, enum_obj, TRUE);
  exception:
     JS_FreeValue(ctx, r);
     r = JS_EXCEPTION;
  done:
     JS_FreeValue(ctx, arrayLike);
-    JS_FreeValue(ctx, stack[0]);
-    JS_FreeValue(ctx, stack[1]);
+    JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, enum_obj);
+    JS_FreeValue(ctx, next_method);
     return r;
 }
 
@@ -52056,18 +52064,16 @@ static JSValue js_typed_array_from(JSContext *ctx, JSValueConst this_val,
     // from(items, mapfn = void 0, this_arg = void 0)
     JSValueConst items = argv[0], mapfn, this_arg;
     JSValueConst args[2];
-    JSValue stack[2];
     JSValue iter, arr, r, v, v2;
     int64_t k, len;
-    int done, mapping;
+    int mapping;
 
     mapping = FALSE;
     mapfn = JS_UNDEFINED;
     this_arg = JS_UNDEFINED;
     r = JS_UNDEFINED;
     arr = JS_UNDEFINED;
-    stack[0] = JS_UNDEFINED;
-    stack[1] = JS_UNDEFINED;
+    iter = JS_UNDEFINED;
 
     if (argc > 1) {
         mapfn = argv[1];
@@ -52082,30 +52088,23 @@ static JSValue js_typed_array_from(JSContext *ctx, JSValueConst this_val,
     iter = JS_GetProperty(ctx, items, JS_ATOM_Symbol_iterator);
     if (JS_IsException(iter))
         goto exception;
-    if (!JS_IsUndefined(iter)) {
-        JS_FreeValue(ctx, iter);
-        arr = JS_NewArray(ctx);
+    if (!JS_IsUndefined(iter) && !JS_IsNull(iter)) {
+        uint32_t len1;
+        if (!JS_IsFunction(ctx, iter)) {
+            JS_ThrowTypeError(ctx, "value is not iterable");
+            goto exception;
+        }
+        arr = js_array_from_iterator(ctx, &len1, items, iter);
         if (JS_IsException(arr))
             goto exception;
-        stack[0] = JS_DupValue(ctx, items);
-        if (js_for_of_start(ctx, &stack[1], FALSE))
-            goto exception;
-        for (k = 0;; k++) {
-            v = JS_IteratorNext(ctx, stack[0], stack[1], 0, NULL, &done);
-            if (JS_IsException(v))
-                goto exception_close;
-            if (done)
-                break;
-            if (JS_DefinePropertyValueInt64(ctx, arr, k, v, JS_PROP_C_W_E | JS_PROP_THROW) < 0)
-                goto exception_close;
-        }
+        len = len1;
     } else {
         arr = JS_ToObject(ctx, items);
         if (JS_IsException(arr))
             goto exception;
+        if (js_get_length64(ctx, &len, arr) < 0)
+            goto exception;
     }
-    if (js_get_length64(ctx, &len, arr) < 0)
-        goto exception;
     v = JS_NewInt64(ctx, len);
     args[0] = v;
     r = js_typed_array_create(ctx, this_val, 1, args);
@@ -52129,17 +52128,12 @@ static JSValue js_typed_array_from(JSContext *ctx, JSValueConst this_val,
             goto exception;
     }
     goto done;
-
- exception_close:
-    if (!JS_IsUndefined(stack[0]))
-        JS_IteratorClose(ctx, stack[0], TRUE);
  exception:
     JS_FreeValue(ctx, r);
     r = JS_EXCEPTION;
  done:
     JS_FreeValue(ctx, arr);
-    JS_FreeValue(ctx, stack[0]);
-    JS_FreeValue(ctx, stack[1]);
+    JS_FreeValue(ctx, iter);
     return r;
 }
 
