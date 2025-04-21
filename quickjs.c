@@ -9363,15 +9363,13 @@ static BOOL check_define_prop_flags(int prop_flags, int flags)
         if ((flags & JS_PROP_HAS_ENUMERABLE) &&
             (flags & JS_PROP_ENUMERABLE) != (prop_flags & JS_PROP_ENUMERABLE))
             return FALSE;
-    }
-    if (flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE |
-                 JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
-        if (!(prop_flags & JS_PROP_CONFIGURABLE)) {
+        if (flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE |
+                     JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
             has_accessor = ((flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) != 0);
             is_getset = ((prop_flags & JS_PROP_TMASK) == JS_PROP_GETSET);
             if (has_accessor != is_getset)
                 return FALSE;
-            if (!has_accessor && !is_getset && !(prop_flags & JS_PROP_WRITABLE)) {
+            if (!is_getset && !(prop_flags & JS_PROP_WRITABLE)) {
                 /* not writable: cannot set the writable bit */
                 if ((flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)) ==
                     (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE))
@@ -46443,13 +46441,11 @@ static int js_proxy_define_own_property(JSContext *ctx, JSValueConst obj,
         if (!p->extensible || setting_not_configurable)
             goto fail;
     } else {
-        if (!check_define_prop_flags(desc.flags, flags) ||
-            ((desc.flags & JS_PROP_CONFIGURABLE) && setting_not_configurable)) {
+        if (!check_define_prop_flags(desc.flags, flags))
             goto fail1;
-        }
-        if (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
-            if ((desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE)) ==
-                JS_PROP_GETSET) {
+        /* do the missing check from check_define_prop_flags() */
+        if (!(desc.flags & JS_PROP_CONFIGURABLE)) {
+            if ((desc.flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
                 if ((flags & JS_PROP_HAS_GET) &&
                     !js_same_value(ctx, getter, desc.getter)) {
                     goto fail1;
@@ -46458,27 +46454,26 @@ static int js_proxy_define_own_property(JSContext *ctx, JSValueConst obj,
                     !js_same_value(ctx, setter, desc.setter)) {
                     goto fail1;
                 }
-            }
-        } else if (flags & JS_PROP_HAS_VALUE) {
-            if ((desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE)) ==
-                JS_PROP_WRITABLE && !(flags & JS_PROP_WRITABLE)) {
-                /* missing-proxy-check feature */
-                goto fail1;
-            } else if ((desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE)) == 0 &&
-                !js_same_value(ctx, val, desc.value)) {
-                goto fail1;
+            } else if (!(desc.flags & JS_PROP_WRITABLE)) {
+                if ((flags & JS_PROP_HAS_VALUE) &&
+                    !js_same_value(ctx, val, desc.value)) {
+                    goto fail1;
+                }
             }
         }
-        if (flags & JS_PROP_HAS_WRITABLE) {
-            if ((desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE |
-                               JS_PROP_WRITABLE)) == JS_PROP_WRITABLE) {
-                /* proxy-missing-checks */
-            fail1:
-                js_free_desc(ctx, &desc);
-            fail:
-                JS_ThrowTypeError(ctx, "proxy: inconsistent defineProperty");
-                return -1;
-            }
+
+        /* additional checks */
+        if ((desc.flags & JS_PROP_CONFIGURABLE) && setting_not_configurable)
+            goto fail1;
+
+        if ((desc.flags & JS_PROP_TMASK) != JS_PROP_GETSET &&
+            (desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE)) == JS_PROP_WRITABLE &&
+            (flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)) == JS_PROP_HAS_WRITABLE) {
+        fail1:
+            js_free_desc(ctx, &desc);
+        fail:
+            JS_ThrowTypeError(ctx, "proxy: inconsistent defineProperty");
+            return -1;
         }
         js_free_desc(ctx, &desc);
     }
