@@ -38498,6 +38498,7 @@ static JSValue *build_arg_list(JSContext *ctx, uint32_t *plen,
                                JSValueConst array_arg)
 {
     uint32_t len, i;
+    int64_t len64;
     JSValue *tab, ret;
     JSObject *p;
 
@@ -38505,14 +38506,15 @@ static JSValue *build_arg_list(JSContext *ctx, uint32_t *plen,
         JS_ThrowTypeError(ctx, "not a object");
         return NULL;
     }
-    if (js_get_length32(ctx, &len, array_arg))
+    if (js_get_length64(ctx, &len64, array_arg))
         return NULL;
-    if (len > JS_MAX_LOCAL_VARS) {
+    if (len64 > JS_MAX_LOCAL_VARS) {
         // XXX: check for stack overflow?
         JS_ThrowRangeError(ctx, "too many arguments in function call (only %d allowed)",
                            JS_MAX_LOCAL_VARS);
         return NULL;
     }
+    len = len64;
     /* avoid allocating 0 bytes */
     tab = js_mallocz(ctx, sizeof(tab[0]) * max_uint32(1, len));
     if (!tab)
