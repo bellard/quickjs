@@ -53807,6 +53807,11 @@ static void *js_atomics_get_ptr(JSContext *ctx,
     if (JS_ToIndex(ctx, &idx, idx_val)) {
         return NULL;
     }
+    /* RevalidateAtomicAccess(): must test again detached after JS_ToIndex() */
+    if (abuf->detached) {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return NULL;
+    }
     /* if the array buffer is detached, p->u.array.count = 0 */
     if (idx >= p->u.array.count) {
         JS_ThrowRangeError(ctx, "out-of-bound access");
