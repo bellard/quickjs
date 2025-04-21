@@ -47148,7 +47148,7 @@ static JSValue js_map_constructor(JSContext *ctx, JSValueConst new_target,
                 ret = JS_Call(ctx, adder, obj, 1, (JSValueConst *)&item);
                 if (JS_IsException(ret)) {
                     JS_FreeValue(ctx, item);
-                    goto fail;
+                    goto fail_close;
                 }
             } else {
                 JSValue key, value;
@@ -47173,7 +47173,7 @@ static JSValue js_map_constructor(JSContext *ctx, JSValueConst new_target,
                     JS_FreeValue(ctx, item);
                     JS_FreeValue(ctx, key);
                     JS_FreeValue(ctx, value);
-                    goto fail;
+                    goto fail_close;
                 }
                 JS_FreeValue(ctx, key);
                 JS_FreeValue(ctx, value);
@@ -47186,11 +47186,10 @@ static JSValue js_map_constructor(JSContext *ctx, JSValueConst new_target,
         JS_FreeValue(ctx, adder);
     }
     return obj;
+ fail_close:
+    /* close the iterator object, preserving pending exception */
+    JS_IteratorClose(ctx, iter, TRUE);
  fail:
-    if (JS_IsObject(iter)) {
-        /* close the iterator object, preserving pending exception */
-        JS_IteratorClose(ctx, iter, TRUE);
-    }
     JS_FreeValue(ctx, next_method);
     JS_FreeValue(ctx, iter);
     JS_FreeValue(ctx, adder);
