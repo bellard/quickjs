@@ -1147,6 +1147,9 @@ int js_dtoa(char *buf, double d, int radix, int n_digits, int flags,
                 P = n_digits + 1;
             else
                 P = n_digits;
+            /* "-0" is displayed as "0" if JS_DTOA_MINUS_ZERO is not present */
+            if (sgn && (flags & JS_DTOA_MINUS_ZERO))
+                *q++ = '-';
             goto output;
         }
         /* denormal number: convert to a normal number */
@@ -1156,6 +1159,8 @@ int js_dtoa(char *buf, double d, int radix, int n_digits, int flags,
     } else {
         m |= (uint64_t)1 << 52;
     }
+    if (sgn)
+        *q++ = '-';
     /* remove the bias */
     e -= 1022;
     /* d = 2^(e-53)*m */
@@ -1167,8 +1172,6 @@ int js_dtoa(char *buf, double d, int radix, int n_digits, int flags,
         (flags & JS_DTOA_EXP_MASK) != JS_DTOA_EXP_ENABLED) {
         m >>= 53 - e;
         /* 'm' is never zero */
-        if (sgn)
-            *q++ = '-';
         q += u64toa_radix(q, m, radix);
         goto done;
     }
@@ -1244,10 +1247,6 @@ int js_dtoa(char *buf, double d, int radix, int n_digits, int flags,
         /* frac is rounded using RNDNA */
         mul_pow_round(tmp1, m, e - 53, radix1, radix_shift, n_digits, JS_RNDNA);
 
-        /* "-0" is displayed as "0" */
-        if (sgn && !(tmp1->tab[0] == 0 && tmp1->len == 1)) {
-            *q++ = '-';
-        }
         /* we add one extra digit on the left and remove it if needed
            to avoid testing if the result is < radix^P */
         len = output_digits(q, tmp1, radix, max_int(E + 1, 1) + n_digits,
@@ -1277,11 +1276,6 @@ int js_dtoa(char *buf, double d, int radix, int n_digits, int flags,
         }
     }
  output:
-    /* "-0" is displayed as "0" if JS_DTOA_MINUS_ZERO is not present */
-    if (sgn && ((flags & JS_DTOA_MINUS_ZERO) ||
-                !(tmp1->tab[0] == 0 && tmp1->len == 1))) {
-        *q++ = '-';
-    }
     if (fmt == JS_DTOA_FORMAT_FIXED)
         E_max = n_digits;
     else

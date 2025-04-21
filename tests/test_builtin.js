@@ -393,6 +393,7 @@ function test_number()
     assert((-1.125).toFixed(2), "-1.13");
     assert((0.5).toFixed(0), "1");
     assert((-0.5).toFixed(0), "-1");
+    assert((-1e-10).toFixed(0), "-0");
 
     assert((1.3).toString(7), "1.2046204620462046205");
     assert((1.3).toString(35), "1.ahhhhhhhhhm");
