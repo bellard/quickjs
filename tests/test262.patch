@@ -70,3 +70,23 @@ index b397be0..c197ddc 100644
    }
    return result;
  }
+diff --git a/harness/sm/non262.js b/harness/sm/non262.js
+index c1829e3..3a3ee27 100644
+--- a/harness/sm/non262.js
++++ b/harness/sm/non262.js
+@@ -41,8 +41,6 @@ globalThis.createNewGlobal = function() {
+   return $262.createRealm().global
+ }
+ 
+-function print(...args) {
+-}
+ function assertEq(...args) {
+   assert.sameValue(...args)
+ }
+@@ -71,4 +69,4 @@ if (globalThis.createExternalArrayBuffer === undefined) {
+ if (globalThis.enableGeckoProfilingWithSlowAssertions === undefined) {
+   globalThis.enableGeckoProfilingWithSlowAssertions = globalThis.enableGeckoProfiling =
+     globalThis.disableGeckoProfiling = () => {}
+-}
+\ No newline at end of file
++}
