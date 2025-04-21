@@ -54253,8 +54253,8 @@ void JS_AddIntrinsicTypedArrays(JSContext *ctx)
     JS_DefinePropertyValue(ctx, typed_array_base_proto, JS_ATOM_toString, obj,
                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
 
-    typed_array_base_func = JS_NewCFunction(ctx, js_typed_array_base_constructor,
-                                            "TypedArray", 0);
+    typed_array_base_func = JS_NewCFunction2(ctx, js_typed_array_base_constructor,
+                                             "TypedArray", 0, JS_CFUNC_constructor_or_func, 0);
     JS_SetPropertyFunctionList(ctx, typed_array_base_func,
                                js_typed_array_base_funcs,
                                countof(js_typed_array_base_funcs));
