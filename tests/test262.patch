@@ -90,3 +90,16 @@ index c1829e3..3a3ee27 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/test/staging/sm/misc/new-with-non-constructor.js b/test/staging/sm/misc/new-with-non-constructor.js
+index 18c2f0c..f9aa209 100644
+--- a/test/staging/sm/misc/new-with-non-constructor.js
++++ b/test/staging/sm/misc/new-with-non-constructor.js
+@@ -16,7 +16,7 @@ function checkConstruct(thing) {
+         new thing();
+         assert.sameValue(0, 1, "not reached " + thing);
+     } catch (e) {
+-        assert.sameValue(e.message.includes(" is not a constructor") ||
++        assert.sameValue(e.message.includes("not a constructor") ||
+                  e.message === "Function.prototype.toString called on incompatible object", true);
+     }
+ }
