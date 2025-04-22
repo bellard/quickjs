@@ -1,0 +1,10 @@
+prefix=@prefix@
+libdir=@libdir@
+includedir=${prefix}/include
+
+Name: quickjs
+Description: JavaScript interpreting 
+URL: https://github.com/bellard/quickjs
+Version: @version@
+Libs: -L${libdir} -lquickjs
+Cflags: -I${includedir}
