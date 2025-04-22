@@ -51922,6 +51922,8 @@ static JSValue js_typed_array_with(JSContext *ctx, JSValueConst this_val,
     p = get_typed_array(ctx, this_val, /*is_dataview*/0);
     if (!p)
         return JS_EXCEPTION;
+    if (typed_array_is_detached(ctx, p))
+        return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
 
     if (JS_ToInt64Sat(ctx, &idx, argv[0]))
         return JS_EXCEPTION;
@@ -51929,12 +51931,13 @@ static JSValue js_typed_array_with(JSContext *ctx, JSValueConst this_val,
     len = p->u.array.count;
     if (idx < 0)
         idx = len + idx;
-    if (idx < 0 || idx >= len)
-        return JS_ThrowRangeError(ctx, "invalid array index");
 
     val = JS_ToPrimitive(ctx, argv[1], HINT_NUMBER);
     if (JS_IsException(val))
         return JS_EXCEPTION;
+
+    if (typed_array_is_detached(ctx, p) || idx < 0 || idx >= len)
+        return JS_ThrowRangeError(ctx, "invalid array index");
 
     arr = js_typed_array_constructor_ta(ctx, JS_UNDEFINED, this_val,
                                         p->class_id);
