@@ -33822,6 +33822,12 @@ static __exception int js_parse_directives(JSParseState *s)
     return js_parse_seek_token(s, &pos);
 }
 
+/* return TRUE if the keyword is forbidden only in strict mode */
+static BOOL is_strict_future_keyword(JSAtom atom)
+{
+    return (atom >= JS_ATOM_LAST_KEYWORD + 1 && atom <= JS_ATOM_LAST_STRICT_KEYWORD);
+}
+
 static int js_parse_function_check_names(JSParseState *s, JSFunctionDef *fd,
                                          JSAtom func_name)
 {
@@ -33832,13 +33838,15 @@ static int js_parse_function_check_names(JSParseState *s, JSFunctionDef *fd,
         if (!fd->has_simple_parameter_list && fd->has_use_strict) {
             return js_parse_error(s, "\"use strict\" not allowed in function with default or destructuring parameter");
         }
-        if (func_name == JS_ATOM_eval || func_name == JS_ATOM_arguments) {
+        if (func_name == JS_ATOM_eval || func_name == JS_ATOM_arguments ||
+            is_strict_future_keyword(func_name)) {
             return js_parse_error(s, "invalid function name in strict code");
         }
         for (idx = 0; idx < fd->arg_count; idx++) {
             name = fd->args[idx].var_name;
 
-            if (name == JS_ATOM_eval || name == JS_ATOM_arguments) {
+            if (name == JS_ATOM_eval || name == JS_ATOM_arguments ||
+                is_strict_future_keyword(name)) {
                 return js_parse_error(s, "invalid argument name in strict code");
             }
         }
