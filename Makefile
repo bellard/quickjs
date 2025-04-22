@@ -29,6 +29,9 @@ ifeq ($(shell uname -s),FreeBSD)
 CONFIG_FREEBSD=y
 endif
 # Windows cross compilation from Linux
+# May need to have libwinpthread*.dll alongside the executable
+# (On Ubuntu/Debian may be installed with mingw-w64-x86-64-dev
+# to /usr/x86_64-w64-mingw32/lib/libwinpthread-1.dll)
 #CONFIG_WIN32=y
 # use link time optimization (smaller and faster executables but slower build)
 #CONFIG_LTO=y
@@ -81,6 +84,10 @@ ifdef CONFIG_WIN32
   else
     CROSS_PREFIX?=x86_64-w64-mingw32-
   endif
+  EXE=.exe
+else ifdef MSYSTEM
+  CONFIG_WIN32=y
+  CROSS_PREFIX?=
   EXE=.exe
 else
   CROSS_PREFIX?=
@@ -189,11 +196,14 @@ endif
 
 ifndef CONFIG_COSMO
 ifndef CONFIG_DARWIN
+ifndef CONFIG_WIN32
 CONFIG_SHARED_LIBS=y # building shared libraries is supported
 endif
 endif
+endif
 
-PROGS=qjs$(EXE) qjsc$(EXE) run-test262
+PROGS=qjs$(EXE) qjsc$(EXE) run-test262$(EXE)
+
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
 QJSC=./host-qjsc
@@ -215,7 +225,9 @@ ifndef CONFIG_UBSAN
 PROGS+=examples/hello examples/test_fib
 # no -m32 option in qjsc
 ifndef CONFIG_M32
+ifndef CONFIG_WIN32
 PROGS+=examples/hello_module
+endif
 endif
 ifdef CONFIG_SHARED_LIBS
 PROGS+=examples/fib.so examples/point.so
@@ -232,9 +244,9 @@ QJS_LIB_OBJS=$(OBJDIR)/quickjs.o $(OBJDIR)/dtoa.o $(OBJDIR)/libregexp.o $(OBJDIR
 QJS_OBJS=$(OBJDIR)/qjs.o $(OBJDIR)/repl.o $(QJS_LIB_OBJS)
 
 HOST_LIBS=-lm -ldl -lpthread
-LIBS=-lm
+LIBS=-lm -lpthread
 ifndef CONFIG_WIN32
-LIBS+=-ldl -lpthread
+LIBS+=-ldl
 endif
 LIBS+=$(EXTRA_LIBS)
 
@@ -305,7 +317,7 @@ libunicode-table.h: unicode_gen
 	./unicode_gen unicode $@
 endif
 
-run-test262: $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS)
+run-test262$(EXE): $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 run-test262-debug: $(patsubst %.o, %.debug.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS))
@@ -348,8 +360,8 @@ clean:
 	rm -f *.a *.o *.d *~ unicode_gen regexp_test fuzz_eval fuzz_compile fuzz_regexp $(PROGS)
 	rm -f hello.c test_fib.c
 	rm -f examples/*.so tests/*.so
-	rm -rf $(OBJDIR)/ *.dSYM/ qjs-debug
-	rm -rf run-test262-debug
+	rm -rf $(OBJDIR)/ *.dSYM/ qjs-debug$(EXE)
+	rm -rf run-test262-debug$(EXE)
 	rm -f run_octane run_sunspider_like
 
 install: all
@@ -427,25 +439,27 @@ ifdef CONFIG_SHARED_LIBS
 test: tests/bjson.so examples/point.so
 endif
 
-test: qjs
-	./qjs tests/test_closure.js
-	./qjs tests/test_language.js
-	./qjs --std tests/test_builtin.js
-	./qjs tests/test_loop.js
-	./qjs tests/test_bigint.js
-	./qjs tests/test_std.js
-	./qjs tests/test_worker.js
-	./qjs tests/test_cyclic_import.js
+test: qjs$(EXE)
+	$(WINE) ./qjs$(EXE) tests/test_closure.js
+	$(WINE) ./qjs$(EXE) tests/test_language.js
+	$(WINE) ./qjs$(EXE) --std tests/test_builtin.js
+	$(WINE) ./qjs$(EXE) tests/test_loop.js
+	$(WINE) ./qjs$(EXE) tests/test_bigint.js
+	$(WINE) ./qjs$(EXE) tests/test_cyclic_import.js
+	$(WINE) ./qjs$(EXE) tests/test_worker.js
+ifndef CONFIG_WIN32
+	$(WINE) ./qjs$(EXE) tests/test_std.js
+endif
 ifdef CONFIG_SHARED_LIBS
-	./qjs tests/test_bjson.js
-	./qjs examples/test_point.js
+	$(WINE) ./qjs$(EXE) tests/test_bjson.js
+	$(WINE) ./qjs$(EXE) examples/test_point.js
 endif
 
-stats: qjs
-	./qjs -qd
+stats: qjs$(EXE)
+	$(WINE) ./qjs$(EXE) -qd
 
-microbench: qjs
-	./qjs --std tests/microbench.js
+microbench: qjs$(EXE)
+	$(WINE) ./qjs$(EXE) --std tests/microbench.js
 
 ifeq ($(wildcard test262o/tests.txt),)
 test2o test2o-update:
