@@ -757,6 +757,13 @@ static JSValue js_IsHTMLDDA(JSContext *ctx, JSValue this_val,
     return JS_NULL;
 }
 
+static JSValue js_gc(JSContext *ctx, JSValueConst this_val,
+                     int argc, JSValueConst *argv)
+{
+    JS_RunGC(JS_GetRuntime(ctx));
+    return JS_UNDEFINED;
+}
+
 static JSValue add_helpers1(JSContext *ctx)
 {
     JSValue global_obj;
@@ -790,6 +797,8 @@ static JSValue add_helpers1(JSContext *ctx)
     obj = JS_NewCFunction(ctx, js_IsHTMLDDA, "IsHTMLDDA", 0);
     JS_SetIsHTMLDDA(ctx, obj);
     JS_SetPropertyStr(ctx, obj262, "IsHTMLDDA", obj);
+    JS_SetPropertyStr(ctx, obj262, "gc",
+                      JS_NewCFunction(ctx, js_gc, "gc", 0));
 
     JS_SetPropertyStr(ctx, global_obj, "$262", JS_DupValue(ctx, obj262));
 
