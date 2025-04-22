@@ -52747,6 +52747,18 @@ static JSValue js_typed_array_toReversed(JSContext *ctx, JSValueConst this_val,
     return ret;
 }
 
+static void slice_memcpy(uint8_t *dst, const uint8_t *src, size_t len)
+{
+    if (dst + len <= src || dst >= src + len) {
+        /* no overlap: can use memcpy */
+        memcpy(dst, src, len);
+    } else {
+        /* otherwise the spec mandates byte copy */
+        while (len-- != 0)
+            *dst++ = *src++;
+    }
+}
+
 static JSValue js_typed_array_slice(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
@@ -52789,9 +52801,9 @@ static JSValue js_typed_array_slice(JSContext *ctx, JSValueConst this_val,
         if (p1 != NULL && p->class_id == p1->class_id &&
             typed_array_get_length(ctx, p1) >= count &&
             typed_array_get_length(ctx, p) >= start + count) {
-            memcpy(p1->u.array.u.uint8_ptr,
-                   p->u.array.u.uint8_ptr + (start << shift),
-                   count << shift);
+            slice_memcpy(p1->u.array.u.uint8_ptr,
+                         p->u.array.u.uint8_ptr + (start << shift),
+                         count << shift);
         } else {
             for (n = 0; n < count; n++) {
                 val = JS_GetPropertyValue(ctx, this_val, JS_NewInt32(ctx, start + n));
