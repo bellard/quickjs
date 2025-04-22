@@ -44957,7 +44957,7 @@ static JSValue js_regexp_Symbol_split(JSContext *ctx, JSValueConst this_val,
                 if (js_get_length64(ctx, &numberOfCaptures, z))
                     goto exception;
                 for(i = 1; i < numberOfCaptures; i++) {
-                    sub = JS_ToStringFree(ctx, JS_GetPropertyInt64(ctx, z, i));
+                    sub = JS_GetPropertyInt64(ctx, z, i);
                     if (JS_IsException(sub))
                         goto exception;
                     if (JS_DefinePropertyValueInt64(ctx, A, lengthA++, sub, JS_PROP_C_W_E | JS_PROP_THROW) < 0)
