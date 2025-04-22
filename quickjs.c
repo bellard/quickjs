@@ -51267,9 +51267,10 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
                                countof(js_generator_proto_funcs));
 
     ctx->class_proto[JS_CLASS_GENERATOR_FUNCTION] = JS_NewObjectProto(ctx, ctx->function_proto);
-    obj1 = JS_NewCFunctionMagic(ctx, js_function_constructor,
-                                "GeneratorFunction", 1,
-                                JS_CFUNC_constructor_or_func_magic, JS_FUNC_GENERATOR);
+    obj1 = JS_NewCFunction3(ctx, (JSCFunction *)js_function_constructor,
+                            "GeneratorFunction", 1,
+                            JS_CFUNC_constructor_or_func_magic, JS_FUNC_GENERATOR,
+                            ctx->function_ctor);
     JS_SetPropertyFunctionList(ctx,
                                ctx->class_proto[JS_CLASS_GENERATOR_FUNCTION],
                                js_generator_function_proto_funcs,
