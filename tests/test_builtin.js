@@ -509,28 +509,52 @@ function test_typed_array()
     assert(a.toString(), "1,2,10,11");
 }
 
-function check_error_pos(e, expected_error, line_num, col_num)
+/* return [s, line_num, col_num] where line_num and col_num are the
+   position of the '@' character in 'str'. 's' is str without the '@'
+   character */
+function get_string_pos(str)
 {
-    var expected_pos;
+    var p, line_num, col_num, s, q, r;
+    p = str.indexOf('@');
+    assert(p >= 0, true);
+    q = 0;
+    line_num = 1;
+    for(;;) {
+        r = str.indexOf('\n', q);
+        if (r < 0 || r >= p)
+            break;
+        q = r + 1;
+        line_num++;
+    }
+    col_num = p - q + 1;
+    s = str.slice(0, p) + str.slice(p + 1);
+    return [s, line_num, col_num];
+}
+
+function check_error_pos(e, expected_error, line_num, col_num, level)
+{
+    var expected_pos, tab, line;
+    level |= 0;
     expected_pos = ":" + line_num + ":" + col_num;
-    if (expected_error === SyntaxError)
-        expected_pos += "\n";
-    else
-        expected_pos += ")";
-    if (e.stack.indexOf(expected_pos) < 0) {
+    tab = e.stack.split("\n");
+    line = tab[level];
+    if (line.slice(-1) == ')')
+        line = line.slice(0, -1);
+    if (line.indexOf(expected_pos) < 0) {
         throw_error("unexpected line or column number. error=" + e.message +
-                    ".got |" + e.stack +
-                    "|, expected |" + expected_pos + "|");
+                    ".got |" + line + "|, expected |" + expected_pos + "|");
     }
 }
 
 function assert_json_error(str, line_num, col_num)
 {
     var err = false;
-    var expected_pos;
+    var expected_pos, tab;
+
+    tab = get_string_pos(str);
     
     try {
-        JSON.parse(str);
+        JSON.parse(tab[0]);
     } catch(e) {
         err = true;
         if (!(e instanceof SyntaxError)) {
@@ -538,7 +562,7 @@ function assert_json_error(str, line_num, col_num)
             return;
         }
         /* XXX: the way quickjs returns JSON errors is not similar to Node or spiderMonkey */
-        check_error_pos(e, SyntaxError, line_num, col_num);
+        check_error_pos(e, SyntaxError, tab[1], tab[2]);
     }
     if (!err) {
         throw_error("expected exception");
@@ -569,8 +593,8 @@ function test_json()
  ]
 ]`);
 
-    assert_json_error('\n"  \\x"', 2, 4);
-    assert_json_error('\n{ "a": x }"', 2, 8);
+    assert_json_error('\n"  @\\x"');
+    assert_json_error('\n{ "a": @x }"');
 }
 
 function test_date()
@@ -1005,53 +1029,88 @@ function test_rope()
     rope_concat(100000, -1);
 }
 
-
-function eval_error(eval_str, expected_error, line_num, col_num)
+function eval_error(eval_str, expected_error, level)
 {
     var err = false;
-    var expected_pos;
+    var expected_pos, tab;
+
+    tab = get_string_pos(eval_str);
     
     try {
-        eval(eval_str);
+        eval(tab[0]);
     } catch(e) {
         err = true;
         if (!(e instanceof expected_error)) {
             throw_error("unexpected exception type");
             return;
         }
-        check_error_pos(e, expected_error, line_num, col_num);
+        check_error_pos(e, expected_error, tab[1], tab[2], level);
     }
     if (!err) {
         throw_error("expected exception");
     }
 }
 
+var poisoned_number = {
+    valueOf: function() { throw Error("poisoned number") },
+};
+
 function test_line_column_numbers()
 {
-    var f, e;
+    var f, e, tab;
 
+    /* The '@' character provides the expected position of the
+       error. It is removed before evaluating the string. */
+    
     /* parsing */
-    eval_error("\n 123 a ", SyntaxError, 2, 6);
-    eval_error("\n  /*  ", SyntaxError, 2, 3);
-    eval_error("function f  a", SyntaxError, 1, 13);
+    eval_error("\n 123 @a ", SyntaxError);
+    eval_error("\n  @/*  ", SyntaxError);
+    eval_error("function f  @a", SyntaxError);
     /* currently regexp syntax errors point to the start of the regexp */
-    eval_error("\n  /aaa]/u", SyntaxError, 2, 3); 
+    eval_error("\n  @/aaa]/u", SyntaxError); 
 
     /* function definitions */
     
-    e = eval("\n   function f() { }; f;");
-    assert(e.lineNumber, 2);
-    assert(e.columnNumber, 4);
+    tab = get_string_pos("\n   @function f() { }; f;");
+    e = eval(tab[0]);
+    assert(e.lineNumber, tab[1]);
+    assert(e.columnNumber, tab[2]);
 
     /* errors */
-    e = eval('\n  Error("hello");');
-    check_error_pos(e, Error, 2, 8);
-    eval_error('\n  throw Error("hello");', Error, 2, 14);
-    eval_error('\n  2 * Symbol();', TypeError, 2, 5);
-    eval_error('\n  "café" * Symbol();', TypeError, 2, 10);
-    eval_error('\n null[0];', TypeError, 2, 6); 
-    eval_error('\n null . abcd;', TypeError, 2, 7); 
-    eval_error('\n null ( 1234 );', TypeError, 2, 7); 
+    tab = get_string_pos('\n  Error@("hello");');
+    e = eval(tab[0]);
+    check_error_pos(e, Error, tab[1], tab[2]);
+    
+    eval_error('\n  throw Error@("hello");', Error);
+
+    /* operators */
+    eval_error('\n  1 + 2 @* poisoned_number;', Error, 1);
+    eval_error('\n  1 + "café" @* poisoned_number;', Error, 1);
+    eval_error('\n  1 + 2 @** poisoned_number;', Error, 1);
+    eval_error('\n  2 * @+ poisoned_number;', Error, 1);
+    eval_error('\n  2 * @- poisoned_number;', Error, 1);
+    eval_error('\n  2 * @~ poisoned_number;', Error, 1);
+    eval_error('\n  2 * @++ poisoned_number;', Error, 1);
+    eval_error('\n  2 * @-- poisoned_number;', Error, 1);
+    eval_error('\n  2 * poisoned_number @++;', Error, 1);
+    eval_error('\n  2 * poisoned_number @--;', Error, 1);
+
+    /* accessors */
+    eval_error('\n 1 + null@[0];', TypeError); 
+    eval_error('\n 1 + null @. abcd;', TypeError); 
+    eval_error('\n 1 + null @( 1234 );', TypeError);
+    eval_error('var obj = { get a() { throw Error("test"); } }\n 1 + obj @. a;',
+               Error, 1);
+    eval_error('var obj = { set a(b) { throw Error("test"); } }\n obj @. a = 1;',
+               Error, 1);
+
+    /* variables reference */
+    eval_error('\n  1 + @not_def', ReferenceError, 0);
+
+    /* assignments */
+    eval_error('1 + (@not_def = 1)', ReferenceError, 0);
+    eval_error('1 + (@not_def += 2)', ReferenceError, 0);
+    eval_error('var a;\n 1 + (a @+= poisoned_number);', Error, 1);
 }
 
 test();
