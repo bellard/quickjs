@@ -423,10 +423,13 @@ build_doc: $(DOCS)
 clean_doc:
 	rm -f $(DOCS)
 
-doc/%.pdf: doc/%.texi
+doc/version.texi: VERSION
+	@echo "@set VERSION `cat $<`" > $@
+
+doc/%.pdf: doc/%.texi doc/version.texi
 	texi2pdf --clean -o $@ -q $<
 
-doc/%.html.pre: doc/%.texi
+doc/%.html.pre: doc/%.texi doc/version.texi
 	makeinfo --html --no-headers --no-split --number-sections -o $@ $<
 
 doc/%.html: doc/%.html.pre

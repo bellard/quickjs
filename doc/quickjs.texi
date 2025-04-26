@@ -5,11 +5,14 @@
 @headings double
 @end iftex
 
+@include version.texi
+
 @titlepage
 @afourpaper
 @sp 7
 @center @titlefont{QuickJS Javascript Engine}
 @sp 3
+@center Version: @value{VERSION}
 @end titlepage
 
 @setfilename spec.info
@@ -19,10 +22,10 @@
 
 @chapter Introduction
 
-QuickJS is a small and embeddable Javascript engine. It supports most of the
-ES2023 specification
-@footnote{@url{https://tc39.es/ecma262/2023 }}
-including modules, asynchronous generators, proxies and BigInt.
+QuickJS (version @value{VERSION}) is a small and embeddable Javascript
+engine. It supports most of the ES2023 specification
+@footnote{@url{https://tc39.es/ecma262/2023 }} including modules,
+asynchronous generators, proxies and BigInt.
 
 @section Main Features
 

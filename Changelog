@@ -1,9 +1,17 @@
+2025-04-26:
+
 - removed the bignum extensions and qjscalc
 - new BigInt implementation optimized for small numbers
 - added WeakRef, FinalizationRegistry and symbols as weakrefs
 - added builtin float64 printing and parsing functions for more correctness
 - faster repeated string concatenation
 - qjs: promise unhandled rejections are fatal errors by default
+- added column number in debug information
+- removed the "use strip" extension
+- qjs: added -s and --strip-source options
+- qjsc: added -s and --keep-source options
+- added JS_GetAnyOpaque()
+- added more callbacks for exotic objects in JSClassExoticMethods
 - misc bug fixes
 
 2024-01-13:
