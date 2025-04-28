@@ -4109,8 +4109,10 @@ JSValue js_std_await(JSContext *ctx, JSValue obj)
             if (err < 0) {
                 js_std_dump_error(ctx1);
             }
-            if (os_poll_func)
-                os_poll_func(ctx);
+            if (err == 0) {
+                if (os_poll_func)
+                    os_poll_func(ctx);
+            }
         } else {
             /* not a promise */
             ret = obj;
