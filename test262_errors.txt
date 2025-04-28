@@ -16,7 +16,6 @@ test262/test/staging/sm/JSON/parse-number-syntax.js:39: Test262Error: parsing st
 test262/test/staging/sm/JSON/parse-syntax-errors-02.js:51: Test262Error: parsing string <["Illegal backslash escape: \x15"]> threw a non-SyntaxError exception: Test262Error: string <["Illegal backslash escape: \x15"]> shouldn't have parsed as JSON Expected SameValue(«false», «true») to be true Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Math/cbrt-approx.js:26: Error: got 1.39561242508609, expected a number near 1.3956124250860895 (relative error: 2)
 test262/test/staging/sm/RegExp/constructor-ordering-2.js:15: Test262Error: Expected SameValue(«false», «true») to be true
-test262/test/staging/sm/RegExp/escape.js:13: Test262Error: Expected SameValue(«"\\\n"», «"\\n"») to be true
 test262/test/staging/sm/RegExp/match-trace.js:13: Test262Error: Expected SameValue(«"get:flags,get:unicode,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[0],get:exec,call:exec,"», «"get:flags,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[0],get:exec,call:exec,"») to be true
 test262/test/staging/sm/RegExp/regress-613820-1.js:13: Test262Error: Expected SameValue(«"aaa"», «"aa"») to be true
 test262/test/staging/sm/RegExp/regress-613820-2.js:13: Test262Error: Expected SameValue(«"f"», «undefined») to be true
@@ -51,11 +50,9 @@ test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js:20: TypeError: not a function
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-notapplicable.js:15: Test262Error: Expected SameValue(«function x() {2}», «function x() {1}») to be true
 test262/test/staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js:23: Test262Error: Expected SameValue(«3», «4») to be true
-test262/test/staging/sm/lexical-environment/unscopables-proto.js:15: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js:17: Test262Error: Expected SameValue(«"g"», «"global-x"») to be true
 test262/test/staging/sm/module/module-export-name-star.js:15: SyntaxError: identifier expected
 test262/test/staging/sm/object/defineProperties-order.js:14: Test262Error: Expected SameValue(«"ownKeys,getOwnPropertyDescriptor,getOwnPropertyDescriptor,get,get"», «"ownKeys,getOwnPropertyDescriptor,get,getOwnPropertyDescriptor,get"») to be true
-test262/test/staging/sm/object/defineProperty-proxy.js:32: Test262Error: Expected ["has configurable", "get configurable", "has writable", "get writable", "has enumerable", "get enumerable", "has value", "get value", "has get", "has set"] to be structurally equal to ["has enumerable", "get enumerable", "has configurable", "get configurable", "has value", "get value", "has writable", "get writable", "has get", "has set"]. 
 test262/test/staging/sm/regress/regress-577648-1.js:21: Test262Error: 1 Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/regress/regress-577648-2.js:14: Test262Error:  Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/regress/regress-584355.js:12: Test262Error:  Expected SameValue(«"function f () { ff (); }"», «"undefined"») to be true
@@ -69,4 +66,3 @@ test262/test/staging/sm/regress/regress-1383630.js:30: Error: Assertion failed: 
 test262/test/staging/sm/statements/arrow-function-in-for-statement-head.js:15: Test262Error: expected syntax error, got Error: didn't throw Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/statements/regress-642975.js:14: Test262Error: Expected SameValue(«undefined», «"y"») to be true
 test262/test/staging/sm/statements/try-completion.js:17: Test262Error: Expected SameValue(«"try"», «undefined») to be true
-test262/test/staging/sm/syntax/syntax-parsed-arrow-then-directive.js:77: Test262Error: stack should contain 'http://example.com/foo.js': block, semi Expected SameValue(«false», «true») to be true
