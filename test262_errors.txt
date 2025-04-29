@@ -5,7 +5,7 @@ test262/test/staging/sm/Date/non-iso.js:76: Test262Error: Expected SameValue(«N
 test262/test/staging/sm/Date/two-digit-years.js:76: Test262Error: Expected SameValue(«915177600000», «NaN») to be true
 test262/test/staging/sm/Function/arguments-parameter-shadowing.js:15: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Function/constructor-binding.js:12: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
-test262/test/staging/sm/Function/function-bind.js:14: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/Function/function-bind.js:14: Test262Error: Conforms to NativeFunction Syntax: "function bound unbound() {\n    [native code]\n}"
 test262/test/staging/sm/Function/function-name-for.js:12: Test262Error: Expected SameValue(«""», «"forInHead"») to be true
 test262/test/staging/sm/Function/function-toString-builtin.js:14: Test262Error: Expected match to '/^\s*function\s*(get|set)?\s*(\w+|(?:'[^']*')|(?:"[^"]*")|\d+|(?:\[[^\]]+\]))?\s*\(\s*\)\s*\{\s*\[native code\]\s*\}\s*$/', Actual value 'function bound fn() {
     [native code]
@@ -51,7 +51,6 @@ test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-notapplicable.js:15: Test262Error: Expected SameValue(«function x() {2}», «function x() {1}») to be true
 test262/test/staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js:23: Test262Error: Expected SameValue(«3», «4») to be true
 test262/test/staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js:17: Test262Error: Expected SameValue(«"g"», «"global-x"») to be true
-test262/test/staging/sm/module/module-export-name-star.js:15: SyntaxError: identifier expected
 test262/test/staging/sm/object/defineProperties-order.js:14: Test262Error: Expected SameValue(«"ownKeys,getOwnPropertyDescriptor,getOwnPropertyDescriptor,get,get"», «"ownKeys,getOwnPropertyDescriptor,get,getOwnPropertyDescriptor,get"») to be true
 test262/test/staging/sm/regress/regress-577648-1.js:21: Test262Error: 1 Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/regress/regress-577648-2.js:14: Test262Error:  Expected SameValue(«true», «false») to be true
