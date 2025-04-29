@@ -780,6 +780,7 @@ typedef struct JSStarExportEntry {
 
 typedef struct JSImportEntry {
     int var_idx; /* closure variable index */
+    BOOL is_star; /* import_name = '*' is a valid import name, so need a flag */
     JSAtom import_name;
     int req_module_idx; /* in req_module_entries */
 } JSImportEntry;
@@ -1257,6 +1258,7 @@ static void finrec_delete_weakref(JSRuntime *rt, JSWeakRefHeader *wh);
 static void JS_RunGCInternal(JSRuntime *rt, BOOL remove_weak_objects);
 static JSValue js_array_from_iterator(JSContext *ctx, uint32_t *plen,
                                       JSValueConst obj, JSValueConst method);
+static int js_string_find_invalid_codepoint(JSString *p);
 
 static const JSClassExoticMethods js_arguments_exotic_methods;
 static const JSClassExoticMethods js_string_exotic_methods;
@@ -28535,7 +28537,7 @@ static int js_inner_module_linking(JSContext *ctx, JSModuleDef *m,
             printf(": ");
 #endif
             m1 = m->req_module_entries[mi->req_module_idx].module;
-            if (mi->import_name == JS_ATOM__star_) {
+            if (mi->is_star) {
                 JSValue val;
                 /* name space import */
                 val = JS_GetModuleNamespace(ctx, m1);
@@ -29375,11 +29377,21 @@ static __exception int js_parse_export(JSParseState *s)
             if (token_is_pseudo_keyword(s, JS_ATOM_as)) {
                 if (next_token(s))
                     goto fail;
-                if (!token_is_ident(s->token.val)) {
-                    js_parse_error(s, "identifier expected");
-                    goto fail;
+                if (s->token.val == TOK_STRING) {
+                    if (js_string_find_invalid_codepoint(JS_VALUE_GET_STRING(s->token.u.str.str)) >= 0) {
+                        js_parse_error(s, "contains unpaired surrogate");
+                        goto fail;
+                    }
+                    export_name = JS_ValueToAtom(s->ctx, s->token.u.str.str);
+                    if (export_name == JS_ATOM_NULL)
+                        goto fail;
+                } else {
+                    if (!token_is_ident(s->token.val)) {
+                        js_parse_error(s, "identifier expected");
+                        goto fail;
+                    }
+                    export_name = JS_DupAtom(ctx, s->token.u.ident.atom);
                 }
-                export_name = JS_DupAtom(ctx, s->token.u.ident.atom);
                 if (next_token(s)) {
                 fail:
                     JS_FreeAtom(ctx, local_name);
@@ -29502,12 +29514,11 @@ static int add_closure_var(JSContext *ctx, JSFunctionDef *s,
                            JSVarKindEnum var_kind);
 
 static int add_import(JSParseState *s, JSModuleDef *m,
-                      JSAtom local_name, JSAtom import_name)
+                      JSAtom local_name, JSAtom import_name, BOOL is_star)
 {
     JSContext *ctx = s->ctx;
     int i, var_idx;
     JSImportEntry *mi;
-    BOOL is_local;
 
     if (local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval)
         return js_parse_error(s, "invalid import binding");
@@ -29519,8 +29530,7 @@ static int add_import(JSParseState *s, JSModuleDef *m,
         }
     }
 
-    is_local = (import_name == JS_ATOM__star_);
-    var_idx = add_closure_var(ctx, s->cur_func, is_local, FALSE,
+    var_idx = add_closure_var(ctx, s->cur_func, is_star, FALSE,
                               m->import_entries_count,
                               local_name, TRUE, TRUE, FALSE);
     if (var_idx < 0)
@@ -29533,6 +29543,7 @@ static int add_import(JSParseState *s, JSModuleDef *m,
     mi = &m->import_entries[m->import_entries_count++];
     mi->import_name = JS_DupAtom(ctx, import_name);
     mi->var_idx = var_idx;
+    mi->is_star = is_star;
     return 0;
 }
 
@@ -29565,7 +29576,7 @@ static __exception int js_parse_import(JSParseState *s)
             import_name = JS_ATOM_default;
             if (next_token(s))
                 goto fail;
-            if (add_import(s, m, local_name, import_name))
+            if (add_import(s, m, local_name, import_name, FALSE))
                 goto fail;
             JS_FreeAtom(ctx, local_name);
 
@@ -29591,7 +29602,7 @@ static __exception int js_parse_import(JSParseState *s)
             import_name = JS_ATOM__star_;
             if (next_token(s))
                 goto fail;
-            if (add_import(s, m, local_name, import_name))
+            if (add_import(s, m, local_name, import_name, TRUE))
                 goto fail;
             JS_FreeAtom(ctx, local_name);
         } else if (s->token.val == '{') {
@@ -29599,11 +29610,24 @@ static __exception int js_parse_import(JSParseState *s)
                 return -1;
 
             while (s->token.val != '}') {
-                if (!token_is_ident(s->token.val)) {
-                    js_parse_error(s, "identifier expected");
-                    return -1;
+                BOOL is_string;
+                if (s->token.val == TOK_STRING) {
+                    is_string = TRUE;
+                    if (js_string_find_invalid_codepoint(JS_VALUE_GET_STRING(s->token.u.str.str)) >= 0) {
+                        js_parse_error(s, "contains unpaired surrogate");
+                        return -1;
+                    }
+                    import_name = JS_ValueToAtom(s->ctx, s->token.u.str.str);
+                    if (import_name == JS_ATOM_NULL)
+                        return -1;
+                } else {
+                    is_string = FALSE;
+                    if (!token_is_ident(s->token.val)) {
+                        js_parse_error(s, "identifier expected");
+                        return -1;
+                    }
+                    import_name = JS_DupAtom(ctx, s->token.u.ident.atom);
                 }
-                import_name = JS_DupAtom(ctx, s->token.u.ident.atom);
                 local_name = JS_ATOM_NULL;
                 if (next_token(s))
                     goto fail;
@@ -29615,16 +29639,19 @@ static __exception int js_parse_import(JSParseState *s)
                         goto fail;
                     }
                     local_name = JS_DupAtom(ctx, s->token.u.ident.atom);
-                    if (next_token(s)) {
+                    if (next_token(s))
+                        goto fail;
+                } else {
+                    if (is_string) {
+                        js_parse_error(s, "expecting 'as'");
                     fail:
                         JS_FreeAtom(ctx, local_name);
                         JS_FreeAtom(ctx, import_name);
                         return -1;
                     }
-                } else {
                     local_name = JS_DupAtom(ctx, import_name);
                 }
-                if (add_import(s, m, local_name, import_name))
+                if (add_import(s, m, local_name, import_name, FALSE))
                     goto fail;
                 JS_FreeAtom(ctx, local_name);
                 JS_FreeAtom(ctx, import_name);
@@ -35031,7 +35058,7 @@ typedef enum BCTagEnum {
     BC_TAG_OBJECT_REFERENCE,
 } BCTagEnum;
 
-#define BC_VERSION 4
+#define BC_VERSION 5
 
 typedef struct BCWriterState {
     JSContext *ctx;
@@ -35478,6 +35505,7 @@ static int JS_WriteModule(BCWriterState *s, JSValueConst obj)
     for(i = 0; i < m->import_entries_count; i++) {
         JSImportEntry *mi = &m->import_entries[i];
         bc_put_leb128(s, mi->var_idx);
+        bc_put_u8(s, mi->is_star);
         bc_put_atom(s, mi->import_name);
         bc_put_leb128(s, mi->req_module_idx);
     }
@@ -36505,8 +36533,12 @@ static JSValue JS_ReadModule(BCReaderState *s)
             goto fail;
         for(i = 0; i < m->import_entries_count; i++) {
             JSImportEntry *mi = &m->import_entries[i];
+            uint8_t v8;
             if (bc_get_leb128_int(s, &mi->var_idx))
                 goto fail;
+            if (bc_get_u8(s, &v8))
+                goto fail;
+            mi->is_star = (v8 != 0);
             if (bc_get_atom(s, &mi->import_name))
                 goto fail;
             if (bc_get_leb128_int(s, &mi->req_module_idx))
