@@ -18239,6 +18239,38 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             }
             BREAK;
 
+        CASE(OP_get_array_el3):
+            {
+                JSValue val;
+
+                switch (JS_VALUE_GET_TAG(sp[-2])) {
+                case JS_TAG_INT:
+                case JS_TAG_STRING:
+                case JS_TAG_SYMBOL:
+                    /* undefined and null are tested in JS_GetPropertyValue() */
+                    break;
+                default:
+                    /* must be tested nefore JS_ToPropertyKey */
+                    if (unlikely(JS_IsUndefined(sp[-2]) || JS_IsNull(sp[-2]))) {
+                        JS_ThrowTypeError(ctx, "value has no property");
+                        goto exception;
+                    }
+                    sf->cur_pc = pc;
+                    ret_val = JS_ToPropertyKey(ctx, sp[-1]);
+                    if (JS_IsException(ret_val))
+                        goto exception;
+                    JS_FreeValue(ctx, sp[-1]);
+                    sp[-1] = ret_val;
+                    break;
+                }
+                sf->cur_pc = pc;
+                val = JS_GetPropertyValue(ctx, sp[-2], JS_DupValue(ctx, sp[-1]));
+                *sp++ = val;
+                if (unlikely(JS_IsException(val)))
+                    goto exception;
+            }
+            BREAK;
+            
         CASE(OP_get_ref_value):
             {
                 JSValue val;
@@ -18966,27 +18998,6 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             }
             BREAK;
 
-        CASE(OP_to_propkey2):
-            /* must be tested first */
-            if (unlikely(JS_IsUndefined(sp[-2]) || JS_IsNull(sp[-2]))) {
-                JS_ThrowTypeError(ctx, "value has no property");
-                goto exception;
-            }
-            switch (JS_VALUE_GET_TAG(sp[-1])) {
-            case JS_TAG_INT:
-            case JS_TAG_STRING:
-            case JS_TAG_SYMBOL:
-                break;
-            default:
-                sf->cur_pc = pc;
-                ret_val = JS_ToPropertyKey(ctx, sp[-1]);
-                if (JS_IsException(ret_val))
-                    goto exception;
-                JS_FreeValue(ctx, sp[-1]);
-                sp[-1] = ret_val;
-                break;
-            }
-            BREAK;
 #if 0
         CASE(OP_to_string):
             if (JS_VALUE_GET_TAG(sp[-1]) != JS_TAG_STRING) {
@@ -24307,10 +24318,7 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
             emit_u16(s, scope);
             break;
         case OP_get_array_el:
-            /* XXX: replace by a single opcode ? */
-            emit_op(s, OP_to_propkey2);
-            emit_op(s, OP_dup2);
-            emit_op(s, OP_get_array_el);
+            emit_op(s, OP_get_array_el3);
             break;
         case OP_get_super_value:
             emit_op(s, OP_to_propkey);
@@ -24739,7 +24747,7 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                     continue;
                 }
                 if (prop_name == JS_ATOM_NULL) {
-                    emit_op(s, OP_to_propkey2);
+                    emit_op(s, OP_to_propkey);
                     if (has_ellipsis) {
                         /* define the property in excludeList */
                         emit_op(s, OP_perm3);
@@ -33334,9 +33342,8 @@ static __exception int resolve_labels(JSContext *ctx, JSFunctionDef *s)
             goto no_change;
 
         case OP_to_propkey:
-        case OP_to_propkey2:
             if (OPTIMIZE) {
-                /* remove redundant to_propkey/to_propkey2 opcodes when storing simple data */
+                /* remove redundant to_propkey opcodes when storing simple data */
                 if (code_match(&cc, pos_next, M3(OP_get_loc, OP_get_arg, OP_get_var_ref), -1, OP_put_array_el, -1)
                 ||  code_match(&cc, pos_next, M3(OP_push_i32, OP_push_const, OP_push_atom_value), OP_put_array_el, -1)
                 ||  code_match(&cc, pos_next, M4(OP_undefined, OP_null, OP_push_true, OP_push_false), OP_put_array_el, -1)) {
