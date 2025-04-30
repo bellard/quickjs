@@ -1083,6 +1083,13 @@ static JSValue js_std_file_printf(JSContext *ctx, JSValueConst this_val,
     return js_printf_internal(ctx, argc, argv, f);
 }
 
+static JSValue js_std_file_printObject(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv)
+{
+    JS_PrintValue(ctx, stdout, argv[0], NULL);
+    return JS_UNDEFINED;
+}
+
 static JSValue js_std_file_flush(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv)
 {
@@ -1540,6 +1547,7 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_PROP_INT32_DEF("SEEK_CUR", SEEK_CUR, JS_PROP_CONFIGURABLE ),
     JS_PROP_INT32_DEF("SEEK_END", SEEK_END, JS_PROP_CONFIGURABLE ),
     JS_OBJECT_DEF("Error", js_std_error_props, countof(js_std_error_props), JS_PROP_CONFIGURABLE),
+    JS_CFUNC_DEF("__printObject", 1, js_std_file_printObject ),
 };
 
 static const JSCFunctionListEntry js_std_file_proto_funcs[] = {
@@ -3891,17 +3899,23 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
                         int argc, JSValueConst *argv)
 {
     int i;
-    const char *str;
-    size_t len;
-
+    JSValueConst v;
+    
     for(i = 0; i < argc; i++) {
         if (i != 0)
             putchar(' ');
-        str = JS_ToCStringLen(ctx, &len, argv[i]);
-        if (!str)
-            return JS_EXCEPTION;
-        fwrite(str, 1, len, stdout);
-        JS_FreeCString(ctx, str);
+        v = argv[i];
+        if (JS_IsString(v)) {
+            const char *str;
+            size_t len;
+            str = JS_ToCStringLen(ctx, &len, v);
+            if (!str)
+                return JS_EXCEPTION;
+            fwrite(str, 1, len, stdout);
+            JS_FreeCString(ctx, str);
+        } else {
+            JS_PrintValue(ctx, stdout, v, NULL);
+        }
     }
     putchar('\n');
     return JS_UNDEFINED;
@@ -4012,33 +4026,10 @@ void js_std_free_handlers(JSRuntime *rt)
     JS_SetRuntimeOpaque(rt, NULL); /* fail safe */
 }
 
-static void js_dump_obj(JSContext *ctx, FILE *f, JSValueConst val)
-{
-    const char *str;
-
-    str = JS_ToCString(ctx, val);
-    if (str) {
-        fprintf(f, "%s\n", str);
-        JS_FreeCString(ctx, str);
-    } else {
-        fprintf(f, "[exception]\n");
-    }
-}
-
 static void js_std_dump_error1(JSContext *ctx, JSValueConst exception_val)
 {
-    JSValue val;
-    BOOL is_error;
-
-    is_error = JS_IsError(ctx, exception_val);
-    js_dump_obj(ctx, stderr, exception_val);
-    if (is_error) {
-        val = JS_GetPropertyStr(ctx, exception_val, "stack");
-        if (!JS_IsUndefined(val)) {
-            js_dump_obj(ctx, stderr, val);
-        }
-        JS_FreeValue(ctx, val);
-    }
+    JS_PrintValue(ctx, stderr, exception_val, NULL);
+    fputc('\n', stderr);
 }
 
 void js_std_dump_error(JSContext *ctx)
