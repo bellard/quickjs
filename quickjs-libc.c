@@ -160,6 +160,7 @@ static BOOL my_isdigit(int c)
     return (c >= '0' && c <= '9');
 }
 
+/* XXX: use 'o' and 'O' for object using JS_PrintValue() ? */
 static JSValue js_printf_internal(JSContext *ctx,
                                   int argc, JSValueConst *argv, FILE *fp)
 {
@@ -1083,10 +1084,16 @@ static JSValue js_std_file_printf(JSContext *ctx, JSValueConst this_val,
     return js_printf_internal(ctx, argc, argv, f);
 }
 
+static void js_print_value_write(void *opaque, const char *buf, size_t len)
+{
+    FILE *fo = opaque;
+    fwrite(buf, 1, len, fo);
+}
+
 static JSValue js_std_file_printObject(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv)
 {
-    JS_PrintValue(ctx, stdout, argv[0], NULL);
+    JS_PrintValue(ctx, js_print_value_write, stdout, argv[0], NULL);
     return JS_UNDEFINED;
 }
 
@@ -3914,7 +3921,7 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
             fwrite(str, 1, len, stdout);
             JS_FreeCString(ctx, str);
         } else {
-            JS_PrintValue(ctx, stdout, v, NULL);
+            JS_PrintValue(ctx, js_print_value_write, stdout, v, NULL);
         }
     }
     putchar('\n');
@@ -4028,7 +4035,7 @@ void js_std_free_handlers(JSRuntime *rt)
 
 static void js_std_dump_error1(JSContext *ctx, JSValueConst exception_val)
 {
-    JS_PrintValue(ctx, stderr, exception_val, NULL);
+    JS_PrintValue(ctx, js_print_value_write, stderr, exception_val, NULL);
     fputc('\n', stderr);
 }
 

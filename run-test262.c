@@ -372,6 +372,12 @@ static void enumerate_tests(const char *path)
           namelist_cmp_indirect);
 }
 
+static void js_print_value_write(void *opaque, const char *buf, size_t len)
+{
+    FILE *fo = opaque;
+    fwrite(buf, 1, len, fo);
+}
+
 static JSValue js_print(JSContext *ctx, JSValueConst this_val,
                         int argc, JSValueConst *argv)
 {
@@ -397,7 +403,7 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
                 fwrite(str, 1, len, outfile);
                 JS_FreeCString(ctx, str);
             } else {
-                JS_PrintValue(ctx, outfile, v, NULL);
+                JS_PrintValue(ctx, js_print_value_write, outfile, v, NULL);
             }
         }
         fputc('\n', outfile);
