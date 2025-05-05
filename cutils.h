@@ -364,4 +364,60 @@ static inline double uint64_as_float64(uint64_t u64)
     return u.d;
 }
 
+static inline double fromfp16(uint16_t v)
+{
+    double d;
+    uint32_t v1;
+    v1 = v & 0x7fff;
+    if (unlikely(v1 >= 0x7c00))
+        v1 += 0x1f8000; /* NaN or infinity */
+    d = uint64_as_float64(((uint64_t)(v >> 15) << 63) | ((uint64_t)v1 << (52 - 10)));
+    return d * 0x1p1008;
+}
+
+static inline uint16_t tofp16(double d)
+{
+    uint64_t a, addend;
+    uint32_t v, sgn;
+    int shift;
+    
+    a = float64_as_uint64(d);
+    sgn = a >> 63;
+    a = a & 0x7fffffffffffffff;
+    if (unlikely(a > 0x7ff0000000000000)) {
+        /* nan */
+        v = 0x7c01;
+    } else if (a < 0x3f10000000000000) { /* 0x1p-14 */
+        /* subnormal f16 number or zero */
+        if (a <= 0x3e60000000000000) { /* 0x1p-25 */
+            v = 0x0000; /* zero */
+        } else {
+            shift = 1051 - (a >> 52);
+            a = ((uint64_t)1 << 52) | (a & (((uint64_t)1 << 52) - 1));
+            addend = ((a >> shift) & 1) + (((uint64_t)1 << (shift - 1)) - 1);
+            v = (a + addend) >> shift;
+        }
+    } else {
+        /* normal number or infinity */
+        a -= 0x3f00000000000000; /* adjust the exponent */
+        /* round */
+        addend = ((a >> (52 - 10)) & 1) + (((uint64_t)1 << (52 - 11)) - 1);
+        v = (a + addend) >> (52 - 10);
+        /* overflow ? */
+        if (unlikely(v > 0x7c00))
+            v = 0x7c00;
+    }
+    return v | (sgn << 15);
+}
+
+static inline int isfp16nan(uint16_t v)
+{
+    return (v & 0x7FFF) > 0x7C00;
+}
+
+static inline int isfp16zero(uint16_t v)
+{
+    return (v & 0x7FFF) == 0;
+}
+
 #endif  /* CUTILS_H */

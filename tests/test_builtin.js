@@ -489,6 +489,9 @@ function test_typed_array()
     a = new Uint16Array(buffer, 2);
     a[0] = -1;
 
+    a = new Float16Array(buffer, 8, 1);
+    a[0] = 1;
+
     a = new Float32Array(buffer, 8, 1);
     a[0] = 1;
 

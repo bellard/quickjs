@@ -42,6 +42,7 @@ function isArrayLike(a)
         (a instanceof Int8Array) ||
         (a instanceof Int16Array) ||
         (a instanceof Int32Array) ||
+        (a instanceof Float16Array) ||
         (a instanceof Float32Array) ||
         (a instanceof Float64Array);
 }
@@ -157,6 +158,7 @@ function bjson_test_all()
     bjson_test([new Date(1234), new String("abc"), new Number(-12.1), new Boolean(true)]);
 
     bjson_test(new Int32Array([123123, 222111, -32222]));
+    bjson_test(new Float16Array([1024, 1024.5]));
     bjson_test(new Float64Array([123123, 222111.5]));
 
     /* tested with a circular reference */
