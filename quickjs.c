@@ -44570,6 +44570,58 @@ void *lre_realloc(void *opaque, void *ptr, size_t size)
     return js_realloc_rt(ctx->rt, ptr, size);
 }
 
+static JSValue js_regexp_escape(JSContext *ctx, JSValueConst this_val,
+                                int argc, JSValueConst *argv)
+{
+    JSValue str;
+    StringBuffer b_s, *b = &b_s;
+    JSString *p;
+    uint32_t c, i;
+    char s[16];
+
+    if (!JS_IsString(argv[0]))
+        return JS_ThrowTypeError(ctx, "not a string");
+    str = JS_ToString(ctx, argv[0]); /* must call it to linearlize ropes */
+    if (JS_IsException(str))
+        return JS_EXCEPTION;
+    p = JS_VALUE_GET_STRING(str);
+    string_buffer_init2(ctx, b, 0, p->is_wide_char);
+    for (i = 0; i < p->len; i++) {
+        c = string_get(p, i);
+        if (c < 33) {
+            if (c >= 9 && c <= 13) {
+                string_buffer_putc8(b, '\\');
+                string_buffer_putc8(b, "tnvfr"[c - 9]);
+            } else {
+                goto hex2;
+            }
+        } else if (c < 128) {
+            if ((c >= '0' && c <= '9')
+             || (c >= 'A' && c <= 'Z')
+             || (c >= 'a' && c <= 'z')) {
+                if (i == 0)
+                    goto hex2;
+            } else if (strchr(",-=<>#&!%:;@~'`\"", c)) {
+                goto hex2;
+            } else if (c != '_') {
+                string_buffer_putc8(b, '\\');
+            }
+            string_buffer_putc8(b, c);
+        } else if (c < 256) {
+        hex2:
+            snprintf(s, sizeof(s), "\\x%02x", c);
+            string_buffer_puts8(b, s);
+        } else if (is_surrogate(c) || lre_is_space(c)) {
+            snprintf(s, sizeof(s), "\\u%04x", c);
+            string_buffer_puts8(b, s);
+        } else {
+            string_buffer_putc16(b, c);
+        }
+    }
+    JS_FreeValue(ctx, str);
+    return string_buffer_end(b);
+}
+
 static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
 {
@@ -45617,6 +45669,7 @@ done:
 }
 
 static const JSCFunctionListEntry js_regexp_funcs[] = {
+    JS_CFUNC_DEF("escape", 1, js_regexp_escape ),
     JS_CGETSET_DEF("[Symbol.species]", js_get_this, NULL ),
     //JS_CFUNC_DEF("__RegExpExec", 2, js_regexp___RegExpExec ),
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
