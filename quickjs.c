@@ -44594,6 +44594,13 @@ void *lre_realloc(void *opaque, void *ptr, size_t size)
     return js_realloc_rt(ctx->rt, ptr, size);
 }
 
+void lre_free(void *opaque, void *ptr)
+{
+    JSContext *ctx = opaque;
+    /* No JS exception is raised here */
+    js_free_rt(ctx->rt, ptr);
+}
+
 static JSValue js_regexp_escape(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
