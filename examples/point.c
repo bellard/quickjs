@@ -120,9 +120,77 @@ static const JSCFunctionListEntry js_point_proto_funcs[] = {
     JS_CFUNC_DEF("norm", 0, js_point_norm),
 };
 
+/*PointEnumerable Class*/
+
+static JSClassID js_pointEnumerable_class_id;
+
+static void js_pointEnumerable_finalizer(JSRuntime *rt, JSValue val)
+{
+    return;
+}
+
+static JSValue js_pointEnumerable_ctor(JSContext *ctx,
+                                       JSValueConst new_target,
+                                       int argc, JSValueConst *argv)
+{
+    JSValue obj = JS_UNDEFINED;
+    JSValue proto;
+
+    /* using new_target to get the prototype is necessary when the
+       class is extended. */
+    proto = JS_GetPropertyStr(ctx, new_target, "prototype");
+    if (JS_IsException(proto))
+        goto fail;
+    obj = JS_NewObjectProtoClass(ctx, proto, js_pointEnumerable_class_id);
+    JS_FreeValue(ctx, proto);
+    JS_DefinePropertyValueStr(ctx, obj, "x", argv[0], JS_PROP_C_W_E);
+    JS_DefinePropertyValueStr(ctx, obj, "y", argv[1], JS_PROP_C_W_E);
+    if (JS_IsException(obj))
+        goto fail;
+    return obj;
+ fail:
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+}
+
+static JSValue js_pointEnumerable_norm(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv)
+{
+    JSValue val;
+    int ret, x, y;
+
+    val = JS_GetPropertyStr(ctx, this_val, "x");
+    if (JS_IsException(val))
+      return JS_EXCEPTION;
+    ret = JS_ToInt32(ctx, &x, val);
+    JS_FreeValue(ctx, val);
+    if (ret)
+      return JS_EXCEPTION;
+
+    val = JS_GetPropertyStr(ctx, this_val, "y");
+    if (JS_IsException(val))
+      return JS_EXCEPTION;
+    ret = JS_ToInt32(ctx, &y, val);
+    JS_FreeValue(ctx, val);
+    if (ret)
+      return JS_EXCEPTION;
+
+    return JS_NewFloat64(ctx, sqrt((double)x * x + (double)y * y));
+}
+
+static JSClassDef js_pointEnumerable_class = {
+    "PointEnumerable",
+    .finalizer = js_pointEnumerable_finalizer,
+};
+
+static const JSCFunctionListEntry js_pointEnumerable_proto_funcs[] = {
+    JS_CFUNC_DEF("norm", 0, js_pointEnumerable_norm),
+};
+
 static int js_point_init(JSContext *ctx, JSModuleDef *m)
 {
-    JSValue point_proto, point_class;
+    JSValue point_proto, point_class,
+            pointEnumerable_proto, pointEnumerable_class;
 
     /* create the Point class */
     JS_NewClassID(&js_point_class_id);
@@ -137,6 +205,25 @@ static int js_point_init(JSContext *ctx, JSModuleDef *m)
     JS_SetClassProto(ctx, js_point_class_id, point_proto);
 
     JS_SetModuleExport(ctx, m, "Point", point_class);
+
+    /* create the PointEnumerable class */
+    JS_NewClassID(&js_pointEnumerable_class_id);
+    JS_NewClass(JS_GetRuntime(ctx), js_pointEnumerable_class_id,
+                &js_pointEnumerable_class);
+
+    pointEnumerable_proto = JS_NewObject(ctx);
+    JS_SetPropertyFunctionList(ctx, pointEnumerable_proto,
+                               js_pointEnumerable_proto_funcs,
+                               countof(js_pointEnumerable_proto_funcs));
+
+    pointEnumerable_class = JS_NewCFunction2(ctx, js_pointEnumerable_ctor,
+                                             "PointEnumerable", 2,
+                                             JS_CFUNC_constructor, 0);
+    /* set proto.constructor and ctor.prototype */
+    JS_SetConstructor(ctx, pointEnumerable_class, pointEnumerable_proto);
+    JS_SetClassProto(ctx, js_pointEnumerable_class_id, pointEnumerable_proto);
+
+    JS_SetModuleExport(ctx, m, "PointEnumerable", pointEnumerable_class);
     return 0;
 }
 
@@ -147,5 +234,6 @@ JSModuleDef *js_init_module(JSContext *ctx, const char *module_name)
     if (!m)
         return NULL;
     JS_AddModuleExport(ctx, m, "Point");
+    JS_AddModuleExport(ctx, m, "PointEnumerable");
     return m;
 }
