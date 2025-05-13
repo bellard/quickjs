@@ -464,6 +464,12 @@ stats: qjs$(EXE)
 microbench: qjs$(EXE)
 	$(WINE) ./qjs$(EXE) --std tests/microbench.js
 
+TEST262_COMMIT?=c6251c64b10800c53cc535adbedd92674dc87806
+
+test2-bootstrap:
+	git clone --single-branch --shallow-since=2025-05-12 https://github.com/tc39/test262.git
+	(cd test262 && git checkout -q $(TEST262_COMMIT) && patch -p1 < ../tests/test262.patch && cd ..)
+
 ifeq ($(wildcard test262o/tests.txt),)
 test2o test2o-update:
 	@echo test262o tests not installed
