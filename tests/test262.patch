@@ -14,9 +14,9 @@ index 9828b15..4a5919d 100644
 +//  small: 200,
 +//  long: 1000,
 +//  huge: 10000,
-+  yield: 20,
-+  small: 20,
-+  long: 100,
++  yield: 40,
++  small: 40,
++  long: 200,
 +  huge: 1000,
  };
  
