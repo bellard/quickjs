@@ -54,6 +54,10 @@ PREFIX?=/usr/local
 # use UB sanitizer
 #CONFIG_UBSAN=y
 
+# TEST262 bootstrap config: commit id and shallow "since" parameter
+TEST262_COMMIT?=af3d908437b0912513a594e7167f17658e72d88b
+TEST262_SINCE?=2025-09-14
+
 OBJDIR=.obj
 
 ifdef CONFIG_ASAN
@@ -463,6 +467,15 @@ stats: qjs$(EXE)
 
 microbench: qjs$(EXE)
 	$(WINE) ./qjs$(EXE) --std tests/microbench.js
+
+ifeq ($(wildcard test262/features.txt),)
+test2-bootstrap:
+	git clone --single-branch --shallow-since=$(TEST262_SINCE) https://github.com/tc39/test262.git
+	(cd test262 && git checkout -q $(TEST262_COMMIT) && patch -p1 < ../tests/test262.patch && cd ..)
+else
+test2-bootstrap:
+	(cd test262 && git fetch && git reset --hard $(TEST262_COMMIT) && patch -p1 < ../tests/test262.patch && cd ..)
+endif
 
 ifeq ($(wildcard test262o/tests.txt),)
 test2o test2o-update:
