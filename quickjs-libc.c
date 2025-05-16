@@ -41,11 +41,18 @@
 #include <windows.h>
 #include <conio.h>
 #include <utime.h>
+#include <winsock2.h>
+#include <windows.h>
 #else
 #include <dlfcn.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
 
 #if defined(__FreeBSD__)
 extern char **environ;
@@ -898,6 +905,115 @@ static void js_set_error_object(JSContext *ctx, JSValue obj, int err)
     }
 }
 
+static JSValue js_std_socket(JSContext *ctx, JSValueConst this_val,
+    int argc, JSValueConst *argv)
+{
+    int domain = AF_INET, type = SOCK_STREAM, protocol = 0, ret;
+    if (argc >= 1 && JS_ToInt32(ctx, &domain, argv[0]))
+        return JS_EXCEPTION;
+    if (argc >= 2 && JS_ToInt32(ctx, &type, argv[1]))
+        return JS_EXCEPTION;
+    if (argc >= 3 && JS_ToInt32(ctx, &protocol, argv[2]))
+        return JS_EXCEPTION;
+    ret = js_get_errno(socket(domain, type, protocol));
+    if (ret >= 0) { // to be removed in prod but needed since os.close() don't unbind for me (!?)
+        int opt = 1;
+        setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    }
+    return JS_NewInt32(ctx, ret);
+}
+
+static JSValue js_std_bind(JSContext *ctx, JSValueConst this_val,
+    int argc, JSValueConst *argv)
+{
+    int sockfd, port = 0, ret;
+    struct sockaddr_in server_addr;
+
+    if (JS_ToInt32(ctx, &sockfd, argv[0]))
+        return JS_EXCEPTION;
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+//    JS_ToInt32Sat(ctx, &server_addr.sin_family, JS_GetPropertyStr(ctx, argv[1], "family"));
+//    JS_ToInt32Sat(ctx, &server_addr.sin_port, JS_GetPropertyStr(ctx, argv[1], "addr"));
+
+    if(!JS_ToInt32(ctx, &port, JS_GetPropertyStr(ctx, argv[1], "port")))
+        server_addr.sin_port = htons(port);
+
+    ret = js_get_errno(bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)));
+    return JS_NewInt32(ctx, ret);
+}
+
+static JSValue js_std_listen(JSContext *ctx, JSValueConst this_val,
+    int argc, JSValueConst *argv)
+{
+    int sockfd, backlog=10, ret;
+
+    if (JS_ToInt32(ctx, &sockfd, argv[0]))
+        return JS_EXCEPTION;
+    if (argc >= 2 && JS_ToInt32(ctx, &backlog, argv[1]))
+        return JS_EXCEPTION;
+    ret = js_get_errno(listen(sockfd, backlog));
+    return JS_NewInt32(ctx, ret);
+}
+
+static JSValue js_std_accept(JSContext *ctx, JSValueConst this_val,
+    int argc, JSValueConst *argv)
+{
+    JSValue arr, sockaddr_obj;
+    int sockfd, ret;
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+
+    if (JS_ToInt32(ctx, &sockfd, argv[0]))
+        return JS_EXCEPTION;
+
+    ret = js_get_errno(accept(sockfd, (struct sockaddr *)&client_addr, &client_len));
+    
+    // TODO: refactor into a JS_NewSockObj
+    sockaddr_obj = JS_NewObject(ctx);
+    if (JS_IsException(sockaddr_obj))
+        return sockaddr_obj;
+    JS_DefinePropertyValue(ctx, sockaddr_obj, JS_NewAtom(ctx, "address"),
+        JS_NewInt32(ctx, ntohl(client_addr.sin_addr.s_addr)), JS_PROP_C_W_E);
+    JS_DefinePropertyValue(ctx, sockaddr_obj, JS_NewAtom(ctx, "port"),
+        JS_NewInt32(ctx, ntohs(client_addr.sin_port)), JS_PROP_C_W_E);
+
+    arr = JS_NewArray(ctx);
+    if (JS_IsException(arr))
+        return arr;
+
+    JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewInt32(ctx, ret), JS_PROP_C_W_E);
+    JS_DefinePropertyValueUint32(ctx, arr, 1, sockaddr_obj, JS_PROP_C_W_E);
+    return arr;
+}
+static JSValue js_std_connect(JSContext *ctx, JSValueConst this_val,
+    int argc, JSValueConst *argv)
+{
+    int sockfd, ret;
+    unsigned u32;
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    JSValue val;
+
+    if (JS_ToInt32(ctx, &sockfd, argv[0]))
+        return JS_EXCEPTION;
+    // TODO: refactor into a JS_GetSockObj
+    val = JS_GetPropertyStr(ctx, argv[1], "address");
+    ret = JS_ToUint32(ctx, &u32, val);
+    JS_FreeValue(ctx, val);
+    client_addr.sin_addr.s_addr = htonl(u32);
+
+    val = JS_GetPropertyStr(ctx, argv[1], "port");
+    ret = JS_ToUint32(ctx, &u32, val);
+    JS_FreeValue(ctx, val);
+    client_addr.sin_port = htons(u32);
+
+    ret = js_get_errno(accept(sockfd, (struct sockaddr *)&client_addr, &client_len));
+
+    return JS_NewInt32(ctx, ret);
+}
+
 static JSValue js_std_open(JSContext *ctx, JSValueConst this_val,
                            int argc, JSValueConst *argv)
 {
@@ -1549,6 +1665,17 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_CFUNC_DEF("strerror", 1, js_std_strerror ),
     JS_CFUNC_DEF("parseExtJSON", 1, js_std_parseExtJSON ),
 
+    /* SOCKET I/O */
+    JS_CFUNC_DEF("socket", 3, js_std_socket ),
+    JS_CFUNC_DEF("bind", 3, js_std_bind ),
+    JS_CFUNC_DEF("listen", 2, js_std_listen ),
+    JS_CFUNC_DEF("accept", 1, js_std_accept ),
+    JS_CFUNC_DEF("connect", 1, js_std_connect ),
+    JS_PROP_INT32_DEF("AF_INET", AF_INET, JS_PROP_CONFIGURABLE ),
+    JS_PROP_INT32_DEF("SOCK_STREAM", SOCK_STREAM, JS_PROP_CONFIGURABLE ),
+    JS_PROP_INT32_DEF("SOCK_DGRAM", SOCK_DGRAM, JS_PROP_CONFIGURABLE ),
+    JS_PROP_INT32_DEF("SOCK_RAW", SOCK_RAW, JS_PROP_CONFIGURABLE ),
+
     /* FILE I/O */
     JS_CFUNC_DEF("open", 2, js_std_open ),
     JS_CFUNC_DEF("popen", 2, js_std_popen ),
@@ -1589,6 +1716,11 @@ static int js_std_init(JSContext *ctx, JSModuleDef *m)
 {
     JSValue proto;
 
+    #if defined(_WIN32)
+    WSADATA wsa_data;
+    WSAStartup(0x0202, &wsa_data);
+    #endif
+    
     /* FILE class */
     /* the class ID is created once */
     JS_NewClassID(&js_std_file_class_id);
