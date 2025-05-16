@@ -49216,6 +49216,34 @@ static JSValue js_promise_withResolvers(JSContext *ctx,
     return obj;
 }
 
+static JSValue js_promise_try(JSContext *ctx, JSValue this_val,
+                              int argc, JSValue *argv)
+{
+    JSValue result_promise, resolving_funcs[2], ret, ret2;
+    BOOL is_reject = 0;
+
+    if (!JS_IsObject(this_val))
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    result_promise = js_new_promise_capability(ctx, resolving_funcs, this_val);
+    if (JS_IsException(result_promise))
+        return result_promise;
+    ret = JS_Call(ctx, argv[0], JS_UNDEFINED, argc - 1, argv + 1);
+    if (JS_IsException(ret)) {
+        is_reject = 1;
+        ret = JS_GetException(ctx);
+    }
+    ret2 = JS_Call(ctx, resolving_funcs[is_reject], JS_UNDEFINED, 1, &ret);
+    JS_FreeValue(ctx, resolving_funcs[0]);
+    JS_FreeValue(ctx, resolving_funcs[1]);
+    JS_FreeValue(ctx, ret);
+    if (JS_IsException(ret2)) {
+        JS_FreeValue(ctx, result_promise);
+        return ret2;
+    }
+    JS_FreeValue(ctx, ret2);
+    return result_promise;
+}
+
 static __exception int remainingElementsCount_add(JSContext *ctx,
                                                   JSValueConst resolve_element_env,
                                                   int addend)
@@ -49703,6 +49731,7 @@ static const JSCFunctionListEntry js_promise_funcs[] = {
     JS_CFUNC_MAGIC_DEF("all", 1, js_promise_all, PROMISE_MAGIC_all ),
     JS_CFUNC_MAGIC_DEF("allSettled", 1, js_promise_all, PROMISE_MAGIC_allSettled ),
     JS_CFUNC_MAGIC_DEF("any", 1, js_promise_all, PROMISE_MAGIC_any ),
+    JS_CFUNC_DEF("try", 1, js_promise_try ),
     JS_CFUNC_DEF("race", 1, js_promise_race ),
     JS_CFUNC_DEF("withResolvers", 0, js_promise_withResolvers ),
     JS_CGETSET_DEF("[Symbol.species]", js_get_this, NULL),
