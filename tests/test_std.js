@@ -294,6 +294,22 @@ function test_async_gc()
     })();
 }
 
+/* check that the promise async rejection handler is not invoked when
+   the rejection is handled not too late after the promise
+   rejection. */
+function test_async_promise_rejection()
+{
+    var counter = 0;
+    var p1, p2, p3;
+    p1 = Promise.reject();
+    p2 = Promise.reject();
+    p3 = Promise.resolve();
+    p1.catch(() => counter++);
+    p2.catch(() => counter++);
+    p3.then(() => counter++)
+    os.setTimeout(() => { assert(counter, 3) }, 10);
+}
+
 test_printf();
 test_file1();
 test_file2();
@@ -304,4 +320,5 @@ test_os_exec();
 test_timer();
 test_ext_json();
 test_async_gc();
+test_async_promise_rejection();
 
