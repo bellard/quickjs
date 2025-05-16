@@ -16,13 +16,9 @@ test262/test/staging/sm/JSON/parse-number-syntax.js:39: Test262Error: parsing st
 test262/test/staging/sm/JSON/parse-syntax-errors-02.js:51: Test262Error: parsing string <["Illegal backslash escape: \x15"]> threw a non-SyntaxError exception: Test262Error: string <["Illegal backslash escape: \x15"]> shouldn't have parsed as JSON Expected SameValue(«false», «true») to be true Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Math/cbrt-approx.js:26: Error: got 1.39561242508609, expected a number near 1.3956124250860895 (relative error: 2)
 test262/test/staging/sm/RegExp/constructor-ordering-2.js:15: Test262Error: Expected SameValue(«false», «true») to be true
-test262/test/staging/sm/RegExp/match-trace.js:13: Test262Error: Expected SameValue(«"get:flags,get:unicode,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[0],get:exec,call:exec,"», «"get:flags,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[0],get:exec,call:exec,"») to be true
 test262/test/staging/sm/RegExp/regress-613820-1.js:13: Test262Error: Expected SameValue(«"aaa"», «"aa"») to be true
 test262/test/staging/sm/RegExp/regress-613820-2.js:13: Test262Error: Expected SameValue(«"f"», «undefined») to be true
 test262/test/staging/sm/RegExp/regress-613820-3.js:13: Test262Error: Expected SameValue(«"aab"», «"aa"») to be true
-test262/test/staging/sm/RegExp/replace-trace.js:13: Test262Error: Expected SameValue(«"get:flags,get:unicode,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[length],get:result[0],get:result[index],get:result[groups],"», «"get:flags,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[length],get:result[0],get:result[index],get:result[groups],"») to be true
-test262/test/staging/sm/RegExp/unicode-ignoreCase-escape.js:22: Test262Error: Actual argument shouldn't be nullish. 
-test262/test/staging/sm/RegExp/unicode-ignoreCase-word-boundary.js:13: Test262Error: Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/String/match-defines-match-elements.js:52: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/TypedArray/constructor-buffer-sequence.js:73: Error: Assertion failed: expected exception ExpectedError, got Error: Poisoned Value
 test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: Test262Error: Expected SameValue(«2», «6») to be true

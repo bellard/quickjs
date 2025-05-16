@@ -156,6 +156,153 @@ char *get_line(char *buf, int buf_size, FILE *f)
     return buf;
 }
 
+typedef struct REString {
+    struct REString *next;
+    uint32_t hash;
+    uint32_t len;
+    uint32_t flags;
+    uint32_t buf[];
+} REString;
+
+typedef struct {
+    uint32_t n_strings;
+    uint32_t hash_size;
+    int hash_bits;
+    REString **hash_table;
+} REStringList;
+
+static uint32_t re_string_hash(int len, const uint32_t *buf)
+{
+    int i;
+    uint32_t h;
+    h = 1;
+    for(i = 0; i < len; i++)
+        h = h * 263 + buf[i];
+    return h * 0x61C88647;
+}
+
+static void re_string_list_init(REStringList *s)
+{
+    s->n_strings = 0;
+    s->hash_size = 0;
+    s->hash_bits = 0;
+    s->hash_table = NULL;
+}
+
+static  __maybe_unused void re_string_list_free(REStringList *s)
+{
+    REString *p, *p_next;
+    int i;
+    for(i = 0; i < s->hash_size; i++) {
+        for(p = s->hash_table[i]; p != NULL; p = p_next) {
+            p_next = p->next;
+            free(p);
+        }
+    }
+    free(s->hash_table);
+}
+
+static void lre_print_char(int c, BOOL is_range)
+{
+    if (c == '\'' || c == '\\' ||
+        (is_range && (c == '-' || c == ']'))) {
+        printf("\\%c", c);
+    } else if (c >= ' ' && c <= 126) {
+        printf("%c", c);
+    } else {
+        printf("\\u{%04x}", c);
+    }
+}
+
+static __maybe_unused void re_string_list_dump(const char *str, const REStringList *s)
+{
+    REString *p;
+    int i, j, k;
+
+    printf("%s:\n", str);
+    
+    j = 0;
+    for(i = 0; i < s->hash_size; i++) {
+        for(p = s->hash_table[i]; p != NULL; p = p->next) {
+            printf("  %d/%d: '", j, s->n_strings);
+            for(k = 0; k < p->len; k++) {
+                lre_print_char(p->buf[k], FALSE);
+            }
+            printf("'\n");
+            j++;
+        }
+    }
+}
+
+static REString *re_string_find2(REStringList *s, int len, const uint32_t *buf,
+                                 uint32_t h0, BOOL add_flag)
+{
+    uint32_t h = 0; /* avoid warning */
+    REString *p;
+    if (s->n_strings != 0) {
+        h = h0 >> (32 - s->hash_bits);
+        for(p = s->hash_table[h]; p != NULL; p = p->next) {
+            if (p->hash == h0 && p->len == len &&
+                !memcmp(p->buf, buf, len * sizeof(buf[0]))) {
+                return p;
+            }
+        }
+    }
+    /* not found */
+    if (!add_flag)
+        return NULL;
+    /* increase the size of the hash table if needed */
+    if (unlikely((s->n_strings + 1) > s->hash_size)) {
+        REString **new_hash_table, *p_next;
+        int new_hash_bits, i;
+        uint32_t new_hash_size;
+        new_hash_bits = max_int(s->hash_bits + 1, 4);
+        new_hash_size = 1 << new_hash_bits;
+        new_hash_table = malloc(sizeof(new_hash_table[0]) * new_hash_size);
+        if (!new_hash_table)
+            return NULL;
+        memset(new_hash_table, 0, sizeof(new_hash_table[0]) * new_hash_size);
+        for(i = 0; i < s->hash_size; i++) {
+            for(p = s->hash_table[i]; p != NULL; p = p_next) {
+                p_next = p->next;
+                h = p->hash >> (32 - new_hash_bits);
+                p->next = new_hash_table[h];
+                new_hash_table[h] = p;
+            }
+        }
+        free(s->hash_table);
+        s->hash_bits = new_hash_bits;
+        s->hash_size = new_hash_size;
+        s->hash_table = new_hash_table;
+        h = h0 >> (32 - s->hash_bits);
+    }
+
+    p = malloc(sizeof(REString) + len * sizeof(buf[0]));
+    if (!p)
+        return NULL;
+    p->next = s->hash_table[h];
+    s->hash_table[h] = p;
+    s->n_strings++;
+    p->hash = h0;
+    p->len = len;
+    p->flags = 0;
+    memcpy(p->buf, buf, sizeof(buf[0]) * len);
+    return p;
+}
+
+static REString *re_string_find(REStringList *s, int len, const uint32_t *buf,
+                                BOOL add_flag)
+{
+    uint32_t h0;
+    h0 = re_string_hash(len, buf);
+    return re_string_find2(s, len, buf, h0, add_flag);
+}
+
+static void re_string_add(REStringList *s, int len, const uint32_t *buf)
+{
+    re_string_find(s, len, buf, TRUE);
+}
+
 #define UNICODE_GENERAL_CATEGORY
 
 typedef enum {
@@ -225,6 +372,23 @@ static const char *unicode_prop_short_name[] = {
 
 #undef UNICODE_PROP_LIST
 
+#define UNICODE_SEQUENCE_PROP_LIST
+
+typedef enum {
+#define DEF(id) SEQUENCE_PROP_ ## id,
+#include "unicode_gen_def.h"
+#undef DEF
+    SEQUENCE_PROP_COUNT,
+} UnicodeSequencePropEnum1;
+
+static const char *unicode_sequence_prop_name[] = {
+#define DEF(id) #id,
+#include "unicode_gen_def.h"
+#undef DEF
+};
+
+#undef UNICODE_SEQUENCE_PROP_LIST
+
 typedef struct {
     /* case conv */
     uint8_t u_len;
@@ -247,7 +411,15 @@ typedef struct {
     int *decomp_data;
 } CCInfo;
 
+typedef struct {
+    int count;
+    int size;
+    int *tab;
+} UnicodeSequenceProperties;
+
 CCInfo *unicode_db;
+REStringList rgi_emoji_zwj_sequence;
+DynBuf rgi_emoji_tag_sequence;
 
 int find_name(const char **tab, int tab_len, const char *name)
 {
@@ -746,6 +918,147 @@ void parse_prop_list(const char *filename)
             for(c = c0; c <= c1; c++) {
                 set_prop(c, i, 1);
             }
+        }
+    }
+    fclose(f);
+}
+
+#define SEQ_MAX_LEN 16
+
+static BOOL is_emoji_modifier(uint32_t c)
+{
+    return (c >= 0x1f3fb && c <= 0x1f3ff);
+}
+
+static void add_sequence_prop(int idx, int seq_len, int *seq)
+{
+    int i;
+    
+    assert(idx < SEQUENCE_PROP_COUNT);
+    switch(idx) {
+    case SEQUENCE_PROP_Basic_Emoji:
+        /* convert to 2 properties lists */
+        if (seq_len == 1) {
+            set_prop(seq[0], PROP_Basic_Emoji1, 1);
+        } else if (seq_len == 2 && seq[1] == 0xfe0f) {
+            set_prop(seq[0], PROP_Basic_Emoji2, 1);
+        } else {
+            abort();
+        }
+        break;
+    case SEQUENCE_PROP_RGI_Emoji_Modifier_Sequence:
+        assert(seq_len == 2);
+        assert(is_emoji_modifier(seq[1]));
+        assert(get_prop(seq[0], PROP_Emoji_Modifier_Base));
+        set_prop(seq[0], PROP_RGI_Emoji_Modifier_Sequence, 1);
+        break;
+    case SEQUENCE_PROP_RGI_Emoji_Flag_Sequence:
+        {
+            int code;
+            assert(seq_len == 2);
+            assert(seq[0] >= 0x1F1E6 && seq[0] <= 0x1F1FF);
+            assert(seq[1] >= 0x1F1E6 && seq[1] <= 0x1F1FF);
+            code = (seq[0] - 0x1F1E6) * 26 + (seq[1] - 0x1F1E6);
+            /* XXX: would be more compact with a simple bitmap -> 676 bits */
+            set_prop(code, PROP_RGI_Emoji_Flag_Sequence, 1);
+        }
+        break;
+    case SEQUENCE_PROP_RGI_Emoji_ZWJ_Sequence:
+        re_string_add(&rgi_emoji_zwj_sequence, seq_len, (uint32_t *)seq);
+        break;
+    case SEQUENCE_PROP_RGI_Emoji_Tag_Sequence:
+        {
+            assert(seq_len >= 3);
+            assert(seq[0] == 0x1F3F4);
+            assert(seq[seq_len - 1] == 0xE007F);
+            for(i = 1; i < seq_len - 1; i++) {
+                assert(seq[i] >= 0xe0001 && seq[i] <= 0xe007e);
+                dbuf_putc(&rgi_emoji_tag_sequence, seq[i] - 0xe0000);
+            }
+            dbuf_putc(&rgi_emoji_tag_sequence, 0);
+        }
+        break;
+    case SEQUENCE_PROP_Emoji_Keycap_Sequence:
+        assert(seq_len == 3);
+        assert(seq[1] == 0xfe0f);
+        assert(seq[2] == 0x20e3);
+        set_prop(seq[0], PROP_Emoji_Keycap_Sequence, 1);
+        break;
+    default:
+        assert(0);
+    }
+}
+
+void parse_sequence_prop_list(const char *filename)
+{
+    FILE *f;
+    char line[4096], *p, buf[256], *q, *p_start;
+    uint32_t c0, c1, c;
+    int idx, seq_len;
+    int seq[SEQ_MAX_LEN];
+    
+    f = fopen(filename, "rb");
+    if (!f) {
+        perror(filename);
+        exit(1);
+    }
+
+    for(;;) {
+        if (!get_line(line, sizeof(line), f))
+            break;
+        p = line;
+        while (isspace(*p))
+            p++;
+        if (*p == '#' || *p == '@' || *p == '\0')
+            continue;
+        p_start = p;
+
+        /* find the sequence property name */
+        p = strchr(p, ';');
+        if (!p)
+            continue;
+        p++;
+        p += strspn(p, " \t");
+        q = buf;
+        while (*p != '\0' && *p != ' ' && *p != '#' && *p != '\t' && *p != ';') {
+            if ((q - buf) < sizeof(buf) - 1)
+                *q++ = *p;
+            p++;
+        }
+        *q = '\0';
+        idx = find_name(unicode_sequence_prop_name,
+                      countof(unicode_sequence_prop_name), buf);
+        if (idx < 0) {
+            fprintf(stderr, "Property not found: %s\n", buf);
+            exit(1);
+        }
+        
+        p = p_start;
+        c0 = strtoul(p, (char **)&p, 16);
+        assert(c0 <= CHARCODE_MAX);
+        
+        if (*p == '.' && p[1] == '.') {
+            p += 2;
+            c1 = strtoul(p, (char **)&p, 16);
+            assert(c1 <= CHARCODE_MAX);
+            for(c = c0; c <= c1; c++) {
+                seq[0] = c;
+                add_sequence_prop(idx, 1, seq);
+            }
+        } else {
+            seq_len = 0;
+            seq[seq_len++] = c0;
+            for(;;) {
+                while (isspace(*p))
+                    p++;
+                if (*p == ';' || *p == '\0')
+                    break;
+                c0 = strtoul(p, (char **)&p, 16);
+                assert(c0 <= CHARCODE_MAX);
+                assert(seq_len < countof(seq));
+                seq[seq_len++] = c0;
+            }
+            add_sequence_prop(idx, seq_len, seq);
         }
     }
     fclose(f);
@@ -1654,7 +1967,7 @@ void dump_name_table(FILE *f, const char *cname, const char **tab_name, int len,
     maxw = 0;
     for(i = 0; i < len; i++) {
         w = strlen(tab_name[i]);
-        if (tab_short_name[i][0] != '\0') {
+        if (tab_short_name && tab_short_name[i][0] != '\0') {
             w += 1 + strlen(tab_short_name[i]);
         }
         if (maxw < w)
@@ -1666,7 +1979,7 @@ void dump_name_table(FILE *f, const char *cname, const char **tab_name, int len,
     for(i = 0; i < len; i++) {
         fprintf(f, "    \"");
         w = fprintf(f, "%s", tab_name[i]);
-        if (tab_short_name[i][0] != '\0') {
+        if (tab_short_name && tab_short_name[i][0] != '\0') {
             w += fprintf(f, ",%s", tab_short_name[i]);
         }
         fprintf(f, "\"%*s\"\\0\"\n", 1 + maxw - w, "");
@@ -1928,6 +2241,218 @@ void build_prop_list_table(FILE *f)
         fprintf(f, "    countof(unicode_prop_%s_table),\n", unicode_prop_name[i]);
     }
     fprintf(f, "};\n\n");
+}
+
+static BOOL is_emoji_hair_color(uint32_t c)
+{
+    return (c >= 0x1F9B0 && c <= 0x1F9B3);
+}
+
+#define EMOJI_MOD_NONE   0
+#define EMOJI_MOD_TYPE1  1
+#define EMOJI_MOD_TYPE2  2
+#define EMOJI_MOD_TYPE2D 3
+
+static BOOL mark_zwj_string(REStringList *sl, uint32_t *buf, int len, int mod_type, int *mod_pos,
+                            int hc_pos, BOOL mark_flag)
+{
+    REString *p;
+    int i, n_mod, i0, i1, hc_count, j;
+
+#if 0
+    if (mark_flag)
+        printf("mod_type=%d\n", mod_type);
+#endif
+    
+    switch(mod_type) {
+    case EMOJI_MOD_NONE:
+        n_mod = 1;
+        break;
+    case EMOJI_MOD_TYPE1:
+        n_mod = 5;
+        break;
+    case EMOJI_MOD_TYPE2:
+        n_mod = 25;
+        break;
+    case EMOJI_MOD_TYPE2D:
+        n_mod = 20;
+        break;
+    default:
+        assert(0);
+    }
+    if (hc_pos >= 0)
+        hc_count = 4;
+    else
+        hc_count = 1;
+    /* check that all the related strings are present */
+    for(j = 0; j < hc_count; j++) {
+        for(i = 0; i < n_mod; i++) {
+            switch(mod_type) {
+            case EMOJI_MOD_NONE:
+                break;
+            case EMOJI_MOD_TYPE1:
+                buf[mod_pos[0]] = 0x1f3fb + i;
+                break;
+            case EMOJI_MOD_TYPE2:
+            case EMOJI_MOD_TYPE2D:
+                i0 = i / 5;
+                i1 = i % 5;
+                /* avoid identical values */
+                if (mod_type == EMOJI_MOD_TYPE2D && i0 >= i1)
+                    i0++;
+                buf[mod_pos[0]] = 0x1f3fb + i0;
+                buf[mod_pos[1]] = 0x1f3fb + i1;
+                break;
+            default:
+                assert(0);
+            }
+
+            if (hc_pos >= 0)
+                buf[hc_pos] = 0x1F9B0 + j;
+            
+            p = re_string_find(sl, len, buf, FALSE);
+            if (!p)
+                return FALSE;
+            if (mark_flag)
+                p->flags |= 1;
+        }
+    }
+    return TRUE;
+}
+
+static void zwj_encode_string(DynBuf *dbuf, const uint32_t *buf, int len, int mod_type, int *mod_pos,
+                              int hc_pos)
+{
+    int i, j;
+    int c, code;
+    uint32_t buf1[SEQ_MAX_LEN];
+    
+    j = 0;
+    for(i = 0; i < len;) {
+        c = buf[i++];
+        if (c >= 0x2000 && c <= 0x2fff) {
+            code = c - 0x2000;
+        } else if (c >= 0x1f000 && c <= 0x1ffff) {
+            code = c - 0x1f000 + 0x1000;
+        } else {
+            assert(0);
+        }
+        if (i < len && is_emoji_modifier(buf[i])) {
+            /* modifier */
+            code |= (mod_type << 13);
+            i++;
+        }
+        if (i < len && buf[i] == 0xfe0f) {
+            /* presentation selector present */
+            code |= 0x8000;
+            i++;
+        }
+        if (i < len) {
+            /* zero width join */
+            assert(buf[i] == 0x200d);
+            i++;
+        }
+        buf1[j++] = code;
+    }
+    dbuf_putc(dbuf, j);
+    for(i = 0; i < j; i++) {
+        dbuf_putc(dbuf, buf1[i]);
+        dbuf_putc(dbuf, buf1[i] >> 8);
+    }
+}
+
+static void build_rgi_emoji_zwj_sequence(FILE *f, REStringList *sl)
+{
+    int mod_pos[2], mod_count, hair_color_pos, j, h;
+    REString *p;
+    uint32_t buf[SEQ_MAX_LEN];
+    DynBuf dbuf;
+
+#if 0
+    {
+        for(h = 0; h < sl->hash_size; h++) {
+            for(p = sl->hash_table[h]; p != NULL; p = p->next) {
+                for(j = 0; j < p->len; j++)
+                    printf(" %04x", p->buf[j]);
+                printf("\n");
+            }
+        }
+        exit(0);
+    }
+#endif
+    //    printf("rgi_emoji_zwj_sequence: n=%d\n", sl->n_strings);
+
+    dbuf_init(&dbuf);
+    
+    /* avoid duplicating strings with emoji modifiers or hair colors */
+    for(h = 0; h < sl->hash_size; h++) {
+        for(p = sl->hash_table[h]; p != NULL; p = p->next) {
+            if (p->flags) /* already examined */
+                continue;
+            mod_count = 0;
+            hair_color_pos = -1;
+            for(j = 0; j < p->len; j++) {
+                if (is_emoji_modifier(p->buf[j])) {
+                    assert(mod_count < 2);
+                    mod_pos[mod_count++] = j;
+                } else if (is_emoji_hair_color(p->buf[j])) {
+                    hair_color_pos = j;
+                }
+                buf[j] = p->buf[j];
+            }
+            
+            if (mod_count != 0 || hair_color_pos >= 0) {
+                int mod_type;
+                if (mod_count == 0)
+                    mod_type = EMOJI_MOD_NONE;
+                else if (mod_count == 1)
+                    mod_type = EMOJI_MOD_TYPE1;
+                else
+                    mod_type = EMOJI_MOD_TYPE2;
+                
+                if (mark_zwj_string(sl, buf, p->len, mod_type, mod_pos, hair_color_pos, FALSE)) {
+                    mark_zwj_string(sl, buf, p->len, mod_type, mod_pos, hair_color_pos, TRUE);
+                } else if (mod_type == EMOJI_MOD_TYPE2) {
+                    mod_type = EMOJI_MOD_TYPE2D;
+                    if (mark_zwj_string(sl, buf, p->len, mod_type, mod_pos, hair_color_pos, FALSE)) {
+                        mark_zwj_string(sl, buf, p->len, mod_type, mod_pos, hair_color_pos, TRUE);
+                    } else {
+                        dump_str("not_found", (int *)p->buf, p->len);
+                        goto keep;
+                    }
+                }
+                if (hair_color_pos >= 0)
+                    buf[hair_color_pos] = 0x1f9b0;
+                /* encode the string */
+                zwj_encode_string(&dbuf, buf, p->len, mod_type, mod_pos, hair_color_pos);
+            } else {
+            keep:
+                zwj_encode_string(&dbuf, buf, p->len, EMOJI_MOD_NONE, NULL, -1);
+            }
+        }
+    }
+    
+    /* Encode */
+    dump_byte_table(f, "unicode_rgi_emoji_zwj_sequence", dbuf.buf, dbuf.size);
+
+    dbuf_free(&dbuf);
+}
+
+void build_sequence_prop_list_table(FILE *f)
+{
+    int i;
+    fprintf(f, "typedef enum {\n");
+    for(i = 0; i < SEQUENCE_PROP_COUNT; i++)
+        fprintf(f, "    UNICODE_SEQUENCE_PROP_%s,\n", unicode_sequence_prop_name[i]);
+    fprintf(f, "    UNICODE_SEQUENCE_PROP_COUNT,\n");
+    fprintf(f, "} UnicodeSequencePropertyEnum;\n\n");
+
+    dump_name_table(f, "unicode_sequence_prop_name_table",
+                    unicode_sequence_prop_name, SEQUENCE_PROP_COUNT, NULL);
+
+    dump_byte_table(f, "unicode_rgi_emoji_tag_sequence", rgi_emoji_tag_sequence.buf, rgi_emoji_tag_sequence.size);
+
+    build_rgi_emoji_zwj_sequence(f, &rgi_emoji_zwj_sequence);
 }
 
 #ifdef USE_TEST
@@ -3156,6 +3681,8 @@ int main(int argc, char *argv[])
         outfilename = argv[arg++];
 
     unicode_db = mallocz(sizeof(unicode_db[0]) * (CHARCODE_MAX + 1));
+    re_string_list_init(&rgi_emoji_zwj_sequence);
+    dbuf_init(&rgi_emoji_tag_sequence);
 
     snprintf(filename, sizeof(filename), "%s/UnicodeData.txt", unicode_db_path);
 
@@ -3189,6 +3716,14 @@ int main(int argc, char *argv[])
     snprintf(filename, sizeof(filename), "%s/emoji-data.txt",
              unicode_db_path);
     parse_prop_list(filename);
+
+    snprintf(filename, sizeof(filename), "%s/emoji-sequences.txt",
+             unicode_db_path);
+    parse_sequence_prop_list(filename);
+
+    snprintf(filename, sizeof(filename), "%s/emoji-zwj-sequences.txt",
+             unicode_db_path);
+    parse_sequence_prop_list(filename);
 
     //    dump_unicode_data(unicode_db);
     build_conv_table(unicode_db);
@@ -3234,10 +3769,12 @@ int main(int argc, char *argv[])
         build_script_table(fo);
         build_script_ext_table(fo);
         build_prop_list_table(fo);
+        build_sequence_prop_list_table(fo);
         fprintf(fo, "#endif /* CONFIG_ALL_UNICODE */\n");
         fprintf(fo, "/* %u tables / %u bytes, %u index / %u bytes */\n",
                 total_tables, total_table_bytes, total_index, total_index_bytes);
         fclose(fo);
     }
+    re_string_list_free(&rgi_emoji_zwj_sequence);
     return 0;
 }

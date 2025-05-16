@@ -499,6 +499,9 @@ int cr_op(CharRange *cr, const uint32_t *a_pt, int a_len,
         case CR_OP_XOR:
             is_in = (a_idx & 1) ^ (b_idx & 1);
             break;
+        case CR_OP_SUB:
+            is_in = (a_idx & 1) & ((b_idx & 1) ^ 1);
+            break;
         default:
             abort();
         }
@@ -511,14 +514,14 @@ int cr_op(CharRange *cr, const uint32_t *a_pt, int a_len,
     return 0;
 }
 
-int cr_union1(CharRange *cr, const uint32_t *b_pt, int b_len)
+int cr_op1(CharRange *cr, const uint32_t *b_pt, int b_len, int op)
 {
     CharRange a = *cr;
     int ret;
     cr->len = 0;
     cr->size = 0;
     cr->points = NULL;
-    ret = cr_op(cr, a.points, a.len, b_pt, b_len, CR_OP_UNION);
+    ret = cr_op(cr, a.points, a.len, b_pt, b_len, op);
     cr_free(&a);
     return ret;
 }
@@ -1554,6 +1557,7 @@ static int unicode_prop_ops(CharRange *cr, ...)
                 cr2 = &stack[stack_len - 1];
                 cr3 = &stack[stack_len++];
                 cr_init(cr3, cr->mem_opaque, cr->realloc_func);
+                /* CR_OP_XOR may be used here */
                 if (cr_op(cr3, cr1->points, cr1->len,
                           cr2->points, cr2->len, op - POP_UNION + CR_OP_UNION))
                     goto fail;
@@ -1907,4 +1911,211 @@ BOOL lre_is_space_non_ascii(uint32_t c)
             return TRUE;
     }
     return FALSE;
+}
+
+#define SEQ_MAX_LEN 16
+
+static int unicode_sequence_prop1(int seq_prop_idx, UnicodeSequencePropCB *cb, void *opaque,
+                                  CharRange *cr)
+{
+    int i, c, j;
+    uint32_t seq[SEQ_MAX_LEN];
+    
+    switch(seq_prop_idx) {
+    case UNICODE_SEQUENCE_PROP_Basic_Emoji:
+        if (unicode_prop1(cr, UNICODE_PROP_Basic_Emoji1) < 0)
+            return -1;
+        for(i = 0; i < cr->len; i += 2) {
+            for(c = cr->points[i]; c < cr->points[i + 1]; c++) {
+                seq[0] = c;
+                cb(opaque, seq, 1);
+            }
+        }
+
+        cr->len = 0;
+
+        if (unicode_prop1(cr, UNICODE_PROP_Basic_Emoji2) < 0)
+            return -1;
+        for(i = 0; i < cr->len; i += 2) {
+            for(c = cr->points[i]; c < cr->points[i + 1]; c++) {
+                seq[0] = c;
+                seq[1] = 0xfe0f;
+                cb(opaque, seq, 2);
+            }
+        }
+
+        break;
+    case UNICODE_SEQUENCE_PROP_RGI_Emoji_Modifier_Sequence:
+        if (unicode_prop1(cr, UNICODE_PROP_Emoji_Modifier_Base) < 0)
+            return -1;
+        for(i = 0; i < cr->len; i += 2) {
+            for(c = cr->points[i]; c < cr->points[i + 1]; c++) {
+                for(j = 0; j < 5; j++) {
+                    seq[0] = c;
+                    seq[1] = 0x1f3fb + j;
+                    cb(opaque, seq, 2);
+                }
+            }
+        }
+        break;
+    case UNICODE_SEQUENCE_PROP_RGI_Emoji_Flag_Sequence:
+        if (unicode_prop1(cr, UNICODE_PROP_RGI_Emoji_Flag_Sequence) < 0)
+            return -1;
+        for(i = 0; i < cr->len; i += 2) {
+            for(c = cr->points[i]; c < cr->points[i + 1]; c++) {
+                int c0, c1;
+                c0 = c / 26;
+                c1 = c % 26;
+                seq[0] = 0x1F1E6 + c0;
+                seq[1] = 0x1F1E6 + c1;
+                cb(opaque, seq, 2);
+            }
+        }
+        break;
+    case UNICODE_SEQUENCE_PROP_RGI_Emoji_ZWJ_Sequence:
+        {
+            int len, code, pres, k, mod, mod_count, mod_pos[2], hc_pos, n_mod, n_hc, mod1;
+            int mod_idx, hc_idx, i0, i1;
+            const uint8_t *tab = unicode_rgi_emoji_zwj_sequence;
+            
+            for(i = 0; i < countof(unicode_rgi_emoji_zwj_sequence);) {
+                len = tab[i++];
+                k = 0;
+                mod = 0;
+                mod_count = 0;
+                hc_pos = -1;
+                for(j = 0; j < len; j++) {
+                    code = tab[i++];
+                    code |= tab[i++] << 8;
+                    pres = code >> 15;
+                    mod1 = (code >> 13) & 3;
+                    code &= 0x1fff;
+                    if (code < 0x1000) {
+                        c = code + 0x2000;
+                    } else {
+                        c = 0x1f000 + (code - 0x1000);
+                    }
+                    if (c == 0x1f9b0)
+                        hc_pos = k;
+                    seq[k++] = c;
+                    if (mod1 != 0) {
+                        assert(mod_count < 2);
+                        mod = mod1;
+                        mod_pos[mod_count++] = k;
+                        seq[k++] = 0; /* will be filled later */
+                    }
+                    if (pres) {
+                        seq[k++] = 0xfe0f;
+                    }
+                    if (j < len - 1) {
+                        seq[k++] = 0x200d;
+                    }
+                }
+
+                /* genrate all the variants */
+                switch(mod) {
+                case 1:
+                    n_mod = 5;
+                    break;
+                case 2:
+                    n_mod = 25;
+                    break;
+                case 3:
+                    n_mod = 20;
+                    break;
+                default:
+                    n_mod = 1;
+                    break;
+                }
+                if (hc_pos >= 0)
+                    n_hc = 4;
+                else
+                    n_hc = 1;
+                for(hc_idx = 0; hc_idx < n_hc; hc_idx++) {
+                    for(mod_idx = 0; mod_idx < n_mod; mod_idx++) {
+                        if (hc_pos >= 0)
+                            seq[hc_pos] = 0x1f9b0 + hc_idx;
+                        
+                        switch(mod) {
+                        case 1:
+                            seq[mod_pos[0]] = 0x1f3fb + mod_idx;
+                            break;
+                        case 2:
+                        case 3:
+                            i0 = mod_idx / 5;
+                            i1 = mod_idx % 5;
+                            /* avoid identical values */
+                            if (mod == 3 && i0 >= i1)
+                                i0++;
+                            seq[mod_pos[0]] = 0x1f3fb + i0;
+                            seq[mod_pos[1]] = 0x1f3fb + i1;
+                            break;
+                        default:
+                            break;
+                        }
+#if 0
+                        for(j = 0; j < k; j++)
+                            printf(" %04x", seq[j]);
+                        printf("\n");
+#endif                
+                        cb(opaque, seq, k);
+                    }
+                }
+            }
+        }
+        break;
+    case UNICODE_SEQUENCE_PROP_RGI_Emoji_Tag_Sequence:
+        {
+            for(i = 0; i < countof(unicode_rgi_emoji_tag_sequence);) {
+                j = 0;
+                seq[j++] = 0x1F3F4;
+                for(;;) {
+                    c = unicode_rgi_emoji_tag_sequence[i++];
+                    if (c == 0x00)
+                        break;
+                    seq[j++] = 0xe0000 + c;
+                }
+                seq[j++] = 0xe007f;
+                cb(opaque, seq, j);
+            }
+        }
+        break;
+    case UNICODE_SEQUENCE_PROP_Emoji_Keycap_Sequence:
+        if (unicode_prop1(cr, UNICODE_PROP_Emoji_Keycap_Sequence) < 0)
+            return -1;
+        for(i = 0; i < cr->len; i += 2) {
+            for(c = cr->points[i]; c < cr->points[i + 1]; c++) {
+                seq[0] = c;
+                seq[1] = 0xfe0f;
+                seq[2] = 0x20e3;
+                cb(opaque, seq, 3);
+            }
+        }
+        break;
+    case UNICODE_SEQUENCE_PROP_RGI_Emoji:
+        /* all prevous sequences */
+        for(i = UNICODE_SEQUENCE_PROP_Basic_Emoji; i <= UNICODE_SEQUENCE_PROP_RGI_Emoji_ZWJ_Sequence; i++) {
+            int ret;
+            ret = unicode_sequence_prop1(i, cb, opaque, cr);
+            if (ret < 0)
+                return ret;
+            cr->len = 0;
+        }
+        break;
+    default:
+        return -2;
+    }
+    return 0;
+}
+
+/* build a unicode sequence property */
+/* return -2 if not found, -1 if other error. 'cr' is used as temporary memory. */
+int unicode_sequence_prop(const char *prop_name, UnicodeSequencePropCB *cb, void *opaque,
+                          CharRange *cr)
+{
+    int seq_prop_idx;
+    seq_prop_idx = unicode_find_name(unicode_sequence_prop_name_table, prop_name);
+    if (seq_prop_idx < 0)
+        return -2;
+    return unicode_sequence_prop1(seq_prop_idx, cb, opaque, cr);
 }

@@ -751,6 +751,34 @@ function test_regexp()
     assert(a, ["123a23", "3"]);
     a = /()*?a/.exec(",");
     assert(a, null);
+
+    /* test \b escape */
+    assert(/[\q{a\b}]/.test("a\b"), true);
+    assert(/[\b]/.test("\b"), true);
+    
+    /* test case insensitive matching (test262 hardly tests it) */
+    assert("aAbBcC#4".replace(/\p{Lower}/gu,"X"), "XAXBXC#4");
+
+    assert("aAbBcC#4".replace(/\p{Lower}/gui,"X"), "XXXXXX#4");
+    assert("aAbBcC#4".replace(/\p{Upper}/gui,"X"), "XXXXXX#4");
+    assert("aAbBcC#4".replace(/\P{Lower}/gui,"X"), "XXXXXXXX");
+    assert("aAbBcC#4".replace(/\P{Upper}/gui,"X"), "XXXXXXXX");
+    assert("aAbBcC".replace(/[^b]/gui, "X"), "XXbBXX");
+    assert("aAbBcC".replace(/[^A-B]/gui, "X"), "aAbBXX");
+
+    assert("aAbBcC#4".replace(/\p{Lower}/gvi,"X"), "XXXXXX#4");
+    assert("aAbBcC#4".replace(/\P{Lower}/gvi,"X"), "aAbBcCXX");
+    assert("aAbBcC#4".replace(/[^\P{Lower}]/gvi,"X"), "XXXXXX#4");
+    assert("aAbBcC#4".replace(/\P{Upper}/gvi,"X"), "aAbBcCXX");
+    assert("aAbBcC".replace(/[^b]/gvi, "X"), "XXbBXX");
+    assert("aAbBcC".replace(/[^A-B]/gvi, "X"), "aAbBXX");
+    assert("aAbBcC".replace(/[[a-c]&&B]/gvi, "X"), "aAXXcC");
+    assert("aAbBcC".replace(/[[a-c]--B]/gvi, "X"), "XXbBXX");
+    
+    assert("abcAbC".replace(/[\q{AbC}]/gvi,"X"), "XX");
+    /* Note: SpiderMonkey and v8 may not be correct */
+    assert("abcAbC".replace(/[\q{BC|A}]/gvi,"X"), "XXXX");
+    assert("abcAbC".replace(/[\q{BC|A}--a]/gvi,"X"), "aXAX");
 }
 
 function test_symbol()
