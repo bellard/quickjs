@@ -46688,7 +46688,7 @@ static JSValue js_proxy_get_prototype(JSContext *ctx, JSValueConst obj)
             JS_FreeValue(ctx, ret);
             return JS_EXCEPTION;
         }
-        if (JS_VALUE_GET_OBJ(proto1) != JS_VALUE_GET_OBJ(ret)) {
+        if (!js_same_value(ctx, proto1, ret)) {
             JS_FreeValue(ctx, proto1);
         fail:
             JS_FreeValue(ctx, ret);
@@ -46728,7 +46728,7 @@ static int js_proxy_set_prototype(JSContext *ctx, JSValueConst obj,
         proto1 = JS_GetPrototype(ctx, s->target);
         if (JS_IsException(proto1))
             return -1;
-        if (JS_VALUE_GET_OBJ(proto_val) != JS_VALUE_GET_OBJ(proto1)) {
+        if (!js_same_value(ctx, proto_val, proto1)) {
             JS_FreeValue(ctx, proto1);
             JS_ThrowTypeError(ctx, "proxy: inconsistent prototype");
             return -1;
