@@ -134,7 +134,7 @@ function test_ext_json()
                "y":true,  // also a comment
                z2:null, // unquoted property names
                "a":[+1,0o10,0xa0,], // plus prefix, octal, hexadecimal
-               "s":"str",} // trailing comma in objects and arrays
+               "s":'str',} // trailing comma in objects and arrays, single quoted string
             `;
     obj = std.parseExtJSON(input);
     assert(JSON.stringify(obj), expected);

@@ -596,7 +596,7 @@ function test_json()
  ]
 ]`);
 
-    assert_json_error('\n"  @\\x"');
+    assert_json_error('\n"  \\@x"');
     assert_json_error('\n{ "a": @x }"');
 }
 

@@ -12127,7 +12127,7 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
     case ATOD_TYPE_FLOAT64:
         {
             double d;
-            d = js_atod(buf,NULL,  radix, is_float ? 0 : JS_ATOD_INT_ONLY,
+            d = js_atod(buf, NULL, radix, is_float ? 0 : JS_ATOD_INT_ONLY,
                         &atod_mem);
             /* return int or float64 */
             val = JS_NewFloat64(ctx, d);
@@ -21031,11 +21031,6 @@ static __exception int js_parse_string(JSParseState *s, int sep,
             goto invalid_char;
         c = *p;
         if (c < 0x20) {
-            if (!s->cur_func) {
-                if (do_throw)
-                    js_parse_error_pos(s, p, "invalid character in a JSON string");
-                goto fail;
-            }
             if (sep == '`') {
                 if (c == '\r') {
                     if (p[1] == '\n')
@@ -21081,8 +21076,6 @@ static __exception int js_parse_string(JSParseState *s, int sep,
                 continue;
             default:
                 if (c >= '0' && c <= '9') {
-                    if (!s->cur_func)
-                        goto invalid_escape; /* JSON case */
                     if (!(s->cur_func->js_mode & JS_MODE_STRICT) && sep != '`')
                         goto parse_escape;
                     if (c == '0' && !(p[1] >= '0' && p[1] <= '9')) {
@@ -21851,6 +21844,150 @@ static JSAtom json_parse_ident(JSParseState *s, const uint8_t **pp, int c)
     return atom;
 }
 
+static int json_parse_string(JSParseState *s, const uint8_t **pp, int sep)
+{
+    const uint8_t *p, *p_next;
+    int i;
+    uint32_t c;
+    StringBuffer b_s, *b = &b_s;
+
+    if (string_buffer_init(s->ctx, b, 32))
+        goto fail;
+
+    p = *pp;
+    for(;;) {
+        if (p >= s->buf_end) {
+            goto end_of_input;
+        }
+        c = *p++;
+        if (c == sep)
+            break;
+        if (c < 0x20) {
+            js_parse_error_pos(s, p - 1, "Bad control character in string literal");
+            goto fail;
+        }
+        if (c == '\\') {
+            c = *p++;
+            switch(c) {
+            case 'b':   c = '\b'; break;
+            case 'f':   c = '\f'; break;
+            case 'n':   c = '\n'; break;
+            case 'r':   c = '\r'; break;
+            case 't':   c = '\t'; break;
+            case '\\':  break;
+            case '/':   break; 
+            case 'u':
+                c = 0;
+                for(i = 0; i < 4; i++) {
+                    int h = from_hex(*p++);
+                    if (h < 0) {
+                        js_parse_error_pos(s, p - 1, "Bad Unicode escape");
+                        goto fail;
+                    }
+                    c = (c << 4) | h;
+                }
+                break;
+            default:
+                if (c == sep)
+                    break;
+                if (p > s->buf_end)
+                    goto end_of_input;
+                js_parse_error_pos(s, p - 1, "Bad escaped character");
+                goto fail;
+            }
+        } else
+        if (c >= 0x80) {
+            c = unicode_from_utf8(p - 1, UTF8_CHAR_LEN_MAX, &p_next);
+            if (c > 0x10FFFF) {
+                js_parse_error_pos(s, p - 1, "Bad UTF-8 sequence");
+                goto fail;
+            }
+            p = p_next;
+        }
+        if (string_buffer_putc(b, c))
+            goto fail;
+    }
+    s->token.val = TOK_STRING;
+    s->token.u.str.sep = sep;
+    s->token.u.str.str = string_buffer_end(b);
+    *pp = p;
+    return 0;
+
+ end_of_input:
+    js_parse_error(s, "Unexpected end of JSON input");
+ fail:
+    string_buffer_free(b);
+    return -1;
+}
+
+static int json_parse_number(JSParseState *s, const uint8_t **pp)
+{
+    const uint8_t *p = *pp;
+    const uint8_t *p_start = p;
+    int radix;
+    double d;
+    JSATODTempMem atod_mem;
+    
+    if (*p == '+' || *p == '-')
+        p++;
+
+    if (!is_digit(*p))
+        return js_parse_error_pos(s, p, "Unexpected token '%c'", *p_start);
+
+    if (p[0] == '0') {
+        if (s->ext_json) {
+            /* also accepts base 16, 8 and 2 prefix for integers */
+            radix = 10;
+            if (p[1] == 'x' || p[1] == 'X') {
+                p += 2;
+                radix = 16;
+            } else if ((p[1] == 'o' || p[1] == 'O')) {
+                p += 2;
+                radix = 8;
+            } else if ((p[1] == 'b' || p[1] == 'B')) {
+                p += 2;
+                radix = 2;
+            }
+            if (radix != 10) {
+                /* prefix is present */
+                if (to_digit(*p) >= radix)
+                    return js_parse_error_pos(s, p, "Unexpected token '%c'", *p);
+                d = js_atod((const char *)p_start, (const char **)&p, 0,
+                            JS_ATOD_INT_ONLY | JS_ATOD_ACCEPT_BIN_OCT, &atod_mem);
+                goto done;
+            }
+        }
+        if (is_digit(p[1]))
+            return js_parse_error_pos(s, p, "Unexpected number");
+    }
+
+    while (is_digit(*p))
+        p++;
+
+    if (*p == '.') {
+        p++;
+        if (!is_digit(*p))
+            return js_parse_error_pos(s, p, "Unterminated fractional number");
+        while (is_digit(*p))
+            p++;
+    }
+    if (*p == 'e' || *p == 'E') {
+        p++;
+        if (*p == '+' || *p == '-')
+            p++;
+        if (!is_digit(*p))
+            return js_parse_error_pos(s, p, "Exponent part is missing a number");
+        while (is_digit(*p))
+            p++;
+    }
+    d = js_atod((const char *)p_start, NULL, 10, 0, &atod_mem);
+ done:
+    s->token.val = TOK_NUMBER;
+    s->token.u.num.val = JS_NewFloat64(s->ctx, d);
+    *pp = p;
+    return 0;
+}
+
 static __exception int json_next_token(JSParseState *s)
 {
     const uint8_t *p;
@@ -21882,7 +22019,8 @@ static __exception int json_next_token(JSParseState *s)
         }
         /* fall through */
     case '\"':
-        if (js_parse_string(s, c, TRUE, p + 1, &s->token, &p))
+        p++;
+        if (json_parse_string(s, &p, c))
             goto fail;
         break;
     case '\r':  /* accept DOS and MAC newline sequences */
@@ -21999,23 +22137,8 @@ static __exception int json_next_token(JSParseState *s)
     case '9':
         /* number */
     parse_number:
-        {
-            JSValue ret;
-            int flags, radix;
-            if (!s->ext_json) {
-                flags = 0;
-                radix = 10;
-            } else {
-                flags = ATOD_ACCEPT_BIN_OCT;
-                radix = 0;
-            }
-            ret = js_atof(s->ctx, (const char *)p, (const char **)&p, radix,
-                          flags);
-            if (JS_IsException(ret))
-                goto fail;
-            s->token.val = TOK_NUMBER;
-            s->token.u.num.val = ret;
-        }
+        if (json_parse_number(s, &p))
+            goto fail;
         break;
     default:
         if (c >= 128) {
