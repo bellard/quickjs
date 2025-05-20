@@ -3205,15 +3205,18 @@ static BOOL JS_AtomSymbolHasDescription(JSContext *ctx, JSAtom v)
 }
 
 /* free with JS_FreeCString() */
-const char *JS_AtomToCString(JSContext *ctx, JSAtom atom)
+const char *JS_AtomToCStringLen(JSContext *ctx, size_t *plen, JSAtom atom)
 {
     JSValue str;
     const char *cstr;
 
     str = JS_AtomToString(ctx, atom);
-    if (JS_IsException(str))
+    if (JS_IsException(str)) {
+        if (plen)
+            *plen = 0;
         return NULL;
-    cstr = JS_ToCString(ctx, str);
+    }
+    cstr = JS_ToCStringLen(ctx, plen, str);
     JS_FreeValue(ctx, str);
     return cstr;
 }
