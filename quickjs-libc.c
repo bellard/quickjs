@@ -2938,9 +2938,7 @@ static char **build_envp(JSContext *ctx, JSValueConst obj)
         JS_FreeCString(ctx, str);
     }
  done:
-    for(i = 0; i < len; i++)
-        JS_FreeAtom(ctx, tab[i].atom);
-    js_free(ctx, tab);
+    JS_FreePropertyEnum(ctx, tab, len);
     return envp;
  fail:
     if (envp) {
