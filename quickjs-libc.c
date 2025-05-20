@@ -591,8 +591,72 @@ int js_module_set_import_meta(JSContext *ctx, JSValueConst func_val,
     return 0;
 }
 
+static int json_module_init(JSContext *ctx, JSModuleDef *m)
+{
+    JSValue val;
+    val = JS_GetModulePrivateValue(ctx, m);
+    JS_SetModuleExport(ctx, m, "default", val);
+    return 0;
+}
+
+/* in order to conform with the specification, only the keys should be
+   tested and not the associated values. */
+int js_module_check_attributes(JSContext *ctx, void *opaque,
+                               JSValueConst attributes)
+{
+    JSPropertyEnum *tab;
+    uint32_t i, len;
+    int ret;
+    const char *cstr;
+    size_t cstr_len;
+    
+    if (JS_GetOwnPropertyNames(ctx, &tab, &len, attributes, JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK))
+        return -1;
+    ret = 0;
+    for(i = 0; i < len; i++) {
+        cstr = JS_AtomToCStringLen(ctx, &cstr_len, tab[i].atom);
+        if (!cstr) {
+            ret = -1;
+            break;
+        }
+        if (!(cstr_len == 4 && !memcmp(cstr, "type", cstr_len))) {
+            JS_ThrowTypeError(ctx, "import attribute '%s' is not supported", cstr);
+            ret = -1;
+        }
+        JS_FreeCString(ctx, cstr);
+        if (ret)
+            break;
+    }
+    JS_FreePropertyEnum(ctx, tab, len);
+    return ret;
+}
+
+/* return TRUE if the attributes indicate a JSON module */
+JS_BOOL js_module_test_json(JSContext *ctx, JSValueConst attributes)
+{
+    JSValue str;
+    const char *cstr;
+    size_t len;
+    BOOL res;
+
+    if (JS_IsUndefined(attributes))
+        return FALSE;
+    str = JS_GetPropertyStr(ctx, attributes, "type");
+    if (!JS_IsString(str))
+        return FALSE;
+    cstr = JS_ToCStringLen(ctx, &len, str);
+    JS_FreeValue(ctx, str);
+    if (!cstr)
+        return FALSE;
+    /* XXX: raise an error if unknown type ? */
+    res = (len == 4 && !memcmp(cstr, "json", len));
+    JS_FreeCString(ctx, cstr);
+    return res;
+}
+
 JSModuleDef *js_module_loader(JSContext *ctx,
-                              const char *module_name, void *opaque)
+                              const char *module_name, void *opaque,
+                              JSValueConst attributes)
 {
     JSModuleDef *m;
 
@@ -601,7 +665,6 @@ JSModuleDef *js_module_loader(JSContext *ctx,
     } else {
         size_t buf_len;
         uint8_t *buf;
-        JSValue func_val;
 
         buf = js_load_file(ctx, &buf_len, module_name);
         if (!buf) {
@@ -609,18 +672,37 @@ JSModuleDef *js_module_loader(JSContext *ctx,
                                    module_name);
             return NULL;
         }
-
-        /* compile the module */
-        func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
-                           JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-        js_free(ctx, buf);
-        if (JS_IsException(func_val))
-            return NULL;
-        /* XXX: could propagate the exception */
-        js_module_set_import_meta(ctx, func_val, TRUE, FALSE);
-        /* the module is already referenced, so we must free it */
-        m = JS_VALUE_GET_PTR(func_val);
-        JS_FreeValue(ctx, func_val);
+        
+        if (has_suffix(module_name, ".json") ||
+            js_module_test_json(ctx, attributes)) {
+            /* compile as JSON */
+            JSValue val;
+            val = JS_ParseJSON(ctx, (char *)buf, buf_len, module_name);
+            js_free(ctx, buf);
+            if (JS_IsException(val))
+                return NULL;
+            m = JS_NewCModule(ctx, module_name, json_module_init);
+            if (!m) {
+                JS_FreeValue(ctx, val);
+                return NULL;
+            }
+            /* only export the "default" symbol which will contain the JSON object */
+            JS_AddModuleExport(ctx, m, "default");
+            JS_SetModulePrivateValue(ctx, m, val);
+        } else {
+            JSValue func_val;
+            /* compile the module */
+            func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
+                               JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+            js_free(ctx, buf);
+            if (JS_IsException(func_val))
+                return NULL;
+            /* XXX: could propagate the exception */
+            js_module_set_import_meta(ctx, func_val, TRUE, FALSE);
+            /* the module is already referenced, so we must free it */
+            m = JS_VALUE_GET_PTR(func_val);
+            JS_FreeValue(ctx, func_val);
+        }
     }
     return m;
 }
@@ -3478,7 +3560,7 @@ static void *worker_func(void *opaque)
     JS_SetStripInfo(rt, args->strip_flags);
     js_std_init_handlers(rt);
 
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
+    JS_SetModuleLoaderFunc2(rt, NULL, js_module_loader, js_module_check_attributes, NULL);
 
     /* set the pipe to communicate with the parent */
     ts = JS_GetRuntimeOpaque(rt);

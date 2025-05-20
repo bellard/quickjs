@@ -788,7 +788,7 @@ int main(int argc, char **argv)
 
         /* add the module loader if necessary */
         if (feature_bitmap & (1 << FE_MODULE_LOADER)) {
-            fprintf(fo, "  JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);\n");
+            fprintf(fo, "  JS_SetModuleLoaderFunc2(rt, NULL, js_module_loader, js_module_check_attributes, NULL);\n");
         }
 
         fprintf(fo,
