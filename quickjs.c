@@ -3795,6 +3795,20 @@ static JSValue string_buffer_end(StringBuffer *s)
     return JS_MKPTR(JS_TAG_STRING, str);
 }
 
+JSValue JS_NewStringWLen(JSContext *ctx, size_t buf_len)
+{
+    JSString *str;
+    if (buf_len <= 0) {
+        return JS_AtomToString(ctx, JS_ATOM_empty_string);
+    }
+    str = js_alloc_string_rt(ctx->rt, buf_len, 0);
+    if (unlikely(!str)){
+        JS_ThrowOutOfMemory(ctx);
+        return JS_EXCEPTION;
+    }
+    memset(str->u.str8, 0, buf_len+1);
+    return JS_MKPTR(JS_TAG_STRING, str);
+}
 /* create a string from a UTF-8 buffer */
 JSValue JS_NewStringLen(JSContext *ctx, const char *buf, size_t buf_len)
 {
@@ -3892,6 +3906,18 @@ JSValue JS_NewAtomString(JSContext *ctx, const char *str)
     JSValue val = JS_AtomToString(ctx, atom);
     JS_FreeAtom(ctx, atom);
     return val;
+}
+
+uint8_t *JS_ToCStringLenRaw(JSContext *ctx, size_t *plen, JSValueConst val)
+{
+    if (JS_VALUE_GET_TAG(val) != JS_TAG_STRING)
+    {
+        if(plen) *plen = 0;
+        return NULL;
+    }
+    JSString *str = JS_VALUE_GET_STRING(val);
+    if(plen) *plen = str->len;
+    return str->u.str8;
 }
 
 /* return (NULL, 0) if exception. */
@@ -5214,7 +5240,7 @@ static int JS_SetObjectData(JSContext *ctx, JSValueConst obj, JSValue val)
     return -1;
 }
 
-JSValue JS_NewObjectClass(JSContext *ctx, int class_id)
+JSValue JS_NewObjectClass(JSContext *ctx, JSClassID class_id)
 {
     return JS_NewObjectProtoClass(ctx, ctx->class_proto[class_id], class_id);
 }
@@ -44282,11 +44308,10 @@ static uint64_t xorshift64star(uint64_t *pstate)
     return x * 0x2545F4914F6CDD1D;
 }
 
+static int64_t date_now(void);
 static void js_random_init(JSContext *ctx)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    ctx->random_state = ((int64_t)tv.tv_sec * 1000000) + tv.tv_usec;
+    ctx->random_state = date_now();
     /* the state must be non zero */
     if (ctx->random_state == 0)
         ctx->random_state = 1;
