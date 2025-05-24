@@ -44429,9 +44429,13 @@ static int getTimezoneOffset(int64_t time)
         time_t gm_ti, loc_ti;
 
         tm = gmtime(&ti);
+        if (!tm)
+            return 0;
         gm_ti = mktime(tm);
 
         tm = localtime(&ti);
+        if (!tm)
+            return 0;
         loc_ti = mktime(tm);
 
         res = (gm_ti - loc_ti) / 60;
