@@ -3,14 +3,8 @@ export function assert(actual, expected, message) {
         expected = true;
 
     if (typeof actual === typeof expected) {
-        if (actual === expected) {
-            if (actual !== 0 || (1 / actual) === (1 / expected))
-                return;
-        }
-        if (typeof actual === 'number') {
-            if (isNaN(actual) && isNaN(expected))
-                return;
-        }
+        if (Object.is(actual, expected))
+            return;
         if (typeof actual === 'object') {
             if (actual !== null && expected !== null
             &&  actual.constructor === expected.constructor
