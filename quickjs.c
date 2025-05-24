@@ -45369,7 +45369,7 @@ static JSValue js_regexp_Symbol_match(JSContext *ctx, JSValueConst this_val,
             if (JS_IsException(matchStr))
                 goto exception;
             isEmpty = JS_IsEmptyString(matchStr);
-            if (JS_SetPropertyInt64(ctx, A, n++, matchStr) < 0)
+            if (JS_DefinePropertyValueInt64(ctx, A, n++, matchStr, JS_PROP_C_W_E | JS_PROP_THROW) < 0)
                 goto exception;
             if (isEmpty) {
                 int64_t thisIndex, nextIndex;
