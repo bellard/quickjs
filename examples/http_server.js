@@ -24,7 +24,7 @@ function must(result) {
 function* recvLines(fd) {
     const chunk = new Uint8Array(1);
     let line = '';
-    while (os.read(fd, chunk.buffer, 0, chunk.byteLength) > 0) {
+    while (os.recv(fd, chunk.buffer) > 0) {
         const char = String.fromCharCode(...chunk);
         if (char == '\n') {
             yield line;
@@ -36,7 +36,7 @@ function* recvLines(fd) {
 /** @param {os.FileDescriptor} fd @param {string[]} lines */
 function sendLines(fd, lines) {
     const buf = Uint8Array.from(lines.join('\r\n'), c => c.charCodeAt(0));
-    os.write(fd, buf.buffer, 0, buf.byteLength);
+    os.send(fd, buf.buffer);
 }
 //USAGE: qjs http_server.js [PORT=8080 [HOST=localhost]]
 const [port = "8080", host = "localhost"] = scriptArgs.slice(1);
@@ -47,9 +47,10 @@ const sock_srv = must(os.socket(os.AF_INET, os.SOCK_STREAM));
 must(os.setsockopt(sock_srv, os.SO_REUSEADDR, new Uint32Array([1]).buffer));
 must(os.bind(sock_srv, ai[0]));
 must(os.listen(sock_srv));
-
-console.log(`Listening on http://${ai[0].addr}:${ai[0].port} ...`);
-
+//os.signal(os.SIGINT, ()=>os.close(sock_srv)); // don't work
+console.log(`Listening on http://${host}:${port} (${ai[0].addr}:${ai[0].port}) ...`);
+const openCmd = { linux: "xdg-open", darwin: "open", win32: "start" }[os.platform];
+if (openCmd) os.exec([openCmd, `http://${host}:${port}`]);
 while (true) { // TODO: break on SIG*
     const [sock_cli] = os.accept(sock_srv);
 
@@ -86,11 +87,9 @@ while (true) { // TODO: break on SIG*
         const fd = must(os.open(safe_path));
         const fbuf = new Uint8Array(4096);
         for (let got = 0; (got = os.read(fd, fbuf.buffer, 0, fbuf.byteLength)) > 0;) {
-            os.write(sock_cli, fbuf.buffer, 0, got);
+            os.send(sock_cli, fbuf.buffer, got);
         }
     }
 
     os.close(sock_cli);
 }
-
-os.close(sock_srv);
