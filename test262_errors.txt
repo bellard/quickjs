@@ -33,7 +33,6 @@ test262/test/staging/sm/class/superPropOrdering.js:83: Error: Assertion failed: 
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-const.js:97: TypeError: 'a' is read-only
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-tdz.js:23: Error: Assertion failed: expected exception ReferenceError, got TypeError: 'a' is read-only
 test262/test/staging/sm/extensions/TypedArray-set-object-funky-length-detaches.js:55: RangeError: invalid array length
-test262/test/staging/sm/extensions/regress-469625-01.js:16: Test262Error: TM: Array prototype and expression closures Expected SameValue(«"TypeError: [].__proto__ is not a function"», «"TypeError: not a function"») to be true
 test262/test/staging/sm/generators/syntax.js:30: Error: Assertion failed: expected SyntaxError, but no exception thrown - function* g() { (function* yield() {}); }
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js:14: Test262Error: Expected SameValue(«"object"», «"function"») to be true
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js:12: Test262Error: Expected SameValue(«"outer-gouter-geval-gtruefalseq"», «"outer-geval-gwith-gtruefalseq"») to be true
@@ -42,15 +41,7 @@ test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-notap
 test262/test/staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js:23: Test262Error: Expected SameValue(«3», «4») to be true
 test262/test/staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js:17: Test262Error: Expected SameValue(«"g"», «"global-x"») to be true
 test262/test/staging/sm/object/defineProperties-order.js:14: Test262Error: Expected SameValue(«"ownKeys,getOwnPropertyDescriptor,getOwnPropertyDescriptor,get,get"», «"ownKeys,getOwnPropertyDescriptor,get,getOwnPropertyDescriptor,get"») to be true
-test262/test/staging/sm/regress/regress-577648-1.js:21: Test262Error: 1 Expected SameValue(«true», «false») to be true
-test262/test/staging/sm/regress/regress-577648-2.js:14: Test262Error:  Expected SameValue(«true», «false») to be true
-test262/test/staging/sm/regress/regress-584355.js:12: Test262Error:  Expected SameValue(«"function f () { ff (); }"», «"undefined"») to be true
-test262/test/staging/sm/regress/regress-586482-1.js:19: Test262Error: ok Expected SameValue(«true», «false») to be true
-test262/test/staging/sm/regress/regress-586482-2.js:19: Test262Error: ok Expected SameValue(«true», «false») to be true
-test262/test/staging/sm/regress/regress-586482-3.js:18: Test262Error: ok Expected SameValue(«true», «false») to be true
-test262/test/staging/sm/regress/regress-586482-4.js:14: Test262Error: ok Expected SameValue(«function() { this.f(); }», «undefined») to be true
 test262/test/staging/sm/regress/regress-602621.js:14: Test262Error: function sub-statement must override arguments Expected SameValue(«"function"», «"object"») to be true
-test262/test/staging/sm/regress/regress-699682.js:15: Test262Error: Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/regress/regress-1383630.js:30: Error: Assertion failed: expected exception TypeError, no exception thrown
 test262/test/staging/sm/statements/arrow-function-in-for-statement-head.js:15: Test262Error: expected syntax error, got Error: didn't throw Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/statements/regress-642975.js:14: Test262Error: Expected SameValue(«undefined», «"y"») to be true

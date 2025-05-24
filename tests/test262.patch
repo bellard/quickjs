@@ -90,6 +90,43 @@ index c1829e3..3a3ee27 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/test/staging/sm/extensions/regress-469625-01.js b/test/staging/sm/extensions/regress-469625-01.js
+index 5b62aeb..da07aae 100644
+--- a/test/staging/sm/extensions/regress-469625-01.js
++++ b/test/staging/sm/extensions/regress-469625-01.js
+@@ -14,8 +14,7 @@ esid: pending
+ //-----------------------------------------------------------------------------
+ var BUGNUMBER = 469625;
+ var summary = 'TM: Array prototype and expression closures';
+-var actual = '';
+-var expect = '';
++var actual = null;
+ 
+ 
+ //-----------------------------------------------------------------------------
+@@ -27,9 +26,6 @@ function test()
+   printBugNumber(BUGNUMBER);
+   printStatus (summary);
+  
+-  expect = 'TypeError: [].__proto__ is not a function';
+-
+-
+   Array.prototype.__proto__ = function () { return 3; };
+ 
+   try
+@@ -38,8 +34,10 @@ function test()
+   }
+   catch(ex)
+   {
+-    print(actual = ex + '');
++    print(ex + '');
++    actual = ex;
+   }
+ 
+-  assert.sameValue(expect, actual, summary);
++  assert.sameValue(actual instanceof TypeError, true);
++  assert.sameValue(actual.message.includes("not a function"), true);
+ }
 diff --git a/test/staging/sm/misc/new-with-non-constructor.js b/test/staging/sm/misc/new-with-non-constructor.js
 index 18c2f0c..f9aa209 100644
 --- a/test/staging/sm/misc/new-with-non-constructor.js
