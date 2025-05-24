@@ -5352,6 +5352,10 @@ static JSValue JS_NewCFunction3(JSContext *ctx, JSCFunction *func,
     if (!name)
         name = "";
     name_atom = JS_NewAtom(ctx, name);
+    if (name_atom == JS_ATOM_NULL) {
+        JS_FreeValue(ctx, func_obj);
+        return JS_EXCEPTION;
+    }
     js_function_set_properties(ctx, func_obj, name_atom, length);
     JS_FreeAtom(ctx, name_atom);
     return func_obj;
@@ -6882,6 +6886,9 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
     const char *str1;
     JSObject *p;
 
+    if (!JS_IsObject(error_obj))
+        return; /* protection in the out of memory case */
+    
     js_dbuf_init(ctx, &dbuf);
     if (filename) {
         dbuf_printf(&dbuf, "    at %s", filename);
@@ -6889,13 +6896,17 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
             dbuf_printf(&dbuf, ":%d:%d", line_num, col_num);
         dbuf_putc(&dbuf, '\n');
         str = JS_NewString(ctx, filename);
+        if (JS_IsException(str))
+            return;
         /* Note: SpiderMonkey does that, could update once there is a standard */
-        JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_fileName, str,
-                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
-        JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_lineNumber, JS_NewInt32(ctx, line_num),
-                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
-        JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_columnNumber, JS_NewInt32(ctx, col_num),
-                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+        if (JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_fileName, str,
+                                   JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0 ||
+            JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_lineNumber, JS_NewInt32(ctx, line_num),
+                                   JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0 ||
+            JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_columnNumber, JS_NewInt32(ctx, col_num),
+                                   JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
+            return;
+        }
     }
     for(sf = ctx->rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
         if (sf->js_mode & JS_MODE_BACKTRACE_BARRIER)
@@ -6980,9 +6991,9 @@ static JSValue JS_ThrowError2(JSContext *ctx, JSErrorEnum error_num,
         JS_DefinePropertyValue(ctx, obj, JS_ATOM_message,
                                JS_NewString(ctx, buf),
                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
-    }
-    if (add_backtrace) {
-        build_backtrace(ctx, obj, NULL, 0, 0, 0);
+        if (add_backtrace) {
+            build_backtrace(ctx, obj, NULL, 0, 0, 0);
+        }
     }
     ret = JS_Throw(ctx, obj);
     return ret;
@@ -8454,6 +8465,8 @@ JSValue JS_GetPropertyStr(JSContext *ctx, JSValueConst this_obj,
     JSAtom atom;
     JSValue ret;
     atom = JS_NewAtom(ctx, prop);
+    if (atom == JS_ATOM_NULL)
+        return JS_EXCEPTION;
     ret = JS_GetProperty(ctx, this_obj, atom);
     JS_FreeAtom(ctx, atom);
     return ret;
@@ -9273,6 +9286,10 @@ int JS_SetPropertyStr(JSContext *ctx, JSValueConst this_obj,
     JSAtom atom;
     int ret;
     atom = JS_NewAtom(ctx, prop);
+    if (atom == JS_ATOM_NULL) {
+        JS_FreeValue(ctx, val);
+        return -1;
+    }
     ret = JS_SetPropertyInternal(ctx, this_obj, atom, val, this_obj, JS_PROP_THROW);
     JS_FreeAtom(ctx, atom);
     return ret;
@@ -9829,6 +9846,10 @@ int JS_DefinePropertyValueStr(JSContext *ctx, JSValueConst this_obj,
     JSAtom atom;
     int ret;
     atom = JS_NewAtom(ctx, prop);
+    if (atom == JS_ATOM_NULL) {
+        JS_FreeValue(ctx, val);
+        return -1;
+    }
     ret = JS_DefinePropertyValue(ctx, this_obj, atom, val, flags);
     JS_FreeAtom(ctx, atom);
     return ret;
@@ -20971,6 +20992,7 @@ static __exception int js_parse_template_part(JSParseState *s, const uint8_t *p)
 {
     uint32_t c;
     StringBuffer b_s, *b = &b_s;
+    JSValue str;
 
     /* p points to the first byte of the template part */
     if (string_buffer_init(s->ctx, b, 32))
@@ -21013,9 +21035,12 @@ static __exception int js_parse_template_part(JSParseState *s, const uint8_t *p)
         if (string_buffer_putc(b, c))
             goto fail;
     }
+    str = string_buffer_end(b);
+    if (JS_IsException(str))
+        return -1;
     s->token.val = TOK_TEMPLATE;
     s->token.u.str.sep = c;
-    s->token.u.str.str = string_buffer_end(b);
+    s->token.u.str.str = str;
     s->buf_ptr = p;
     return 0;
 
@@ -21034,7 +21059,8 @@ static __exception int js_parse_string(JSParseState *s, int sep,
     uint32_t c;
     StringBuffer b_s, *b = &b_s;
     const uint8_t *p_escape;
-    
+    JSValue str;
+
     /* string */
     if (string_buffer_init(s->ctx, b, 32))
         goto fail;
@@ -21141,9 +21167,12 @@ static __exception int js_parse_string(JSParseState *s, int sep,
         if (string_buffer_putc(b, c))
             goto fail;
     }
+    str = string_buffer_end(b);
+    if (JS_IsException(str))
+        return -1;
     token->val = TOK_STRING;
     token->u.str.sep = c;
-    token->u.str.str = string_buffer_end(b);
+    token->u.str.str = str;
     *pp = p;
     return 0;
 
@@ -21171,6 +21200,7 @@ static __exception int js_parse_regexp(JSParseState *s)
     StringBuffer b_s, *b = &b_s;
     StringBuffer b2_s, *b2 = &b2_s;
     uint32_t c;
+    JSValue body_str, flags_str;
 
     p = s->buf_ptr;
     p++;
@@ -21252,9 +21282,17 @@ static __exception int js_parse_regexp(JSParseState *s)
         p = p_next;
     }
 
+    body_str = string_buffer_end(b);
+    flags_str = string_buffer_end(b2);
+    if (JS_IsException(body_str) ||
+        JS_IsException(flags_str)) {
+        JS_FreeValue(s->ctx, body_str);
+        JS_FreeValue(s->ctx, flags_str);
+        return -1;
+    }
     s->token.val = TOK_REGEXP;
-    s->token.u.regexp.body = string_buffer_end(b);
-    s->token.u.regexp.flags = string_buffer_end(b2);
+    s->token.u.regexp.body = body_str;
+    s->token.u.regexp.flags = flags_str;
     s->buf_ptr = p;
     return 0;
  fail:
@@ -22362,7 +22400,7 @@ BOOL JS_DetectModule(const char *input, size_t input_len)
 }
 
 static inline int get_prev_opcode(JSFunctionDef *fd) {
-    if (fd->last_opcode_pos < 0)
+    if (fd->last_opcode_pos < 0 || dbuf_error(&fd->byte_code))
         return OP_invalid;
     else
         return fd->byte_code.buf[fd->last_opcode_pos];
@@ -22427,7 +22465,11 @@ static void emit_op(JSParseState *s, uint8_t val)
 
 static void emit_atom(JSParseState *s, JSAtom name)
 {
-    emit_u32(s, JS_DupAtom(s->ctx, name));
+    DynBuf *bc = &s->cur_func->byte_code;
+    if (dbuf_realloc(bc, bc->size + 4))
+        return; /* not enough memory : don't duplicate the atom */
+    put_u32(bc->buf + bc->size, JS_DupAtom(s->ctx, name));
+    bc->size += 4;
 }
 
 static int update_label(JSFunctionDef *s, int label, int delta)
@@ -22441,29 +22483,33 @@ static int update_label(JSFunctionDef *s, int label, int delta)
     return ls->ref_count;
 }
 
-static int new_label_fd(JSFunctionDef *fd, int label)
+static int new_label_fd(JSFunctionDef *fd)
 {
+    int label;
     LabelSlot *ls;
 
-    if (label < 0) {
-        if (js_resize_array(fd->ctx, (void *)&fd->label_slots,
-                            sizeof(fd->label_slots[0]),
-                            &fd->label_size, fd->label_count + 1))
-            return -1;
-        label = fd->label_count++;
-        ls = &fd->label_slots[label];
-        ls->ref_count = 0;
-        ls->pos = -1;
-        ls->pos2 = -1;
-        ls->addr = -1;
-        ls->first_reloc = NULL;
-    }
+    if (js_resize_array(fd->ctx, (void *)&fd->label_slots,
+                        sizeof(fd->label_slots[0]),
+                        &fd->label_size, fd->label_count + 1))
+        return -1;
+    label = fd->label_count++;
+    ls = &fd->label_slots[label];
+    ls->ref_count = 0;
+    ls->pos = -1;
+    ls->pos2 = -1;
+    ls->addr = -1;
+    ls->first_reloc = NULL;
     return label;
 }
 
 static int new_label(JSParseState *s)
 {
-    return new_label_fd(s->cur_func, -1);
+    int label;
+    label = new_label_fd(s->cur_func);
+    if (unlikely(label < 0)) {
+        dbuf_set_error(&s->cur_func->byte_code);
+    }
+    return label;
 }
 
 /* don't update the last opcode and don't emit line number info */
@@ -22491,8 +22537,11 @@ static int emit_label(JSParseState *s, int label)
 static int emit_goto(JSParseState *s, int opcode, int label)
 {
     if (js_is_live_code(s)) {
-        if (label < 0)
+        if (label < 0) {
             label = new_label(s);
+            if (label < 0)
+                return -1;
+        }
         emit_op(s, opcode);
         emit_u32(s, label);
         s->cur_func->label_slots[label].ref_count++;
@@ -24533,6 +24582,8 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
         switch(opcode) {
         case OP_scope_get_var:
             label = new_label(s);
+            if (label < 0)
+                return -1;
             emit_op(s, OP_scope_make_ref);
             emit_atom(s, name);
             emit_u32(s, label);
@@ -24565,6 +24616,8 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
         switch(opcode) {
         case OP_scope_get_var:
             label = new_label(s);
+            if (label < 0)
+                return -1;
             emit_op(s, OP_scope_make_ref);
             emit_atom(s, name);
             emit_u32(s, label);
@@ -28338,6 +28391,8 @@ JSModuleDef *JS_NewCModule(JSContext *ctx, const char *name_str,
     if (name == JS_ATOM_NULL)
         return NULL;
     m = js_new_module_def(ctx, name);
+    if (!m)
+        return NULL;
     m->init_func = func;
     return m;
 }
@@ -30641,6 +30696,8 @@ static void free_bytecode_atoms(JSRuntime *rt,
         case OP_FMT_atom_u16:
         case OP_FMT_atom_label_u8:
         case OP_FMT_atom_label_u16:
+            if ((pos + 1 + 4) > bc_len)
+                break; /* may happen if there is not enough memory when emiting bytecode */
             atom = get_u32(bc_buf + pos + 1);
             JS_FreeAtomRT(rt, atom);
             break;
@@ -31430,7 +31487,13 @@ static void var_object_test(JSContext *ctx, JSFunctionDef *s,
 {
     dbuf_putc(bc, get_with_scope_opcode(op));
     dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-    *plabel_done = new_label_fd(s, *plabel_done);
+    if (*plabel_done < 0) {
+        *plabel_done = new_label_fd(s);
+        if (*plabel_done < 0) {
+            dbuf_set_error(bc);
+            return;
+        }
+    }
     dbuf_put_u32(bc, *plabel_done);
     dbuf_putc(bc, is_with);
     update_label(s, *plabel_done, 1);
@@ -32475,8 +32538,11 @@ static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, Dy
        evaluating the module so that the exported functions are
        visible if there are cyclic module references */
     if (s->module) {
-        label_next = new_label_fd(s, -1);
-
+        label_next = new_label_fd(s);
+        if (label_next < 0) {
+            dbuf_set_error(bc);
+            return;
+        }
         /* if 'this' is true, initialize the global variables and return */
         dbuf_putc(bc, OP_push_this);
         dbuf_putc(bc, OP_if_false);
@@ -38001,17 +38067,22 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
     return 0;
 }
 
-void JS_SetPropertyFunctionList(JSContext *ctx, JSValueConst obj,
-                                const JSCFunctionListEntry *tab, int len)
+int JS_SetPropertyFunctionList(JSContext *ctx, JSValueConst obj,
+                               const JSCFunctionListEntry *tab, int len)
 {
-    int i;
+    int i, ret;
 
     for (i = 0; i < len; i++) {
         const JSCFunctionListEntry *e = &tab[i];
         JSAtom atom = find_atom(ctx, e->name);
-        JS_InstantiateFunctionListItem(ctx, obj, atom, e);
+        if (atom == JS_ATOM_NULL)
+            return -1;
+        ret = JS_InstantiateFunctionListItem(ctx, obj, atom, e);
         JS_FreeAtom(ctx, atom);
+        if (ret)
+            return -1;
     }
+    return 0;
 }
 
 int JS_AddModuleExportList(JSContext *ctx, JSModuleDef *m,
