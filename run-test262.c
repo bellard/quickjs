@@ -872,7 +872,7 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
         return NULL;
     }
 
-    if (js_module_test_json(ctx, attributes)) {
+    if (js_module_test_json(ctx, attributes) == 1) {
         /* compile as JSON */
         JSValue val;
         val = JS_ParseJSON(ctx, (char *)buf, buf_len, module_name);

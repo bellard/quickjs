@@ -36326,6 +36326,8 @@ static int JS_WriteModule(BCWriterState *s, JSValueConst obj)
     for(i = 0; i < m->req_module_entries_count; i++) {
         JSReqModuleEntry *rme = &m->req_module_entries[i];
         bc_put_atom(s, rme->module_name);
+        if (JS_WriteObjectRec(s, rme->attributes))
+            goto fail;
     }
 
     bc_put_leb128(s, m->export_entries_count);
@@ -37325,8 +37327,13 @@ static JSValue JS_ReadModule(BCReaderState *s)
             goto fail;
         for(i = 0; i < m->req_module_entries_count; i++) {
             JSReqModuleEntry *rme = &m->req_module_entries[i];
+            JSValue val;
             if (bc_get_atom(s, &rme->module_name))
                 goto fail;
+            val = JS_ReadObjectRec(s);
+            if (JS_IsException(val))
+                goto fail;
+            rme->attributes = val;
         }
     }
 

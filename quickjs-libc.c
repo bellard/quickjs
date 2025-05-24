@@ -599,6 +599,20 @@ static int json_module_init(JSContext *ctx, JSModuleDef *m)
     return 0;
 }
 
+static JSModuleDef *create_json_module(JSContext *ctx, const char *module_name, JSValue val)
+{
+    JSModuleDef *m;
+    m = JS_NewCModule(ctx, module_name, json_module_init);
+    if (!m) {
+        JS_FreeValue(ctx, val);
+        return NULL;
+    }
+    /* only export the "default" symbol which will contain the JSON object */
+    JS_AddModuleExport(ctx, m, "default");
+    JS_SetModulePrivateValue(ctx, m, val);
+    return m;
+}
+
 /* in order to conform with the specification, only the keys should be
    tested and not the associated values. */
 int js_module_check_attributes(JSContext *ctx, void *opaque,
@@ -631,8 +645,8 @@ int js_module_check_attributes(JSContext *ctx, void *opaque,
     return ret;
 }
 
-/* return TRUE if the attributes indicate a JSON module */
-JS_BOOL js_module_test_json(JSContext *ctx, JSValueConst attributes)
+/* return > 0 if the attributes indicate a JSON module */
+int js_module_test_json(JSContext *ctx, JSValueConst attributes)
 {
     JSValue str;
     const char *cstr;
@@ -649,7 +663,13 @@ JS_BOOL js_module_test_json(JSContext *ctx, JSValueConst attributes)
     if (!cstr)
         return FALSE;
     /* XXX: raise an error if unknown type ? */
-    res = (len == 4 && !memcmp(cstr, "json", len));
+    if (len == 4 && !memcmp(cstr, "json", len)) {
+        res = 1;
+    } else if (len == 5 && !memcmp(cstr, "json5", len)) {
+        res = 2;
+    } else {
+        res = 0;
+    }
     JS_FreeCString(ctx, cstr);
     return res;
 }
@@ -659,7 +679,8 @@ JSModuleDef *js_module_loader(JSContext *ctx,
                               JSValueConst attributes)
 {
     JSModuleDef *m;
-
+    int res;
+    
     if (has_suffix(module_name, ".so")) {
         m = js_module_loader_so(ctx, module_name);
     } else {
@@ -672,23 +693,22 @@ JSModuleDef *js_module_loader(JSContext *ctx,
                                    module_name);
             return NULL;
         }
-        
-        if (has_suffix(module_name, ".json") ||
-            js_module_test_json(ctx, attributes)) {
-            /* compile as JSON */
+        res = js_module_test_json(ctx, attributes);
+        if (has_suffix(module_name, ".json") || res > 0) {
+            /* compile as JSON or JSON5 depending on "type" */
             JSValue val;
-            val = JS_ParseJSON(ctx, (char *)buf, buf_len, module_name);
+            int flags;
+            if (res == 2)
+                flags = JS_PARSE_JSON_EXT;
+            else
+                flags = 0;
+            val = JS_ParseJSON2(ctx, (char *)buf, buf_len, module_name, flags);
             js_free(ctx, buf);
             if (JS_IsException(val))
                 return NULL;
-            m = JS_NewCModule(ctx, module_name, json_module_init);
-            if (!m) {
-                JS_FreeValue(ctx, val);
+            m = create_json_module(ctx, module_name, val);
+            if (!m)
                 return NULL;
-            }
-            /* only export the "default" symbol which will contain the JSON object */
-            JS_AddModuleExport(ctx, m, "default");
-            JS_SetModulePrivateValue(ctx, m, val);
         } else {
             JSValue func_val;
             /* compile the module */
@@ -4303,3 +4323,22 @@ void js_std_eval_binary(JSContext *ctx, const uint8_t *buf, size_t buf_len,
         JS_FreeValue(ctx, val);
     }
 }
+
+void js_std_eval_binary_json_module(JSContext *ctx,
+                                    const uint8_t *buf, size_t buf_len,
+                                    const char *module_name)
+{
+    JSValue obj;
+    JSModuleDef *m;
+    
+    obj = JS_ReadObject(ctx, buf, buf_len, 0);
+    if (JS_IsException(obj))
+        goto exception;
+    m = create_json_module(ctx, module_name, obj);
+    if (!m) {
+    exception:
+        js_std_dump_error(ctx);
+        exit(1);
+    }
+}
+

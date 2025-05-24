@@ -170,14 +170,24 @@ static void dump_hex(FILE *f, const uint8_t *buf, size_t len)
         fprintf(f, "\n");
 }
 
+typedef enum {
+    CNAME_TYPE_SCRIPT,
+    CNAME_TYPE_MODULE,
+    CNAME_TYPE_JSON_MODULE,
+} CNameTypeEnum;
+
 static void output_object_code(JSContext *ctx,
                                FILE *fo, JSValueConst obj, const char *c_name,
-                               BOOL load_only)
+                               CNameTypeEnum c_name_type)
 {
     uint8_t *out_buf;
     size_t out_buf_len;
     int flags;
-    flags = JS_WRITE_OBJ_BYTECODE;
+
+    if (c_name_type == CNAME_TYPE_JSON_MODULE)
+        flags = 0;
+    else
+        flags = JS_WRITE_OBJ_BYTECODE;
     if (byte_swap)
         flags |= JS_WRITE_OBJ_BSWAP;
     out_buf = JS_WriteObject(ctx, &out_buf_len, obj, flags);
@@ -186,7 +196,7 @@ static void output_object_code(JSContext *ctx,
         exit(1);
     }
 
-    namelist_add(&cname_list, c_name, NULL, load_only);
+    namelist_add(&cname_list, c_name, NULL, c_name_type);
 
     fprintf(fo, "const uint32_t %s_size = %u;\n\n",
             c_name, (unsigned int)out_buf_len);
@@ -227,7 +237,8 @@ static void find_unique_cname(char *cname, size_t cname_size)
 }
 
 JSModuleDef *jsc_module_loader(JSContext *ctx,
-                              const char *module_name, void *opaque)
+                               const char *module_name, void *opaque,
+                               JSValueConst attributes)
 {
     JSModuleDef *m;
     namelist_entry_t *e;
@@ -249,9 +260,9 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
     } else {
         size_t buf_len;
         uint8_t *buf;
-        JSValue func_val;
         char cname[1024];
-
+        int res;
+        
         buf = js_load_file(ctx, &buf_len, module_name);
         if (!buf) {
             JS_ThrowReferenceError(ctx, "could not load module filename '%s'",
@@ -259,21 +270,59 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
             return NULL;
         }
 
-        /* compile the module */
-        func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
-                           JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-        js_free(ctx, buf);
-        if (JS_IsException(func_val))
-            return NULL;
-        get_c_name(cname, sizeof(cname), module_name);
-        if (namelist_find(&cname_list, cname)) {
-            find_unique_cname(cname, sizeof(cname));
-        }
-        output_object_code(ctx, outfile, func_val, cname, TRUE);
+        res = js_module_test_json(ctx, attributes);
+        if (has_suffix(module_name, ".json") || res > 0) {
+            /* compile as JSON or JSON5 depending on "type" */
+            JSValue val;
+            int flags;
 
-        /* the module is already referenced, so we must free it */
-        m = JS_VALUE_GET_PTR(func_val);
-        JS_FreeValue(ctx, func_val);
+            if (res == 2)
+                flags = JS_PARSE_JSON_EXT;
+            else
+                flags = 0;
+            val = JS_ParseJSON2(ctx, (char *)buf, buf_len, module_name, flags);
+            js_free(ctx, buf);
+            if (JS_IsException(val))
+                return NULL;
+            /* create a dummy module */
+            m = JS_NewCModule(ctx, module_name, js_module_dummy_init);
+            if (!m) {
+                JS_FreeValue(ctx, val);
+                return NULL;
+            }
+
+            get_c_name(cname, sizeof(cname), module_name);
+            if (namelist_find(&cname_list, cname)) {
+                find_unique_cname(cname, sizeof(cname));
+            }
+
+            /* output the module name */
+            fprintf(outfile, "static const uint8_t %s_module_name[] = {\n",
+                    cname);
+            dump_hex(outfile, (const uint8_t *)module_name, strlen(module_name) + 1);
+            fprintf(outfile, "};\n\n");
+
+            output_object_code(ctx, outfile, val, cname, CNAME_TYPE_JSON_MODULE);
+            JS_FreeValue(ctx, val);
+        } else {
+            JSValue func_val;
+
+            /* compile the module */
+            func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
+                               JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+            js_free(ctx, buf);
+            if (JS_IsException(func_val))
+                return NULL;
+            get_c_name(cname, sizeof(cname), module_name);
+            if (namelist_find(&cname_list, cname)) {
+                find_unique_cname(cname, sizeof(cname));
+            }
+            output_object_code(ctx, outfile, func_val, cname, CNAME_TYPE_MODULE);
+            
+            /* the module is already referenced, so we must free it */
+            m = JS_VALUE_GET_PTR(func_val);
+            JS_FreeValue(ctx, func_val);
+        }
     }
     return m;
 }
@@ -314,7 +363,7 @@ static void compile_file(JSContext *ctx, FILE *fo,
     } else {
         get_c_name(c_name, sizeof(c_name), filename);
     }
-    output_object_code(ctx, fo, obj, c_name, FALSE);
+    output_object_code(ctx, fo, obj, c_name, CNAME_TYPE_SCRIPT);
     JS_FreeValue(ctx, obj);
 }
 
@@ -709,7 +758,7 @@ int main(int argc, char **argv)
     JS_SetStripInfo(rt, strip_flags);
 
     /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(rt, NULL, jsc_module_loader, NULL);
+    JS_SetModuleLoaderFunc2(rt, NULL, jsc_module_loader, NULL, NULL);
 
     fprintf(fo, "/* File generated automatically by the QuickJS compiler. */\n"
             "\n"
@@ -732,7 +781,7 @@ int main(int argc, char **argv)
     }
 
     for(i = 0; i < dynamic_module_list.count; i++) {
-        if (!jsc_module_loader(ctx, dynamic_module_list.array[i].name, NULL)) {
+        if (!jsc_module_loader(ctx, dynamic_module_list.array[i].name, NULL, JS_UNDEFINED)) {
             fprintf(stderr, "Could not load dynamic module '%s'\n",
                     dynamic_module_list.array[i].name);
             exit(1);
@@ -770,9 +819,12 @@ int main(int argc, char **argv)
         }
         for(i = 0; i < cname_list.count; i++) {
             namelist_entry_t *e = &cname_list.array[i];
-            if (e->flags) {
+            if (e->flags == CNAME_TYPE_MODULE) {
                 fprintf(fo, "  js_std_eval_binary(ctx, %s, %s_size, 1);\n",
                         e->name, e->name);
+            } else if (e->flags == CNAME_TYPE_JSON_MODULE) {
+                fprintf(fo, "  js_std_eval_binary_json_module(ctx, %s, %s_size, (const char *)%s_module_name);\n",
+                        e->name, e->name, e->name);
             }
         }
         fprintf(fo,
@@ -797,7 +849,7 @@ int main(int argc, char **argv)
 
         for(i = 0; i < cname_list.count; i++) {
             namelist_entry_t *e = &cname_list.array[i];
-            if (!e->flags) {
+            if (e->flags == CNAME_TYPE_SCRIPT) {
                 fprintf(fo, "  js_std_eval_binary(ctx, %s, %s_size, 0);\n",
                         e->name, e->name);
             }
