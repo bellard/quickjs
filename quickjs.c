@@ -21824,6 +21824,7 @@ static __exception int next_token(JSParseState *s)
 }
 
 /* 'c' is the first character. Return JS_ATOM_NULL in case of error */
+/* XXX: accept unicode identifiers as JSON5 ? */
 static JSAtom json_parse_ident(JSParseState *s, const uint8_t **pp, int c)
 {
     const uint8_t *p;
@@ -21899,11 +21900,22 @@ static int json_parse_string(JSParseState *s, const uint8_t **pp, int sep)
                     c = (c << 4) | h;
                 }
                 break;
+            case '\n':
+                if (s->ext_json)
+                    continue;
+                goto bad_escape;
+            case 'v':
+                if (s->ext_json) {
+                    c = '\v';
+                    break;
+                }
+                goto bad_escape;
             default:
                 if (c == sep)
                     break;
                 if (p > s->buf_end)
                     goto end_of_input;
+            bad_escape:
                 js_parse_error_pos(s, p - 1, "Bad escaped character");
                 goto fail;
             }
@@ -21943,8 +21955,23 @@ static int json_parse_number(JSParseState *s, const uint8_t **pp)
     if (*p == '+' || *p == '-')
         p++;
 
-    if (!is_digit(*p))
-        return js_parse_error_pos(s, p, "Unexpected token '%c'", *p_start);
+    if (!is_digit(*p)) {
+        if (s->ext_json) {
+            if (strstart((const char *)p, "Infinity", (const char **)&p)) {
+                d = 1.0 / 0.0;
+                if (*p_start == '-')
+                    d = -d;
+                goto done;
+            } else if (strstart((const char *)p, "NaN", (const char **)&p)) {
+                d = NAN;
+                goto done;
+            } else if (*p != '.') {
+                goto unexpected_token;
+            }
+        } else {
+            goto unexpected_token;
+        }
+    }
 
     if (p[0] == '0') {
         if (s->ext_json) {
@@ -21962,8 +21989,10 @@ static int json_parse_number(JSParseState *s, const uint8_t **pp)
             }
             if (radix != 10) {
                 /* prefix is present */
-                if (to_digit(*p) >= radix)
+                if (to_digit(*p) >= radix) {
+                unexpected_token:
                     return js_parse_error_pos(s, p, "Unexpected token '%c'", *p);
+                }
                 d = js_atod((const char *)p_start, (const char **)&p, 0,
                             JS_ATOD_INT_ONLY | JS_ATOD_ACCEPT_BIN_OCT, &atod_mem);
                 goto done;
@@ -22122,7 +22151,6 @@ static __exception int json_next_token(JSParseState *s)
     case 'Y': case 'Z':
     case '_':
     case '$':
-        /* identifier : only pure ascii characters are accepted */
         p++;
         atom = json_parse_ident(s, &p, c);
         if (atom == JS_ATOM_NULL)
@@ -22133,17 +22161,16 @@ static __exception int json_next_token(JSParseState *s)
         s->token.val = TOK_IDENT;
         break;
     case '+':
-        if (!s->ext_json || !is_digit(p[1]))
+        if (!s->ext_json)
             goto def_token;
         goto parse_number;
-    case '0':
-        if (is_digit(p[1]))
+    case '.':
+        if (s->ext_json && is_digit(p[1]))
+            goto parse_number;
+        else
             goto def_token;
-        goto parse_number;
     case '-':
-        if (!is_digit(p[1]))
-            goto def_token;
-        goto parse_number;
+    case '0':
     case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8':
     case '9':
@@ -46187,6 +46214,12 @@ static JSValue json_parse_value(JSParseState *s)
             val = JS_NewBool(ctx, s->token.u.ident.atom == JS_ATOM_true);
         } else if (s->token.u.ident.atom == JS_ATOM_null) {
             val = JS_NULL;
+        } else if (s->token.u.ident.atom == JS_ATOM_NaN && s->ext_json) {
+            /* Note: json5 identifier handling is ambiguous e.g. is 
+               '{ NaN: 1 }' a valid JSON5 production ? */ 
+            val = JS_NewFloat64(s->ctx, NAN);
+        } else if (s->token.u.ident.atom == JS_ATOM_Infinity && s->ext_json) {
+            val = JS_NewFloat64(s->ctx, INFINITY);
         } else {
             goto def_token;
         }

@@ -129,15 +129,27 @@ function test_popen()
 function test_ext_json()
 {
     var expected, input, obj;
-    expected = '{"x":false,"y":true,"z2":null,"a":[1,8,160],"s":"str"}';
+    expected = '{"x":false,"y":true,"z2":null,"a":[1,8,160],"b":"abc\\u000bd","s":"str"}';
     input = `{ "x":false, /*comments are allowed */
                "y":true,  // also a comment
                z2:null, // unquoted property names
                "a":[+1,0o10,0xa0,], // plus prefix, octal, hexadecimal
+               "b": "ab\
+c\\vd", // multi-line strings, '\v' escape
                "s":'str',} // trailing comma in objects and arrays, single quoted string
             `;
     obj = std.parseExtJSON(input);
     assert(JSON.stringify(obj), expected);
+
+    obj = std.parseExtJSON('[Infinity, +Infinity, -Infinity, NaN, +NaN, -NaN, .1, -.2]');
+    assert(obj[0], Infinity);
+    assert(obj[1], Infinity);
+    assert(obj[2], -Infinity);
+    assert(obj[3], NaN);
+    assert(obj[4], NaN);
+    assert(obj[5], NaN);
+    assert(obj[6], 0.1);
+    assert(obj[7], -0.2);
 }
 
 function test_os()
