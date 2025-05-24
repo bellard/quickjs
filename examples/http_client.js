@@ -11,7 +11,7 @@ function must(result) {
 /** @param {os.FileDescriptor} fd @param {string[]} lines */
 function sendLines(fd, lines) {
     const buf = Uint8Array.from(lines.join('\r\n'), c => c.charCodeAt(0));
-    os.write(fd, buf.buffer, 0, buf.byteLength);
+    os.send(fd, buf.buffer);
 }
 const [host = "example.com", port = "80"] = scriptArgs.slice(1);
 const ai = os.getaddrinfo(host, port).filter(ai => ai.family == os.AF_INET && ai.port); // TODO too much/invalid result
@@ -21,6 +21,6 @@ must(os.connect(sockfd, ai[0]))
 sendLines(sockfd, ["GET / HTTP/1.0", `Host: ${host}`, "Connection: close", "", ""]);
 
 const chunk = new Uint8Array(4096);
-while (os.read(sockfd, chunk.buffer, 0, chunk.byteLength) > 0) {
+while (os.recv(sockfd, chunk.buffer) > 0) {
     console.log(String.fromCharCode(...chunk));
 }

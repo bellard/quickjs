@@ -24,7 +24,7 @@ function must(result) {
 function* recvLines(fd) {
     const chunk = new Uint8Array(1);
     let line = '';
-    while (os.read(fd, chunk.buffer, 0, chunk.byteLength) > 0) {
+    while (os.recv(fd, chunk.buffer) > 0) {
         const char = String.fromCharCode(...chunk);
         if (char == '\n') {
             yield line;
@@ -36,7 +36,7 @@ function* recvLines(fd) {
 /** @param {os.FileDescriptor} fd @param {string[]} lines */
 function sendLines(fd, lines) {
     const buf = Uint8Array.from(lines.join('\r\n'), c => c.charCodeAt(0));
-    os.write(fd, buf.buffer, 0, buf.byteLength);
+    os.send(fd, buf.buffer);
 }
 //USAGE: qjs http_server.js [PORT=8080 [HOST=localhost]]
 const [port = "8080", host = "localhost"] = scriptArgs.slice(1);
@@ -86,7 +86,7 @@ while (true) { // TODO: break on SIG*
         const fd = must(os.open(safe_path));
         const fbuf = new Uint8Array(4096);
         for (let got = 0; (got = os.read(fd, fbuf.buffer, 0, fbuf.byteLength)) > 0;) {
-            os.write(sock_cli, fbuf.buffer, 0, got);
+            os.send(sock_cli, fbuf.buffer, got);
         }
     }
 
