@@ -1285,8 +1285,6 @@ int unicode_script(CharRange *cr,
     script_idx = unicode_find_name(unicode_script_name_table, script_name);
     if (script_idx < 0)
         return -2;
-    /* Note: we remove the "Unknown" Script */
-    script_idx += UNICODE_SCRIPT_Unknown + 1;
 
     is_common = (script_idx == UNICODE_SCRIPT_Common ||
                  script_idx == UNICODE_SCRIPT_Inherited);
@@ -1316,16 +1314,20 @@ int unicode_script(CharRange *cr,
             n |= *p++;
             n += 96 + (1 << 12);
         }
-        if (type == 0)
-            v = 0;
-        else
-            v = *p++;
         c1 = c + n + 1;
-        if (v == script_idx) {
-            if (cr_add_interval(cr1, c, c1))
-                goto fail;
+        if (type != 0) {
+            v = *p++;
+            if (v == script_idx || script_idx == UNICODE_SCRIPT_Unknown) {
+                if (cr_add_interval(cr1, c, c1))
+                    goto fail;
+            }
         }
         c = c1;
+    }
+    if (script_idx == UNICODE_SCRIPT_Unknown) {
+        /* Unknown is all the characters outside scripts */
+        if (cr_invert(cr1))
+            goto fail;
     }
 
     if (is_ext) {

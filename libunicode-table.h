@@ -3130,6 +3130,7 @@ typedef enum {
 } UnicodeScriptEnum;
 
 static const char unicode_script_name_table[] =
+    "Unknown,Zzzz"                "\0"
     "Adlam,Adlm"                  "\0"
     "Ahom,Ahom"                   "\0"
     "Anatolian_Hieroglyphs,Hluw"  "\0"

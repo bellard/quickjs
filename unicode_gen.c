@@ -2087,10 +2087,9 @@ void build_script_table(FILE *f)
     fprintf(f, "    UNICODE_SCRIPT_COUNT,\n");
     fprintf(f, "} UnicodeScriptEnum;\n\n");
 
-    i = 1;
     dump_name_table(f, "unicode_script_name_table",
-                    unicode_script_name + i, SCRIPT_COUNT - i,
-                    unicode_script_short_name + i);
+                    unicode_script_name, SCRIPT_COUNT,
+                    unicode_script_short_name);
 
     dbuf_init(dbuf);
 #ifdef DUMP_TABLE_SIZE
