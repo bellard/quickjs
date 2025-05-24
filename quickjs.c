@@ -35353,7 +35353,7 @@ static __exception int js_parse_function_decl2(JSParseState *s,
     push_scope(s);  /* enter body scope */
     fd->body_scope = fd->scope_level;
 
-    if (s->token.val == TOK_ARROW) {
+    if (s->token.val == TOK_ARROW && func_type == JS_PARSE_FUNC_ARROW) {
         if (next_token(s))
             goto fail;
 
