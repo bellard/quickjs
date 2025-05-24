@@ -30,7 +30,6 @@ test262/test/staging/sm/class/boundFunctionSubclassing.js:12: Test262Error: Expe
 test262/test/staging/sm/class/compPropNames.js:26: Error: Expected syntax error: ({[1, 2]: 3})
 test262/test/staging/sm/class/strictExecution.js:32: Error: Assertion failed: expected exception TypeError, no exception thrown
 test262/test/staging/sm/class/superPropOrdering.js:83: Error: Assertion failed: expected exception TypeError, no exception thrown
-test262/test/staging/sm/expressions/optional-chain.js:25: Error: Assertion failed: expected exception SyntaxError, no exception thrown
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-const.js:97: TypeError: 'a' is read-only
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-tdz.js:23: Error: Assertion failed: expected exception ReferenceError, got TypeError: 'a' is read-only
 test262/test/staging/sm/extensions/TypedArray-set-object-funky-length-detaches.js:55: RangeError: invalid array length
