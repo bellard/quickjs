@@ -10563,6 +10563,15 @@ static inline js_limb_t js_limb_clz(js_limb_t a)
 }
 #endif
 
+/* handle a = 0 too */
+static inline js_limb_t js_limb_safe_clz(js_limb_t a)
+{
+    if (a == 0)
+        return JS_LIMB_BITS;
+    else
+        return js_limb_clz(a);
+}
+
 static js_limb_t mp_add(js_limb_t *res, const js_limb_t *op1, const js_limb_t *op2,
                      js_limb_t n, js_limb_t carry)
 {
@@ -11911,7 +11920,7 @@ static JSValue js_bigint_to_string1(JSContext *ctx, JSValueConst val, int radix)
             r = tmp;
         }
         log2_radix = 31 - clz32(radix); /* floor(log2(radix)) */
-        n_bits = r->len * JS_LIMB_BITS - js_limb_clz(r->tab[r->len - 1]);
+        n_bits = r->len * JS_LIMB_BITS - js_limb_safe_clz(r->tab[r->len - 1]);
         /* n_digits is exact only if radix is a power of
            two. Otherwise it is >= the exact number of digits */
         n_digits = (n_bits + log2_radix - 1) / log2_radix;
