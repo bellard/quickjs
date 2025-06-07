@@ -54017,7 +54017,8 @@ static JSValue js_typed_array_subarray(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv)
 {
     JSValueConst args[4];
-    JSValue arr, byteOffset, ta_buffer;
+    JSValue arr, ta_buffer;
+    JSTypedArray *ta;
     JSObject *p;
     int len, start, final, count, shift, offset;
 
@@ -54034,12 +54035,10 @@ static JSValue js_typed_array_subarray(JSContext *ctx, JSValueConst this_val,
             goto exception;
     }
     count = max_int(final - start, 0);
-    byteOffset = js_typed_array_get_byteOffset(ctx, this_val, 0);
-    if (JS_IsException(byteOffset))
-        goto exception;
     shift = typed_array_size_log2(p->class_id);
-    offset = JS_VALUE_GET_INT(byteOffset) + (start << shift);
-    JS_FreeValue(ctx, byteOffset);
+    ta = p->u.typed_array;
+    /* Read byteOffset (ta->offset) even if detached */
+    offset = ta->offset + (start << shift);
     ta_buffer = js_typed_array_get_buffer(ctx, this_val, 0);
     if (JS_IsException(ta_buffer))
         goto exception;

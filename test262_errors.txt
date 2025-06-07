@@ -23,7 +23,6 @@ test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: Test262
 test262/test/staging/sm/TypedArray/set-detached-bigint.js:27: Error: Assertion failed: expected exception SyntaxError, got RangeError: invalid array length
 test262/test/staging/sm/TypedArray/set-detached.js:112: RangeError: invalid array length
 test262/test/staging/sm/TypedArray/sort_modifications.js:12: Test262Error: Int8Array at index 0 for size 4 Expected SameValue(«0», «1») to be true
-test262/test/staging/sm/TypedArray/subarray.js:15: Test262Error: Expected SameValue(«0», «1») to be true
 test262/test/staging/sm/async-functions/async-contains-unicode-escape.js:45: Error: Assertion failed: expected exception SyntaxError, no exception thrown
 test262/test/staging/sm/async-functions/await-error.js:12: Test262Error: Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/async-functions/await-in-arrow-parameters.js:33: Error: Assertion failed: expected exception SyntaxError, no exception thrown - AsyncFunction:(a = (b = await/r/g) => {}) => {}
