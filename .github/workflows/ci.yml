@@ -214,6 +214,7 @@ jobs:
           submodules: true
       - name: Install MinGW and Wine
         run: |
+          sudo apt update
           sudo apt install -y wine mingw-w64
           cp /usr/x86_64-w64-mingw32/lib/libwinpthread-1.dll .
       - name: Setup Wine
