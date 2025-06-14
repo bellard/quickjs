@@ -39976,6 +39976,16 @@ static const JSCFunctionListEntry js_error_proto_funcs[] = {
     JS_PROP_STRING_DEF("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE ),
 };
 
+static JSValue js_error_isError(JSContext *ctx, JSValueConst this_val,
+                                int argc, JSValueConst *argv)
+{
+    return JS_NewBool(ctx, JS_IsError(ctx, argv[0]));
+}
+
+static const JSCFunctionListEntry js_error_funcs[] = {
+    JS_CFUNC_DEF("isError", 1, js_error_isError),
+};
+
 /* AggregateError */
 
 /* used by C code. */
@@ -52277,6 +52287,7 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
                                 "Error", 1, JS_CFUNC_constructor_or_func_magic, -1);
     JS_NewGlobalCConstructor2(ctx, obj1,
                               "Error", ctx->class_proto[JS_CLASS_ERROR]);
+    JS_SetPropertyFunctionList(ctx, obj1, js_error_funcs, countof(js_error_funcs));
 
     /* Used to squelch a -Wcast-function-type warning. */
     JSCFunctionType ft = { .generic_magic = js_error_constructor };
