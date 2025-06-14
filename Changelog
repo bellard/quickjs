@@ -1,3 +1,18 @@
+- added JSON modules and import attributes
+- added JS_PrintValue() API
+- qjs: pretty print objects in print() and console.log()
+- qjs: better promise rejection tracker heuristics
+- added RegExp v flag
+- added RegExp modifiers
+- added RegExp.escape
+- added Float16Array
+- added Promise.try
+- improved JSON parser spec conformance
+- qjs: improved compatibility of std.parseExtJSON() with JSON5 and
+  accept JSON5 modules
+- added JS_FreePropertyEnum() and JS_AtomToCStringLen() API
+- added Error.isError()
+
 2025-04-26:
 
 - removed the bignum extensions and qjscalc
