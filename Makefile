@@ -247,6 +247,8 @@ HOST_LIBS=-lm -ldl -lpthread
 LIBS=-lm -lpthread
 ifndef CONFIG_WIN32
 LIBS+=-ldl
+else
+LIBS+=-lws2_32
 endif
 LIBS+=$(EXTRA_LIBS)
 

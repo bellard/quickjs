@@ -40,7 +40,7 @@ function sendLines(fd, lines) {
 }
 //USAGE: qjs http_server.js [PORT=8080 [HOST=localhost]]
 const [port = "8080", host = "localhost"] = scriptArgs.slice(1);
-const [ai] = os.getaddrinfo(host, port);
+const ai = os.getaddrinfo(host, port).find(a => a.family == os.AF_INET);
 //if (!ai.length) throw `Unable to getaddrinfo(${host}, ${port})`;
 const sock_srv = must(os.socket(os.AF_INET, os.SOCK_STREAM));
 must(os.setsockopt(sock_srv, os.SO_REUSEADDR, new Uint32Array([1]).buffer));
@@ -49,7 +49,7 @@ must(os.listen(sock_srv));
 //os.signal(os.SIGINT, ()=>os.close(sock_srv)); // don't work
 console.log(`Listening on http://${host}:${port} (${ai.addr}:${ai.port}) ...`);
 const openCmd = { linux: "xdg-open", darwin: "open", win32: "start" }[os.platform];
-if (openCmd) os.exec([openCmd, `http://${host}:${port}`]);
+if (openCmd && os.exec) os.exec([openCmd, `http://${host}:${port}`]);
 while (true) { // TODO: break on SIG*
     const [sock_cli] = await os.accept(sock_srv);
 

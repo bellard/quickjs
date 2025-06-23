@@ -10,9 +10,10 @@ function must(result) {
 }
 
 const sockfd = must(os.socket(os.AF_INET, os.SOCK_STREAM));
-await os.connect(sockfd, os.getaddrinfo("bellard.org",'80')[0]);
-const httpReq = ["GET / HTTP/1.0", "", ""].join('\r\n')
-must(await os.send(sockfd, Uint8Array.from(httpReq, c => c.charCodeAt(0)).buffer) > 0);
+const addr = os.getaddrinfo("bellard.org",'80').find(a => a.family == os.AF_INET);
+await os.connect(sockfd, addr);
+const httpReq = Uint8Array.from("GET / HTTP/1.0\r\n\r\n", c => c.charCodeAt(0))
+must(await os.send(sockfd, httpReq.buffer) > 0);
 const chunk = new Uint8Array(512);
 const recvd = await os.recv(sockfd, chunk.buffer);
 console.log([...chunk.slice(0,recvd)].map(c => String.fromCharCode(c)).join(''));

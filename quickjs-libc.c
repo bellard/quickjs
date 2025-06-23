@@ -38,10 +38,11 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <conio.h>
 #include <utime.h>
-#include <winsock2.h>
 #else
 #include <dlfcn.h>
 #include <termios.h>
@@ -113,6 +114,9 @@ typedef struct {
     struct sockaddr_storage sockaddr; // for sendto()
     JSValue resolve;
     JSValue reject;
+#ifdef _WIN32
+    WSAEVENT event; // so os_pool can wait on it
+#endif
 } JSOSSockHandler;
 
 typedef struct {
@@ -249,7 +253,7 @@ static int JS_ToSockaddrStruct(JSContext *ctx, JSValue addr,
 static JSValue JS_ToSockaddrObj(JSContext *ctx, struct sockaddr_storage *sockaddr)
 {
     JSValue obj, prop;
-    char ip_str[INET_ADDRSTRLEN];
+    char ip_str[INET6_ADDRSTRLEN]; // max(INET6_ADDRSTRLEN, INET_ADDRSTRLEN)
     const char *ip_ptr;
     struct sockaddr_in *sockaddr4 = (struct sockaddr_in *)sockaddr;
     struct sockaddr_in6 *sockaddr6 = (struct sockaddr_in6 *)sockaddr;
@@ -268,7 +272,9 @@ static JSValue JS_ToSockaddrObj(JSContext *ctx, struct sockaddr_storage *sockadd
 
     void* sin_addr = sockaddr->ss_family == AF_INET ? (void*)&sockaddr4->sin_addr :
                      sockaddr->ss_family == AF_INET6 ? (void*)&sockaddr6->sin6_addr : NULL;
-    ip_ptr = inet_ntop(AF_INET, sin_addr, ip_str, sizeof(ip_str));
+    size_t sin_len = sockaddr->ss_family == AF_INET ? INET_ADDRSTRLEN:
+                     sockaddr->ss_family == AF_INET6 ? INET6_ADDRSTRLEN: 0 ;
+    ip_ptr = inet_ntop(sockaddr->ss_family, sin_addr, ip_str, sin_len);
     prop = ip_ptr ? JS_NewString(ctx, ip_ptr) : JS_NULL;
     JS_DefinePropertyValueStr(ctx, obj, "addr", prop, JS_PROP_C_W_E);
     return obj;
@@ -1039,6 +1045,18 @@ static ssize_t js_get_errno(ssize_t ret)
     return ret;
 }
 
+static ssize_t js_get_sockerrno(ssize_t ret)
+{
+    #if defined(_WIN32)
+    if (ret == -1 || ret == INVALID_SOCKET)
+        ret = -WSAGetLastError();
+    #else
+    if (ret == -1)
+        ret = -errno;
+    #endif
+    return ret;
+}
+
 static JSValue js_std_strerror(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
@@ -1785,11 +1803,6 @@ static int js_std_init(JSContext *ctx, JSModuleDef *m)
 {
     JSValue proto;
 
-    #if defined(_WIN32)
-    WSADATA wsa_data;
-    WSAStartup(0x0202, &wsa_data);
-    #endif
-    
     /* FILE class */
     /* the class ID is created once */
     JS_NewClassID(&js_std_file_class_id);
@@ -2517,28 +2530,41 @@ static int handle_posted_message(JSContext *ctx, JSWorkerMessageHandler *port)
 
 static void handle_socket_message(JSContext *ctx, JSOSSockHandler *sh)
 {
+    #ifdef _WIN32
+    WSANETWORKEVENTS netEvents;
+    WSAEnumNetworkEvents(sh->sockfd, sh->event, &netEvents);
+    #endif
+
     int err = 0;
     struct sockaddr_storage sockaddr;
     socklen_t addr_len = sizeof(sockaddr);
-    socklen_t len = sizeof(err);
+
     if (sh->magic == MAGIC_SOCKET_RECV) {
-        err = js_get_errno(recv(sh->sockfd, sh->buffer, sh->length, 0));
+        err = js_get_sockerrno(recv(sh->sockfd, (char*) sh->buffer, sh->length, 0));
     } else if (sh->magic == MAGIC_SOCKET_SEND) {
-        err = js_get_errno(send(sh->sockfd, sh->buffer, sh->length, 0));
+        err = js_get_sockerrno(send(sh->sockfd, (char*) sh->buffer, sh->length, 0));
     } else if (sh->magic == MAGIC_SOCKET_RECVFROM) {
-        err = js_get_errno(recvfrom(sh->sockfd, sh->buffer, sh->length, 0, (struct sockaddr *)&sockaddr, &addr_len));
+        err = js_get_sockerrno(recvfrom(sh->sockfd, (char*) sh->buffer, sh->length, 0, (struct sockaddr *)&sockaddr, &addr_len));
     } else if (sh->magic == MAGIC_SOCKET_SENDTO) {
-        err = js_get_errno(sendto(sh->sockfd, sh->buffer, sh->length, 0, (const struct sockaddr *)&sh->sockaddr, addr_len));
+        err = js_get_sockerrno(sendto(sh->sockfd, (char*) sh->buffer, sh->length, 0, (const struct sockaddr *)&sh->sockaddr, addr_len));
     } else if (sh->magic == MAGIC_SOCKET_CONNECT) {
-        err = getsockopt(sh->sockfd, SOL_SOCKET, SO_ERROR, &err, &len) ? -errno : -err;
+        #ifdef _WIN32
+        err = 0;
+        #else
+        socklen_t len = sizeof(err);
+        err = getsockopt(sh->sockfd, SOL_SOCKET, SO_ERROR, (char*) &err, &len) ? -errno : -err;
+        #endif
     } else if (sh->magic == MAGIC_SOCKET_ACCEPT) {
-        err = js_get_errno(accept(sh->sockfd, (struct sockaddr *)&sockaddr, &addr_len));
+        err = js_get_sockerrno(accept(sh->sockfd, (struct sockaddr *)&sockaddr, &addr_len));
     }
 
-
+#ifdef _WIN32
+    if (err == -WSAEWOULDBLOCK)
+        return;
+#else
     if (err == -EAGAIN || err == -EWOULDBLOCK)
         return;
-
+#endif
     JSValue promiseval = JS_UNDEFINED;
     if (sh->magic == MAGIC_SOCKET_ACCEPT) {
         promiseval = JS_NewArray(ctx);
@@ -2589,8 +2615,10 @@ static int js_os_poll(JSContext *ctx)
 
     /* XXX: handle signals if useful */
 
-    if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
-        list_empty(&ts->port_list)) {
+    if (list_empty(&ts->os_rw_handlers) &&
+        list_empty(&ts->os_timers) &&
+        list_empty(&ts->port_list) &&
+        list_empty(&ts->os_sock_handlers)) {
         return -1; /* no more events */
     }
     
@@ -2620,11 +2648,19 @@ static int js_os_poll(JSContext *ctx)
     count = 0;
     list_for_each(el, &ts->os_rw_handlers) {
         rh = list_entry(el, JSOSRWHandler, link);
-        if (rh->fd == 0 && !JS_IsNull(rh->rw_func[0])) {
+        if (rh->fd == 0 && !JS_IsNull(rh->r_func)) {
             handles[count++] = (HANDLE)_get_osfhandle(rh->fd); // stdin
             if (count == (int)countof(handles))
                 break;
         }
+    }
+
+    list_for_each(el, &ts->os_sock_handlers) {
+        JSOSSockHandler *sh = list_entry(el, JSOSSockHandler, link);
+        //TODO: socket readability don't seems to be a winsock event => trigger manually
+        handles[count++] = sh->event;
+        if (count == (int)countof(handles))
+            break;
     }
 
     list_for_each(el, &ts->port_list) {
@@ -2642,12 +2678,22 @@ static int js_os_poll(JSContext *ctx)
             timeout = min_delay;
         ret = WaitForMultipleObjects(count, handles, FALSE, timeout);
 
+        // why iterate on every list instead of just handles[ret] ?
         if (ret < count) {
             list_for_each(el, &ts->os_rw_handlers) {
                 rh = list_entry(el, JSOSRWHandler, link);
-                if (rh->fd == 0 && !JS_IsNull(rh->rw_func[0])) {
-                    call_handler(ctx, rh->rw_func[0]);
+                if (rh->fd == 0 && !JS_IsNull(rh->r_func)) {
+                    call_handler(ctx, rh->r_func);
                     /* must stop because the list may have been modified */
+                    goto done;
+                }
+            }
+
+            list_for_each(el, &ts->os_sock_handlers) {
+                JSOSSockHandler *sh = list_entry(el, JSOSSockHandler, link);
+                if (sh->event == handles[ret]) {
+                    handle_socket_message(ctx, sh);
+                    WSAResetEvent(sh->event); // WSACloseEvent(sh->event);
                     goto done;
                 }
             }
@@ -3613,7 +3659,7 @@ static JSValue js_os_dup2(JSContext *ctx, JSValueConst this_val,
 static JSValue js_os_socket(JSContext *ctx, JSValueConst this_val,
     int argc, JSValueConst *argv)
 {
-    int domain, type, protocol = 0, ret;
+    int domain, type, protocol = 0;
 
     if (JS_ToInt32(ctx, &domain, argv[0]))
         return JS_EXCEPTION;
@@ -3622,11 +3668,19 @@ static JSValue js_os_socket(JSContext *ctx, JSValueConst this_val,
     if (argc >= 3 && JS_ToInt32(ctx, &protocol, argv[2]))
         return JS_EXCEPTION;
 
-    ret = js_get_errno(socket(domain, type, protocol));
-    
-    if (ret >= 0 && !(type & SOCK_NONBLOCK)) // JS flag `os.SOCK_BLOCKING`
-        fcntl(ret, F_SETFL, fcntl(ret, F_GETFL, 0) | O_NONBLOCK);
-    return JS_NewInt32(ctx, ret);
+    int socketfd = socket(domain, type, protocol);
+    int ret = js_get_sockerrno(socketfd);
+    if (ret < 0)
+        return JS_NewInt32(ctx, ret);
+#if defined(_WIN32)
+    u_long mode = 1;
+    ret = ioctlsocket(ret, FIONBIO, &mode);
+#else
+    ret = fcntl(ret, F_SETFL, fcntl(ret, F_GETFL, 0) | O_NONBLOCK);
+#endif
+    if (ret < 0)
+        return JS_NewInt32(ctx, ret);
+    return JS_NewInt32(ctx, socketfd);
 }
 
 static JSValue js_os_get_setsockopt(JSContext *ctx, JSValueConst this_val,
@@ -3647,9 +3701,9 @@ static JSValue js_os_get_setsockopt(JSContext *ctx, JSValueConst this_val,
     optlen = buflen;
 
     if (magic == 0)
-        ret = js_get_errno(getsockopt(sock, SOL_SOCKET, optname, optval, &optlen));
+        ret = js_get_sockerrno(getsockopt(sock, SOL_SOCKET, optname, (char*)optval, &optlen));
     else
-        ret = js_get_errno(setsockopt(sock, SOL_SOCKET, optname, &optval, optlen));
+        ret = js_get_sockerrno(setsockopt(sock, SOL_SOCKET, optname, (char*)optval, optlen));
     return JS_NewInt32(ctx, ret);
 }
 
@@ -3670,7 +3724,7 @@ static JSValue js_os_getaddrinfo(JSContext *ctx, JSValueConst this_val,
     if (!service)
         goto fail;
 
-    ret = js_get_errno(getaddrinfo(node, service, NULL, &ai));
+    ret = js_get_sockerrno(getaddrinfo(node, service, NULL, &ai));
     if (ret)
         goto fail;
 
@@ -3703,7 +3757,7 @@ static JSValue js_os_bind(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     socklen_t addr_len = sockaddr.ss_family == AF_INET ? sizeof(struct sockaddr_in) :
                          sockaddr.ss_family == AF_INET6 ? sizeof(struct sockaddr_in6) : 0;
-    ret = js_get_errno(bind(sockfd, (struct sockaddr *)&sockaddr, addr_len));
+    ret = js_get_sockerrno(bind(sockfd, (struct sockaddr *)&sockaddr, addr_len));
     return JS_NewInt32(ctx, ret);
 }
 
@@ -3717,7 +3771,7 @@ static JSValue js_os_listen(JSContext *ctx, JSValueConst this_val,
     if (argc >= 2 && JS_ToInt32(ctx, &backlog, argv[1]))
         return JS_EXCEPTION;
 
-    ret = js_get_errno(listen(sockfd, backlog));
+    ret = js_get_sockerrno(listen(sockfd, backlog));
     return JS_NewInt32(ctx, ret);
 }
 
@@ -3737,10 +3791,14 @@ static JSValue js_os_connect_accept(JSContext *ctx, JSValueConst this_val,
         }
         socklen_t addr_len = sockaddr.ss_family == AF_INET ? sizeof(struct sockaddr_in) :
                              sockaddr.ss_family == AF_INET6 ? sizeof(struct sockaddr_in6) : 0;
-
-        sockret = js_get_errno(connect(sockfd, (struct sockaddr *)&sockaddr, addr_len));
-        if (sockret != 0 && sockret != -EINPROGRESS) {
-            JS_ThrowTypeError(ctx, "connect failed");
+        sockret = js_get_sockerrno(connect(sockfd, (struct sockaddr *)&sockaddr, addr_len));
+        #if defined(_WIN32)
+        if (sockret != -WSAEWOULDBLOCK)
+        #else
+        if (sockret != -EINPROGRESS)
+        #endif
+        {
+            JS_ThrowTypeError(ctx, "connect failed (%i)", sockret);
             return JS_EXCEPTION;
         }
     } 
@@ -3757,10 +3815,13 @@ static JSValue js_os_connect_accept(JSContext *ctx, JSValueConst this_val,
     sh->magic = magic;
     sh->resolve = JS_DupValue(ctx, resolving_funcs[0]);
     sh->reject = JS_DupValue(ctx, resolving_funcs[1]);
+    #if defined(_WIN32)
+    sh->event = WSACreateEvent();
+    WSAEventSelect(sh->sockfd, sh->event, magic == MAGIC_SOCKET_CONNECT ? FD_CONNECT : FD_ACCEPT);
+    #endif
     list_add_tail(&sh->link, &ts->os_sock_handlers);
     JS_FreeValue(ctx, resolving_funcs[0]);
     JS_FreeValue(ctx, resolving_funcs[1]);
-
     return promise;
 }
 
@@ -3804,7 +3865,11 @@ static JSValue js_os_recv_send(JSContext *ctx, JSValueConst this_val,
         }
         sh->length = length;
     }
-
+    #if defined(_WIN32)
+    sh->event = WSACreateEvent();
+    int flags = (magic == MAGIC_SOCKET_SENDTO || magic == MAGIC_SOCKET_SEND) ? FD_WRITE : FD_READ;
+    WSAEventSelect(sh->sockfd, sh->event, flags);
+    #endif
     sh->bufval = JS_DupValue(ctx, argv[bufArgvIdx]);
     sh->resolve = JS_DupValue(ctx, resolving_funcs[0]);
     sh->reject = JS_DupValue(ctx, resolving_funcs[1]);
@@ -3831,7 +3896,7 @@ static JSValue js_os_shutdown(JSContext *ctx, JSValueConst this_val,
     if (JS_ToInt32(ctx, &how, argv[1]))
         return JS_EXCEPTION;
 
-    ret = js_get_errno(shutdown(sockfd, how));
+    ret = js_get_sockerrno(shutdown(sockfd, how));
     return JS_NewInt32(ctx, ret);
 }
 
@@ -4389,14 +4454,18 @@ static const JSCFunctionListEntry js_os_funcs[] = {
     OS_FLAG(SOCK_STREAM),
     OS_FLAG(SOCK_DGRAM),
     OS_FLAG(SOCK_RAW),
-    // SOCK_NONBLOCK is set by default so reuse it value for our imaginary nemsis
-    JS_PROP_INT32_DEF("SOCK_BLOCK", SOCK_NONBLOCK, JS_PROP_CONFIGURABLE ),
     OS_FLAG(SO_REUSEADDR),
     OS_FLAG(SO_RCVBUF),
     OS_FLAG(SO_ERROR),
+#if defined(_WIN32)
+    JS_PROP_INT32_DEF("SHUT_RD", SD_RECEIVE, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("SHUT_WR", SD_SEND, JS_PROP_CONFIGURABLE),
+    JS_PROP_INT32_DEF("SHUT_RDWR", SD_BOTH, JS_PROP_CONFIGURABLE),
+#else
     OS_FLAG(SHUT_RD),
     OS_FLAG(SHUT_WR),
     OS_FLAG(SHUT_RDWR),
+#endif
 };
 
 static int js_os_init(JSContext *ctx, JSModuleDef *m)
