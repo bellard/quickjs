@@ -496,8 +496,7 @@ static void *agent_start(void *arg)
     JS_FreeValue(ctx, ret_val);
 
     for(;;) {
-        JSContext *ctx1;
-        ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
+        ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), NULL);
         if (ret < 0) {
             js_std_dump_error(ctx);
             break;
@@ -1270,8 +1269,7 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
             JS_FreeValue(ctx, res_val);
         }
         for(;;) {
-            JSContext *ctx1;
-            ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
+            ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), NULL);
             if (ret < 0) {
                 res_val = JS_EXCEPTION;
                 break;
@@ -1938,10 +1936,9 @@ int run_test262_harness_test(const char *filename, BOOL is_module)
             JS_FreeValue(ctx, res_val);
         }
         for(;;) {
-            JSContext *ctx1;
-            ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
+            ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), NULL);
             if (ret < 0) {
-                js_std_dump_error(ctx1);
+                js_std_dump_error(ctx);
                 ret_code = 1;
             } else if (ret == 0) {
                 break;

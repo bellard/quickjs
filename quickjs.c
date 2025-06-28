@@ -341,6 +341,7 @@ typedef enum {
     JS_GC_OBJ_TYPE_VAR_REF,
     JS_GC_OBJ_TYPE_ASYNC_FUNCTION,
     JS_GC_OBJ_TYPE_JS_CONTEXT,
+    JS_GC_OBJ_TYPE_MODULE,
 } JSGCObjectTypeEnum;
 
 /* header for GC objects. GC objects are C data structures with a
@@ -805,7 +806,7 @@ typedef enum {
 } JSModuleStatus;
 
 struct JSModuleDef {
-    JSRefCountHeader header; /* must come first, 32-bit */
+    JSGCObjectHeader header; /* must come first */
     JSAtom module_name;
     struct list_head link;
 
@@ -857,7 +858,7 @@ struct JSModuleDef {
 
 typedef struct JSJobEntry {
     struct list_head link;
-    JSContext *ctx;
+    JSContext *realm;
     JSJobFunc *job_func;
     int argc;
     JSValue argv[0];
@@ -1222,7 +1223,7 @@ static void js_async_function_resolve_mark(JSRuntime *rt, JSValueConst val,
 static JSValue JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
                                const char *input, size_t input_len,
                                const char *filename, int flags, int scope_idx);
-static void js_free_module_def(JSContext *ctx, JSModuleDef *m);
+static void js_free_module_def(JSRuntime *rt, JSModuleDef *m);
 static void js_mark_module_def(JSRuntime *rt, JSModuleDef *m,
                                JS_MarkFunc *mark_func);
 static JSValue js_import_meta(JSContext *ctx);
@@ -1782,7 +1783,7 @@ int JS_EnqueueJob(JSContext *ctx, JSJobFunc *job_func,
     e = js_malloc(ctx, sizeof(*e) + argc * sizeof(JSValue));
     if (!e)
         return -1;
-    e->ctx = ctx;
+    e->realm = JS_DupContext(ctx);
     e->job_func = job_func;
     e->argc = argc;
     for(i = 0; i < argc; i++) {
@@ -1798,7 +1799,10 @@ BOOL JS_IsJobPending(JSRuntime *rt)
 }
 
 /* return < 0 if exception, 0 if no job pending, 1 if a job was
-   executed successfully. the context of the job is stored in '*pctx' */
+   executed successfully. The context of the job is stored in '*pctx'
+   if pctx != NULL. It may be NULL if the context was already
+   destroyed or if no job was pending. The 'pctx' parameter is now
+   absolete. */
 int JS_ExecutePendingJob(JSRuntime *rt, JSContext **pctx)
 {
     JSContext *ctx;
@@ -1807,15 +1811,16 @@ int JS_ExecutePendingJob(JSRuntime *rt, JSContext **pctx)
     int i, ret;
 
     if (list_empty(&rt->job_list)) {
-        *pctx = NULL;
+        if (pctx)
+            *pctx = NULL;
         return 0;
     }
 
     /* get the first pending job and execute it */
     e = list_entry(rt->job_list.next, JSJobEntry, link);
     list_del(&e->link);
-    ctx = e->ctx;
-    res = e->job_func(e->ctx, e->argc, (JSValueConst *)e->argv);
+    ctx = e->realm;
+    res = e->job_func(ctx, e->argc, (JSValueConst *)e->argv);
     for(i = 0; i < e->argc; i++)
         JS_FreeValue(ctx, e->argv[i]);
     if (JS_IsException(res))
@@ -1824,7 +1829,13 @@ int JS_ExecutePendingJob(JSRuntime *rt, JSContext **pctx)
         ret = 1;
     JS_FreeValue(ctx, res);
     js_free(ctx, e);
-    *pctx = ctx;
+    if (pctx) {
+        if (ctx->header.ref_count > 1)
+            *pctx = ctx;
+        else
+            *pctx = NULL;
+    }
+    JS_FreeContext(ctx);
     return ret;
 }
 
@@ -1905,6 +1916,7 @@ void JS_FreeRuntime(JSRuntime *rt)
         JSJobEntry *e = list_entry(el, JSJobEntry, link);
         for(i = 0; i < e->argc; i++)
             JS_FreeValueRT(rt, e->argv[i]);
+        JS_FreeContext(e->realm);
         js_free_rt(rt, e);
     }
     init_list_head(&rt->job_list);
@@ -2180,7 +2192,13 @@ static void js_free_modules(JSContext *ctx, JSFreeModuleEnum flag)
         JSModuleDef *m = list_entry(el, JSModuleDef, link);
         if (flag == JS_FREE_MODULE_ALL ||
             (flag == JS_FREE_MODULE_NOT_RESOLVED && !m->resolved)) {
-            js_free_module_def(ctx, m);
+            /* warning: the module may be referenced elsewhere. It
+               could be simpler to use an array instead of a list for
+               'ctx->loaded_modules' */
+            list_del(&m->link);
+            m->link.prev = NULL;
+            m->link.next = NULL;
+            JS_FreeValue(ctx, JS_MKPTR(JS_TAG_MODULE, m));
         }
     }
 }
@@ -2198,11 +2216,9 @@ static void JS_MarkContext(JSRuntime *rt, JSContext *ctx,
     int i;
     struct list_head *el;
 
-    /* modules are not seen by the GC, so we directly mark the objects
-       referenced by each module */
     list_for_each(el, &ctx->loaded_modules) {
         JSModuleDef *m = list_entry(el, JSModuleDef, link);
-        js_mark_module_def(rt, m, mark_func);
+        JS_MarkValue(rt, JS_MKPTR(JS_TAG_MODULE, m), mark_func);
     }
 
     JS_MarkValue(rt, ctx->global_obj, mark_func);
@@ -5783,6 +5799,9 @@ static void free_gc_object(JSRuntime *rt, JSGCObjectHeader *gp)
     case JS_GC_OBJ_TYPE_ASYNC_FUNCTION:
         __async_func_free(rt, (JSAsyncFunctionState *)gp);
         break;
+    case JS_GC_OBJ_TYPE_MODULE:
+        js_free_module_def(rt, (JSModuleDef *)gp);
+        break;
     default:
         abort();
     }
@@ -5847,6 +5866,7 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
         break;
     case JS_TAG_OBJECT:
     case JS_TAG_FUNCTION_BYTECODE:
+    case JS_TAG_MODULE:
         {
             JSGCObjectHeader *p = JS_VALUE_GET_PTR(v);
             if (rt->gc_phase != JS_GC_PHASE_REMOVE_CYCLES) {
@@ -5858,9 +5878,6 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
                 }
             }
         }
-        break;
-    case JS_TAG_MODULE:
-        abort(); /* never freed here */
         break;
     case JS_TAG_BIG_INT:
         {
@@ -5935,6 +5952,7 @@ void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func)
         switch(JS_VALUE_GET_TAG(val)) {
         case JS_TAG_OBJECT:
         case JS_TAG_FUNCTION_BYTECODE:
+        case JS_TAG_MODULE:
             mark_func(rt, JS_VALUE_GET_PTR(val));
             break;
         default:
@@ -6047,6 +6065,12 @@ static void mark_children(JSRuntime *rt, JSGCObjectHeader *gp,
             JS_MarkContext(rt, ctx, mark_func);
         }
         break;
+    case JS_GC_OBJ_TYPE_MODULE:
+        {
+            JSModuleDef *m = (JSModuleDef *)gp;
+            js_mark_module_def(rt, m, mark_func);
+        }
+        break;
     default:
         abort();
     }
@@ -6143,6 +6167,7 @@ static void gc_free_cycles(JSRuntime *rt)
         case JS_GC_OBJ_TYPE_JS_OBJECT:
         case JS_GC_OBJ_TYPE_FUNCTION_BYTECODE:
         case JS_GC_OBJ_TYPE_ASYNC_FUNCTION:
+        case JS_GC_OBJ_TYPE_MODULE:
 #ifdef DUMP_GC_FREE
             if (!header_done) {
                 printf("Freeing cycles:\n");
@@ -6165,7 +6190,8 @@ static void gc_free_cycles(JSRuntime *rt)
         p = list_entry(el, JSGCObjectHeader, link);
         assert(p->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT ||
                p->gc_obj_type == JS_GC_OBJ_TYPE_FUNCTION_BYTECODE ||
-               p->gc_obj_type == JS_GC_OBJ_TYPE_ASYNC_FUNCTION);
+               p->gc_obj_type == JS_GC_OBJ_TYPE_ASYNC_FUNCTION ||
+               p->gc_obj_type == JS_GC_OBJ_TYPE_MODULE);
         if (p->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT &&
             ((JSObject *)p)->weakref_count != 0) {
             /* keep the object because there are weak references to it */
@@ -13746,6 +13772,9 @@ static __maybe_unused void JS_DumpGCObject(JSRuntime *rt, JSGCObjectHeader *p)
             break;
         case JS_GC_OBJ_TYPE_JS_CONTEXT:
             printf("[js_context]");
+            break;
+        case JS_GC_OBJ_TYPE_MODULE:
+            printf("[module]");
             break;
         default:
             printf("[unknown %d]", p->gc_obj_type);
@@ -28216,7 +28245,7 @@ fail:
     return -1;
 }
 
-/* 'name' is freed */
+/* 'name' is freed. The module is referenced by 'ctx->loaded_modules' */
 static JSModuleDef *js_new_module_def(JSContext *ctx, JSAtom name)
 {
     JSModuleDef *m;
@@ -28226,6 +28255,7 @@ static JSModuleDef *js_new_module_def(JSContext *ctx, JSAtom name)
         return NULL;
     }
     m->header.ref_count = 1;
+    add_gc_object(ctx->rt, &m->header, JS_GC_OBJ_TYPE_MODULE);
     m->module_name = name;
     m->module_ns = JS_UNDEFINED;
     m->func_obj = JS_UNDEFINED;
@@ -28267,47 +28297,56 @@ static void js_mark_module_def(JSRuntime *rt, JSModuleDef *m,
     JS_MarkValue(rt, m->private_value, mark_func);
 }
 
-static void js_free_module_def(JSContext *ctx, JSModuleDef *m)
+static void js_free_module_def(JSRuntime *rt, JSModuleDef *m)
 {
     int i;
 
-    JS_FreeAtom(ctx, m->module_name);
+    JS_FreeAtomRT(rt, m->module_name);
 
     for(i = 0; i < m->req_module_entries_count; i++) {
         JSReqModuleEntry *rme = &m->req_module_entries[i];
-        JS_FreeAtom(ctx, rme->module_name);
-        JS_FreeValue(ctx, rme->attributes);
+        JS_FreeAtomRT(rt, rme->module_name);
+        JS_FreeValueRT(rt, rme->attributes);
     }
-    js_free(ctx, m->req_module_entries);
+    js_free_rt(rt, m->req_module_entries);
 
     for(i = 0; i < m->export_entries_count; i++) {
         JSExportEntry *me = &m->export_entries[i];
         if (me->export_type == JS_EXPORT_TYPE_LOCAL)
-            free_var_ref(ctx->rt, me->u.local.var_ref);
-        JS_FreeAtom(ctx, me->export_name);
-        JS_FreeAtom(ctx, me->local_name);
+            free_var_ref(rt, me->u.local.var_ref);
+        JS_FreeAtomRT(rt, me->export_name);
+        JS_FreeAtomRT(rt, me->local_name);
     }
-    js_free(ctx, m->export_entries);
+    js_free_rt(rt, m->export_entries);
 
-    js_free(ctx, m->star_export_entries);
+    js_free_rt(rt, m->star_export_entries);
 
     for(i = 0; i < m->import_entries_count; i++) {
         JSImportEntry *mi = &m->import_entries[i];
-        JS_FreeAtom(ctx, mi->import_name);
+        JS_FreeAtomRT(rt, mi->import_name);
     }
-    js_free(ctx, m->import_entries);
-    js_free(ctx, m->async_parent_modules);
+    js_free_rt(rt, m->import_entries);
+    js_free_rt(rt, m->async_parent_modules);
 
-    JS_FreeValue(ctx, m->module_ns);
-    JS_FreeValue(ctx, m->func_obj);
-    JS_FreeValue(ctx, m->eval_exception);
-    JS_FreeValue(ctx, m->meta_obj);
-    JS_FreeValue(ctx, m->promise);
-    JS_FreeValue(ctx, m->resolving_funcs[0]);
-    JS_FreeValue(ctx, m->resolving_funcs[1]);
-    JS_FreeValue(ctx, m->private_value);
-    list_del(&m->link);
-    js_free(ctx, m);
+    JS_FreeValueRT(rt, m->module_ns);
+    JS_FreeValueRT(rt, m->func_obj);
+    JS_FreeValueRT(rt, m->eval_exception);
+    JS_FreeValueRT(rt, m->meta_obj);
+    JS_FreeValueRT(rt, m->promise);
+    JS_FreeValueRT(rt, m->resolving_funcs[0]);
+    JS_FreeValueRT(rt, m->resolving_funcs[1]);
+    JS_FreeValueRT(rt, m->private_value);
+    /* during the GC the finalizers are called in an arbitrary
+       order so the module may no longer be referenced by the JSContext list */
+    if (m->link.next) {
+        list_del(&m->link);
+    }
+    remove_gc_object(&m->header);
+    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && m->header.ref_count != 0) {
+        list_add_tail(&m->header.link, &rt->gc_zero_ref_count_list);
+    } else {
+        js_free_rt(rt, m);
+    }
 }
 
 static int add_req_module_entry(JSContext *ctx, JSModuleDef *m,
@@ -35804,7 +35843,7 @@ static JSValue __JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
  fail1:
     /* XXX: should free all the unresolved dependencies */
     if (m)
-        js_free_module_def(ctx, m);
+        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_MODULE, m));
     return JS_EXCEPTION;
 }
 
@@ -37516,7 +37555,7 @@ static JSValue JS_ReadModule(BCReaderState *s)
     return obj;
  fail:
     if (m) {
-        js_free_module_def(ctx, m);
+        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_MODULE, m));
     }
     return JS_EXCEPTION;
 }
@@ -55663,7 +55702,7 @@ typedef struct JSFinRecEntry {
 typedef struct JSFinalizationRegistryData {
     JSWeakRefHeader weakref_header;
     struct list_head entries; /* list of JSFinRecEntry.link */
-    JSContext *ctx;
+    JSContext *realm;
     JSValue cb;
 } JSFinalizationRegistryData;
 
@@ -55680,6 +55719,7 @@ static void js_finrec_finalizer(JSRuntime *rt, JSValue val)
             js_free_rt(rt, fre);
         }
         JS_FreeValueRT(rt, frd->cb);
+        JS_FreeContext(frd->realm);
         list_del(&frd->weakref_header.link);
         js_free_rt(rt, frd);
     }
@@ -55696,6 +55736,7 @@ static void js_finrec_mark(JSRuntime *rt, JSValueConst val,
             JS_MarkValue(rt, fre->held_val, mark_func);
         }
         JS_MarkValue(rt, frd->cb, mark_func);
+        mark_func(rt, &frd->realm->header);
     }
 }
 
@@ -55721,7 +55762,7 @@ static void finrec_delete_weakref(JSRuntime *rt, JSWeakRefHeader *wh)
             JSValueConst args[2];
             args[0] = frd->cb;
             args[1] = fre->held_val;
-            JS_EnqueueJob(frd->ctx, js_finrec_job, 2, args);
+            JS_EnqueueJob(frd->realm, js_finrec_job, 2, args);
                 
             js_weakref_free(rt, fre->target);
             js_weakref_free(rt, fre->token);
@@ -55756,7 +55797,7 @@ static JSValue js_finrec_constructor(JSContext *ctx, JSValueConst new_target,
     frd->weakref_header.weakref_type = JS_WEAKREF_TYPE_FINREC;
     list_add_tail(&frd->weakref_header.link, &ctx->rt->weakref_list);
     init_list_head(&frd->entries);
-    frd->ctx = ctx; /* XXX: JS_DupContext() ? */
+    frd->realm = JS_DupContext(ctx);
     frd->cb = JS_DupValue(ctx, cb);
     JS_SetOpaque(obj, frd);
     return obj;
