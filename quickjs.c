@@ -54097,14 +54097,24 @@ static JSValue js_typed_array_subarray(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv)
 {
     JSValueConst args[4];
-    JSValue arr, ta_buffer;
-    JSTypedArray *ta;
+    JSValue arr, byteOffset, ta_buffer;
     JSObject *p;
-    int len, start, final, count, shift, offset;
+    int len, start, final, count, shift, byte_offset, offset;
 
     p = get_typed_array(ctx, this_val, 0);
     if (!p)
         goto exception;
+
+    /* Fetch byteOffset first, then access start and final. It's technically
+    possible for the buffer to be detached when accessing start of final, by
+    way of `valueOf()` for instance, and the spec indicates we should preserve
+    the byteOffset value from before it might be detached */
+    byteOffset = js_typed_array_get_byteOffset(ctx, this_val, 0);
+    if (JS_IsException(byteOffset))
+        goto exception;
+    byte_offset = JS_VALUE_GET_INT(byteOffset);
+    JS_FreeValue(ctx, byteOffset);
+
     len = p->u.array.count;
     if (JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len))
         goto exception;
@@ -54116,9 +54126,7 @@ static JSValue js_typed_array_subarray(JSContext *ctx, JSValueConst this_val,
     }
     count = max_int(final - start, 0);
     shift = typed_array_size_log2(p->class_id);
-    ta = p->u.typed_array;
-    /* Read byteOffset (ta->offset) even if detached */
-    offset = ta->offset + (start << shift);
+    offset = byte_offset + (start << shift);
     ta_buffer = js_typed_array_get_buffer(ctx, this_val, 0);
     if (JS_IsException(ta_buffer))
         goto exception;
