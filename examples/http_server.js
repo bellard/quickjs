@@ -2,7 +2,9 @@
 ///@ts-check
 /// <reference path="../doc/globals.d.ts" />
 /// <reference path="../doc/os.d.ts" />
+/// <reference path="../doc/std.d.ts" />
 import * as os from "os";
+import * as std from "std";// for std.strerror
 
 const MIMES = new Map([
     ['html', 'text/html'],
@@ -17,7 +19,7 @@ const MIMES = new Map([
 ]);
 /** @template T @param {os.Result<T>} result */
 function must(result) {
-    if (typeof result === "number" && result < 0) throw result;
+    if (typeof result === "number" && result < 0) throw new Error(std.strerror(-result));
     return /** @type {T} */ (result)
 }
 /**@param {os.FileDescriptor} fd */
@@ -40,7 +42,7 @@ function sendLines(fd, lines) {
 }
 //USAGE: qjs http_server.js [PORT=8080 [HOST=localhost]]
 const [port = "8080", host = "localhost"] = scriptArgs.slice(1);
-const ai = os.getaddrinfo(host, port).find(a => a.family == os.AF_INET);
+const [ai] = must(os.getaddrinfo(host, { service: port }));
 //if (!ai.length) throw `Unable to getaddrinfo(${host}, ${port})`;
 const sock_srv = must(os.socket(os.AF_INET, os.SOCK_STREAM));
 must(os.setsockopt(sock_srv, os.SO_REUSEADDR, new Uint32Array([1]).buffer));

@@ -3710,27 +3710,42 @@ static JSValue js_os_get_setsockopt(JSContext *ctx, JSValueConst this_val,
 static JSValue js_os_getaddrinfo(JSContext *ctx, JSValueConst this_val,
     int argc, JSValueConst *argv)
 {
-    int ret;
-    socklen_t objLen;
-    JSValue obj, addrObj;
-    const char* node = NULL;
+    int ret = -1;
+    if (!JS_IsString(argv[0]))
+        return JS_EXCEPTION;
+    const char* node = JS_ToCString(ctx, argv[0]);
+
     const char* service = NULL;
-    struct addrinfo *ai,*it;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    if (!JS_IsNull(argv[1]) && JS_IsObject(argv[1])) {
+        JSValue prop_service = JS_GetPropertyStr(ctx, argv[1], "service");
+        JSValue prop_family = JS_GetPropertyStr(ctx, argv[1], "family");
+        JSValue prop_socktype = JS_GetPropertyStr(ctx, argv[1], "socktype");
+        if (JS_IsException(prop_service) ||
+            JS_IsException(prop_family) ||
+            JS_IsException(prop_socktype))
+            goto fail;
+        if (!JS_IsUndefined(prop_service))
+            service = JS_ToCString(ctx, prop_service);
+        if (!JS_IsUndefined(prop_family))
+            JS_ToInt32(ctx, &hints.ai_family, prop_family);
+        if (!JS_IsUndefined(prop_socktype))
+            JS_ToInt32(ctx, &hints.ai_socktype, prop_socktype);
+    }
 
-    if (!JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0]))
-        node = JS_ToCString(ctx, argv[0]);
-
-    service = JS_ToCString(ctx, argv[1]);
-    if (!service)
-        goto fail;
-
-    ret = js_get_sockerrno(getaddrinfo(node, service, NULL, &ai));
+    struct addrinfo *ai;
+    ret = js_get_sockerrno(getaddrinfo(node, service, &hints, &ai));
     if (ret)
         goto fail;
 
-    obj = JS_NewArray(ctx);
+    struct addrinfo *it;
+    socklen_t objLen;
+    JSValue obj = JS_NewArray(ctx);
     for (objLen = 0, it = ai; it; it = it->ai_next, objLen++) {
-        addrObj = JS_ToSockaddrObj(ctx,(struct sockaddr_storage *)it->ai_addr);
+        JSValue addrObj = JS_ToSockaddrObj(ctx,(struct sockaddr_storage *)it->ai_addr);
+        JSValue prop_socktype = JS_NewUint32(ctx, it->ai_socktype);
+        JS_DefinePropertyValueStr(ctx, addrObj, "socktype", prop_socktype, JS_PROP_C_W_E);
         JS_SetPropertyUint32(ctx,obj,objLen,addrObj);
     }
 
@@ -3742,7 +3757,7 @@ fail:
     JS_FreeValue(ctx, obj);
     JS_FreeCString(ctx, service);
     JS_FreeCString(ctx, node);
-    return JS_EXCEPTION;
+    return JS_NewInt32(ctx, ret);
 }
 
 static JSValue js_os_bind(JSContext *ctx, JSValueConst this_val,
