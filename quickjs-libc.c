@@ -4300,6 +4300,7 @@ void js_std_eval_binary(JSContext *ctx, const uint8_t *buf, size_t buf_len,
         if (JS_VALUE_GET_TAG(obj) == JS_TAG_MODULE) {
             js_module_set_import_meta(ctx, obj, FALSE, FALSE);
         }
+        JS_FreeValue(ctx, obj);
     } else {
         if (JS_VALUE_GET_TAG(obj) == JS_TAG_MODULE) {
             if (JS_ResolveModule(ctx, obj) < 0) {
