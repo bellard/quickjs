@@ -3165,6 +3165,15 @@ int lre_exec(uint8_t **capture,
     s->interrupt_counter = INTERRUPT_COUNTER_INIT;
     s->opaque = opaque;
 
+    const uint8_t *cptr = cbuf + (cindex << cbuf_type);
+
+    if (0 < cindex && cindex < clen && s->is_unicode) {
+      const uint16_t *p = (const uint16_t *)cptr;
+      if (is_lo_surrogate(*p) && is_hi_surrogate(*(--p))) {
+        cptr = (const void *)p;
+      }
+    }
+
     s->state_size = sizeof(REExecState) +
         s->capture_count * sizeof(capture[0]) * 2 +
         s->stack_size_max * sizeof(stack_buf[0]);
@@ -3177,7 +3186,7 @@ int lre_exec(uint8_t **capture,
     alloca_size = s->stack_size_max * sizeof(stack_buf[0]);
     stack_buf = alloca(alloca_size);
     ret = lre_exec_backtrack(s, capture, stack_buf, 0, bc_buf + RE_HEADER_LEN,
-                             cbuf + (cindex << cbuf_type), FALSE);
+                             cptr, FALSE);
     lre_realloc(s->opaque, s->state_stack, 0);
     return ret;
 }
