@@ -6877,20 +6877,30 @@ static int find_line_num(JSContext *ctx, JSFunctionBytecode *b,
     return 0;
 }
 
-/* in order to avoid executing arbitrary code during the stack trace
-   generation, we only look at simple 'name' properties containing a
-   string. */
-static const char *get_func_name(JSContext *ctx, JSValueConst func)
+/* return a string property without executing arbitrary JS code (used
+   when dumping the stack trace or in debug print). */
+static const char *get_prop_string(JSContext *ctx, JSValueConst obj, JSAtom prop)
 {
+    JSObject *p;
     JSProperty *pr;
     JSShapeProperty *prs;
     JSValueConst val;
 
-    if (JS_VALUE_GET_TAG(func) != JS_TAG_OBJECT)
+    if (JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT)
         return NULL;
-    prs = find_own_property(&pr, JS_VALUE_GET_OBJ(func), JS_ATOM_name);
-    if (!prs)
-        return NULL;
+    p = JS_VALUE_GET_OBJ(obj);
+    prs = find_own_property(&pr, p, prop);
+    if (!prs) {
+        /* we look at one level in the prototype to handle the 'name'
+           field of the Error objects */
+        p = p->shape->proto;
+        if (!p)
+            return NULL;
+        prs = find_own_property(&pr, p, prop);
+        if (!prs)
+            return NULL;
+    }
+    
     if ((prs->flags & JS_PROP_TMASK) != JS_PROP_NORMAL)
         return NULL;
     val = pr->u.value;
@@ -6943,7 +6953,7 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
             backtrace_flags &= ~JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
             continue;
         }
-        func_name_str = get_func_name(ctx, sf->cur_func);
+        func_name_str = get_prop_string(ctx, sf->cur_func, JS_ATOM_name);
         if (!func_name_str || func_name_str[0] == '\0')
             str1 = "<anonymous>";
         else
@@ -13154,22 +13164,15 @@ static void js_print_string(JSPrintValueState *s, JSValueConst val)
     }
 }
 
-static void js_print_raw_string2(JSPrintValueState *s, JSValueConst val, BOOL remove_last_lf)
+static void js_print_raw_string(JSPrintValueState *s, JSValueConst val)
 {
     const char *cstr;
     size_t len;
     cstr = JS_ToCStringLen(s->ctx, &len, val);
     if (cstr) {
-        if (remove_last_lf && len > 0 && cstr[len - 1] == '\n')
-            len--;
         s->write_func(s->write_opaque, cstr, len);
         JS_FreeCString(s->ctx, cstr);
     }
-}
-
-static void js_print_raw_string(JSPrintValueState *s, JSValueConst val)
-{
-    js_print_raw_string2(s, val, FALSE);
 }
 
 static BOOL is_ascii_ident(const JSString *p)
@@ -13255,6 +13258,104 @@ static void js_print_more_items(JSPrintValueState *s, int *pcomma_state,
 {
     js_print_comma(s, pcomma_state);
     js_printf(s, "... %u more item%s", n, n > 1 ? "s" : "");
+}
+
+/* similar to js_regexp_toString() but without side effect */
+static void js_print_regexp(JSPrintValueState *s, JSObject *p1)
+{
+    JSRegExp *re = &p1->u.regexp;
+    JSString *p;
+    int i, n, c, c2, bra, flags;
+    static const char regexp_flags[] = { 'g', 'i', 'm', 's', 'u', 'y', 'd', 'v' };
+
+    p = re->pattern;
+    js_putc(s, '/');
+    if (p->len == 0) {
+        js_puts(s, "(?:)");
+    } else {
+        bra = 0;
+        for (i = 0, n = p->len; i < n;) {
+            c2 = -1;
+            switch (c = string_get(p, i++)) {
+            case '\\':
+                if (i < n)
+                    c2 = string_get(p, i++);
+                break;
+            case ']':
+                bra = 0;
+                break;
+            case '[':
+                if (!bra) {
+                    if (i < n && string_get(p, i) == ']')
+                        c2 = string_get(p, i++);
+                    bra = 1;
+                }
+                break;
+            case '\n':
+                c = '\\';
+                c2 = 'n';
+                break;
+            case '\r':
+                c = '\\';
+                c2 = 'r';
+                break;
+            case '/':
+                if (!bra) {
+                    c = '\\';
+                    c2 = '/';
+                }
+                break;
+            }
+            js_putc(s, c);
+            if (c2 >= 0)
+                js_putc(s, c2);
+        }
+    }
+    js_putc(s, '/');
+
+    flags = lre_get_flags(re->bytecode->u.str8);
+    for(i = 0; i < countof(regexp_flags); i++) {
+        if ((flags >> i) & 1) {
+            js_putc(s, regexp_flags[i]);
+        }
+    }
+}
+
+/* similar to js_error_toString() but without side effect */
+static void js_print_error(JSPrintValueState *s, JSObject *p)
+{
+    const char *str;
+    size_t len;
+
+    str = get_prop_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_name);
+    if (!str) {
+        js_puts(s, "Error");
+    } else {
+        js_puts(s, str);
+        JS_FreeCString(s->ctx, str);
+    }
+    
+    str = get_prop_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_message);
+    if (str && str[0] != '\0') {
+        js_puts(s, ": ");
+        js_puts(s, str);
+    }
+    JS_FreeCString(s->ctx, str);
+
+    /* dump the stack if present */
+    str = get_prop_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_stack);
+    if (str) {
+        js_putc(s, '\n');
+        
+        /* XXX: should remove the last '\n' in stack as
+           v8. SpiderMonkey does not do it */
+        len = strlen(str);
+        if (len > 0 && str[len - 1] == '\n')
+            len--;
+        s->write_func(s->write_opaque, str, len);
+        
+        JS_FreeCString(s->ctx, str);
+    }
 }
 
 static void js_print_object(JSPrintValueState *s, JSObject *p)
@@ -13352,7 +13453,7 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
         if (!s->options.raw_dump && s->ctx) {
             const char *func_name_str;
             js_putc(s, ' ');
-            func_name_str = get_func_name(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p));
+            func_name_str = get_prop_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_name);
             if (!func_name_str || func_name_str[0] == '\0')
                 js_puts(s, "(anonymous)");
             else
@@ -13386,35 +13487,19 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
         }
         if (i < ms->record_count)
             js_print_more_items(s, &comma_state, ms->record_count - i);
-    } else if (p->class_id == JS_CLASS_REGEXP && s->ctx && !s->options.raw_dump) {
-        JSValue str = js_regexp_toString(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), 0, NULL);
-        if (JS_IsException(str))
-            goto default_obj;
-        js_print_raw_string(s, str);
-        JS_FreeValueRT(s->rt, str);
+    } else if (p->class_id == JS_CLASS_REGEXP && s->ctx) {
+        js_print_regexp(s, p);
         comma_state = 2;
-    } else if (p->class_id == JS_CLASS_DATE && s->ctx && !s->options.raw_dump) {
+    } else if (p->class_id == JS_CLASS_DATE && s->ctx) {
+        /* get_date_string() has no side effect */
         JSValue str = get_date_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), 0, NULL, 0x23); /* toISOString() */
         if (JS_IsException(str))
             goto default_obj;
         js_print_raw_string(s, str);
         JS_FreeValueRT(s->rt, str);
         comma_state = 2;
-    } else if (p->class_id == JS_CLASS_ERROR && s->ctx && !s->options.raw_dump) {
-        JSValue str = js_error_toString(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), 0, NULL);
-        if (JS_IsException(str))
-            goto default_obj;
-        js_print_raw_string(s, str);
-        JS_FreeValueRT(s->rt, str);
-        /* dump the stack if present */
-        str = JS_GetProperty(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_stack);
-        if (JS_IsString(str)) {
-            js_putc(s, '\n');
-            /* XXX: should remove the last '\n' in stack as
-               v8. SpiderMonkey does not do it */
-            js_print_raw_string2(s, str, TRUE);
-        }
-        JS_FreeValueRT(s->rt, str);
+    } else if (p->class_id == JS_CLASS_ERROR && s->ctx) {
+        js_print_error(s, p);
         comma_state = 2;
     } else {
         default_obj:
