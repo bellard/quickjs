@@ -3190,7 +3190,7 @@ int lre_exec(uint8_t **capture,
     stack_buf = alloca(alloca_size);
 
     cptr = cbuf + (cindex << cbuf_type);
-    if (0 < cindex && cindex < clen && s->is_unicode) {
+    if (0 < cindex && cindex < clen && s->cbuf_type == 2) {
         const uint16_t *p = (const uint16_t *)cptr;
         if (is_lo_surrogate(*p) && is_hi_surrogate(p[-1])) {
             cptr = (const uint8_t *)(p - 1);
