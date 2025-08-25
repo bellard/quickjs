@@ -2433,6 +2433,17 @@ static int compute_stack_size(const uint8_t *bc_buf, int bc_buf_len)
     return stack_size_max;
 }
 
+static void *lre_bytecode_realloc(void *opaque, void *ptr, size_t size)
+{
+    if (size > (INT32_MAX / 2)) {
+        /* the bytecode cannot be larger than 2G. Leave some slack to 
+           avoid some overflows. */
+        return NULL;
+    } else {
+        return lre_realloc(opaque, ptr, size);
+    }
+}
+
 /* 'buf' must be a zero terminated UTF-8 string of length buf_len.
    Return NULL if error and allocate an error message in *perror_msg,
    otherwise the compiled bytecode and its length in plen.
@@ -2461,7 +2472,7 @@ uint8_t *lre_compile(int *plen, char *error_msg, int error_msg_size,
     s->total_capture_count = -1;
     s->has_named_captures = -1;
 
-    dbuf_init2(&s->byte_code, opaque, lre_realloc);
+    dbuf_init2(&s->byte_code, opaque, lre_bytecode_realloc);
     dbuf_init2(&s->group_names, opaque, lre_realloc);
 
     dbuf_put_u16(&s->byte_code, re_flags); /* first element is the flags */

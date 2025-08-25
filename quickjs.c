@@ -1470,6 +1470,23 @@ static inline void js_dbuf_init(JSContext *ctx, DynBuf *s)
     dbuf_init2(s, ctx->rt, (DynBufReallocFunc *)js_realloc_rt);
 }
 
+static void *js_realloc_bytecode_rt(void *opaque, void *ptr, size_t size)
+{
+    JSRuntime *rt = opaque;
+    if (size > (INT32_MAX / 2)) {
+        /* the bytecode cannot be larger than 2G. Leave some slack to 
+           avoid some overflows. */
+        return NULL;
+    } else {
+        return rt->mf.js_realloc(&rt->malloc_state, ptr, size);
+    }
+}
+
+static inline void js_dbuf_bytecode_init(JSContext *ctx, DynBuf *s)
+{
+    dbuf_init2(s, ctx->rt, js_realloc_bytecode_rt);
+}
+
 static inline int is_digit(int c) {
     return c >= '0' && c <= '9';
 }
@@ -30809,7 +30826,7 @@ static JSFunctionDef *js_new_function_def(JSContext *ctx,
 
     fd->is_eval = is_eval;
     fd->is_func_expr = is_func_expr;
-    js_dbuf_init(ctx, &fd->byte_code);
+    js_dbuf_bytecode_init(ctx, &fd->byte_code);
     fd->last_opcode_pos = -1;
     fd->func_name = JS_ATOM_NULL;
     fd->var_object_idx = -1;
@@ -32904,7 +32921,7 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
 
     cc.bc_buf = bc_buf = s->byte_code.buf;
     cc.bc_len = bc_len = s->byte_code.size;
-    js_dbuf_init(ctx, &bc_out);
+    js_dbuf_bytecode_init(ctx, &bc_out);
 
     /* first pass for runtime checks (must be done before the
        variables are created) */
@@ -33524,7 +33541,7 @@ static __exception int resolve_labels(JSContext *ctx, JSFunctionDef *s)
 
     cc.bc_buf = bc_buf = s->byte_code.buf;
     cc.bc_len = bc_len = s->byte_code.size;
-    js_dbuf_init(ctx, &bc_out);
+    js_dbuf_bytecode_init(ctx, &bc_out);
 
 #if SHORT_OPCODES
     if (s->jump_size) {
