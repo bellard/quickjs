@@ -54109,16 +54109,17 @@ static JSValue js_typed_array_subarray(JSContext *ctx, JSValueConst this_val,
     if (JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len))
         goto exception;
 
+    shift = typed_array_size_log2(p->class_id);
+    ta = p->u.typed_array;
+    /* Read byteOffset (ta->offset) even if detached */
+    offset = ta->offset + (start << shift);
+
     final = len;
     if (!JS_IsUndefined(argv[1])) {
         if (JS_ToInt32Clamp(ctx, &final, argv[1], 0, len, len))
             goto exception;
     }
     count = max_int(final - start, 0);
-    shift = typed_array_size_log2(p->class_id);
-    ta = p->u.typed_array;
-    /* Read byteOffset (ta->offset) even if detached */
-    offset = ta->offset + (start << shift);
     ta_buffer = js_typed_array_get_buffer(ctx, this_val, 0);
     if (JS_IsException(ta_buffer))
         goto exception;
