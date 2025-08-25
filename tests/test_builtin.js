@@ -779,6 +779,23 @@ function test_regexp()
     /* Note: SpiderMonkey and v8 may not be correct */
     assert("abcAbC".replace(/[\q{BC|A}]/gvi,"X"), "XXXX");
     assert("abcAbC".replace(/[\q{BC|A}--a]/gvi,"X"), "aXAX");
+
+    /* case where lastIndex points to the second element of a
+       surrogate pair */
+    a = /(?:)/gu;
+    a.lastIndex = 1;
+    a.exec("🐱");
+    assert(a.lastIndex, 0);
+
+    a.lastIndex = 1;
+    a.exec("a\udc00");
+    assert(a.lastIndex, 1);
+
+    a = /\u{10000}/vgd;
+    a.lastIndex = 1;
+    a = a.exec("\u{10000}_\u{10000}");
+    assert(a.indices[0][0], 0);
+    assert(a.indices[0][1], 2);
 }
 
 function test_symbol()
