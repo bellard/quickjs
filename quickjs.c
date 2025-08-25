@@ -18646,12 +18646,10 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     *pv = __JS_NewFloat64(ctx, JS_VALUE_GET_FLOAT64(*pv) +
                                                JS_VALUE_GET_FLOAT64(op2));
                     sp--;
-                } else if (JS_VALUE_GET_TAG(*pv) == JS_TAG_STRING) {
+                } else if (JS_VALUE_GET_TAG(*pv) == JS_TAG_STRING &&
+                           JS_VALUE_GET_TAG(op2) == JS_TAG_STRING) {
                     sp--;
                     sf->cur_pc = pc;
-                    op2 = JS_ToPrimitiveFree(ctx, op2, HINT_NONE);
-                    if (JS_IsException(op2))
-                        goto exception;
                     if (JS_ConcatStringInPlace(ctx, JS_VALUE_GET_STRING(*pv), op2)) {
                         JS_FreeValue(ctx, op2);
                     } else {
