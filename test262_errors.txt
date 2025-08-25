@@ -1,3 +1,10 @@
+test262/test/annexB/language/expressions/assignmenttargettype/callexpression-as-for-in-lhs.js:27: SyntaxError: invalid for in/of left hand-side
+test262/test/annexB/language/expressions/assignmenttargettype/callexpression-as-for-of-lhs.js:27: SyntaxError: invalid for in/of left hand-side
+test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-compound-assignment.js:33: SyntaxError: invalid assignment left-hand side
+test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-postfix-update.js:27: SyntaxError: invalid increment/decrement operand
+test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-prefix-update.js:27: SyntaxError: invalid increment/decrement operand
+test262/test/annexB/language/expressions/assignmenttargettype/callexpression.js:33: SyntaxError: invalid assignment left-hand side
+test262/test/annexB/language/expressions/assignmenttargettype/cover-callexpression-and-asyncarrowhead.js:20: SyntaxError: invalid assignment left-hand side
 test262/test/built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-detached.js:34: TypeError: ArrayBuffer is detached
 test262/test/built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-detached.js:34: strict mode: TypeError: ArrayBuffer is detached
 test262/test/staging/sm/Date/UTC-convert-all-arguments.js:75: Test262Error: index 1: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
