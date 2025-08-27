@@ -362,6 +362,9 @@ static void compile_file(JSContext *ctx, FILE *fo,
         pstrcpy(c_name, sizeof(c_name), c_name1);
     } else {
         get_c_name(c_name, sizeof(c_name), filename);
+        if (namelist_find(&cname_list, c_name)) {
+            find_unique_cname(c_name, sizeof(c_name));
+        }
     }
     output_object_code(ctx, fo, obj, c_name, CNAME_TYPE_SCRIPT);
     JS_FreeValue(ctx, obj);
