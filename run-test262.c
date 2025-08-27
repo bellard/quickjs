@@ -78,6 +78,7 @@ char *harness_dir;
 char *harness_exclude;
 char *harness_features;
 char *harness_skip_features;
+int *harness_skip_features_count;
 char *error_filename;
 char *error_file;
 FILE *error_out;
@@ -1736,10 +1737,13 @@ int run_test(const char *filename, int index)
             p = find_tag(desc, "features:", &state);
             if (p) {
                 while ((option = get_option(&p, &state)) != NULL) {
+                    char *p1;
                     if (find_word(harness_features, option)) {
                         /* feature is enabled */
-                    } else if (find_word(harness_skip_features, option)) {
+                    } else if ((p1 = find_word(harness_skip_features, option)) != NULL) {
                         /* skip disabled feature */
+                        if (harness_skip_features_count)
+                            harness_skip_features_count[p1 - harness_skip_features]++;
                         skip |= 1;
                     } else {
                         /* feature is not listed: skip and warn */
@@ -2072,6 +2076,7 @@ int main(int argc, char **argv)
     const char *ignore = "";
     BOOL is_test262_harness = FALSE;
     BOOL is_module = FALSE;
+    BOOL count_skipped_features = FALSE;
     clock_t clocks;
 
 #if !defined(_WIN32)
@@ -2139,6 +2144,8 @@ int main(int argc, char **argv)
             is_test262_harness = TRUE;
         } else if (str_equal(arg, "--module")) {
             is_module = TRUE;
+        } else if (str_equal(arg, "--count_skipped_features")) {
+            count_skipped_features = TRUE;
         } else {
             fatal(1, "unknown option: %s", arg);
             break;
@@ -2173,6 +2180,14 @@ int main(int argc, char **argv)
 
     clocks = clock();
 
+    if (count_skipped_features) {
+        /* not storage efficient but it is simple */
+        size_t size;
+        size = sizeof(harness_skip_features_count[0]) * strlen(harness_skip_features);
+        harness_skip_features_count = malloc(size);
+        memset(harness_skip_features_count, 0, size);
+    }
+    
     if (is_dir_list) {
         if (optind < argc && !isdigit((unsigned char)argv[optind][0])) {
             filename = argv[optind++];
@@ -2223,6 +2238,30 @@ int main(int argc, char **argv)
         printf("\n");
     }
 
+    if (count_skipped_features) {
+        size_t i, n, len = strlen(harness_skip_features);
+        BOOL disp = FALSE;
+        int c;
+        for(i = 0; i < len; i++) {
+            if (harness_skip_features_count[i] != 0) {
+                if (!disp) {
+                    disp = TRUE;
+                    printf("%-30s %7s\n", "SKIPPED FEATURE", "COUNT");
+                }
+                for(n = 0; n < 30; n++) {
+                    c = harness_skip_features[i + n];
+                    if (is_word_sep(c))
+                        break;
+                    putchar(c);
+                }
+                for(; n < 30; n++)
+                    putchar(' ');
+                printf(" %7d\n", harness_skip_features_count[i]);
+            }
+        }
+        printf("\n");
+    }
+    
     if (is_dir_list) {
         fprintf(stderr, "Result: %d/%d error%s",
                 test_failed, test_count, test_count != 1 ? "s" : "");
@@ -2252,6 +2291,8 @@ int main(int argc, char **argv)
     namelist_free(&exclude_list);
     namelist_free(&exclude_dir_list);
     free(harness_dir);
+    free(harness_skip_features);
+    free(harness_skip_features_count);
     free(harness_features);
     free(harness_exclude);
     free(error_file);
