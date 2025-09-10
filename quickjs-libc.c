@@ -3112,6 +3112,7 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     }
     if (pid == 0) {
         /* child */
+        int fd_max = sysconf(_SC_OPEN_MAX);
 
         /* remap the stdin/stdout/stderr handles if necessary */
         for(i = 0; i < 3; i++) {
@@ -3120,12 +3121,6 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
                     _exit(127);
             }
         }
-#if defined(HAVE_CLOSEFROM)
-        /* closefrom() is available on many recent unix systems:
-           Linux with glibc 2.34+, Solaris 9+, FreeBSD 7.3+,
-           NetBSD 3.0+, OpenBSD 3.5+.
-           Linux with the musl libc and macOS don't have it.
-         */
 
 #if defined(__linux__)
         int pid = getpid();
