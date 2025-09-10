@@ -1,6 +1,6 @@
 /*
  * Unicode utilities
- * 
+ *
  * Copyright (c) 2017-2018 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,26 +24,12 @@
 #ifndef LIBUNICODE_H
 #define LIBUNICODE_H
 
-#include <inttypes.h>
-
-#define LRE_BOOL  int       /* for documentation purposes */
+#include <stdint.h>
 
 /* define it to include all the unicode tables (40KB larger) */
 #define CONFIG_ALL_UNICODE
 
 #define LRE_CC_RES_LEN_MAX 3
-
-typedef enum {
-    UNICODE_NFC,
-    UNICODE_NFD,
-    UNICODE_NFKC,
-    UNICODE_NFKD,
-} UnicodeNormalizationEnum;
-
-int lre_case_conv(uint32_t *res, uint32_t c, int conv_type);
-int lre_canonicalize(uint32_t c, BOOL is_unicode);
-LRE_BOOL lre_is_cased(uint32_t c);
-LRE_BOOL lre_is_case_ignorable(uint32_t c);
 
 /* char ranges */
 
@@ -102,12 +88,14 @@ int cr_op(CharRange *cr, const uint32_t *a_pt, int a_len,
 
 int cr_invert(CharRange *cr);
 
-int cr_regexp_canonicalize(CharRange *cr, BOOL is_unicode);
+int cr_regexp_canonicalize(CharRange *cr, int is_unicode);
 
-#ifdef CONFIG_ALL_UNICODE
-
-LRE_BOOL lre_is_id_start(uint32_t c);
-LRE_BOOL lre_is_id_continue(uint32_t c);
+typedef enum {
+    UNICODE_NFC,
+    UNICODE_NFD,
+    UNICODE_NFKC,
+    UNICODE_NFKD,
+} UnicodeNormalizationEnum;
 
 int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
                       UnicodeNormalizationEnum n_type,
@@ -115,13 +103,80 @@ int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
 
 /* Unicode character range functions */
 
-int unicode_script(CharRange *cr,
-                   const char *script_name, LRE_BOOL is_ext);
+int unicode_script(CharRange *cr, const char *script_name, int is_ext);
 int unicode_general_category(CharRange *cr, const char *gc_name);
 int unicode_prop(CharRange *cr, const char *prop_name);
 
-#endif /* CONFIG_ALL_UNICODE */
+int lre_case_conv(uint32_t *res, uint32_t c, int conv_type);
+int lre_canonicalize(uint32_t c, int is_unicode);
 
-#undef LRE_BOOL
+/* Code point type categories */
+enum {
+    UNICODE_C_SPACE  = (1 << 0),
+    UNICODE_C_DIGIT  = (1 << 1),
+    UNICODE_C_UPPER  = (1 << 2),
+    UNICODE_C_LOWER  = (1 << 3),
+    UNICODE_C_UNDER  = (1 << 4),
+    UNICODE_C_DOLLAR = (1 << 5),
+    UNICODE_C_XDIGIT = (1 << 6),
+};
+extern uint8_t const lre_ctype_bits[256];
+
+/* zero or non-zero return value */
+int lre_is_cased(uint32_t c);
+int lre_is_case_ignorable(uint32_t c);
+int lre_is_id_start(uint32_t c);
+int lre_is_id_continue(uint32_t c);
+
+static inline int lre_is_space_byte(uint8_t c) {
+    return lre_ctype_bits[c] & UNICODE_C_SPACE;
+}
+
+static inline int lre_is_id_start_byte(uint8_t c) {
+    return lre_ctype_bits[c] & (UNICODE_C_UPPER | UNICODE_C_LOWER |
+                                UNICODE_C_UNDER | UNICODE_C_DOLLAR);
+}
+
+static inline int lre_is_id_continue_byte(uint8_t c) {
+    return lre_ctype_bits[c] & (UNICODE_C_UPPER | UNICODE_C_LOWER |
+                                UNICODE_C_UNDER | UNICODE_C_DOLLAR |
+                                UNICODE_C_DIGIT);
+}
+
+int lre_is_space_non_ascii(uint32_t c);
+
+static inline int lre_is_space(uint32_t c) {
+    if (c < 256)
+        return lre_is_space_byte(c);
+    else
+        return lre_is_space_non_ascii(c);
+}
+
+static inline int lre_js_is_ident_first(uint32_t c) {
+    if (c < 128) {
+        return lre_is_id_start_byte(c);
+    } else {
+#ifdef CONFIG_ALL_UNICODE
+        return lre_is_id_start(c);
+#else
+        return !lre_is_space_non_ascii(c);
+#endif
+    }
+}
+
+static inline int lre_js_is_ident_next(uint32_t c) {
+    if (c < 128) {
+        return lre_is_id_continue_byte(c);
+    } else {
+        /* ZWNJ and ZWJ are accepted in identifiers */
+        if (c >= 0x200C && c <= 0x200D)
+            return TRUE;
+#ifdef CONFIG_ALL_UNICODE
+        return lre_is_id_continue(c);
+#else
+        return !lre_is_space_non_ascii(c);
+#endif
+    }
+}
 
 #endif /* LIBUNICODE_H */

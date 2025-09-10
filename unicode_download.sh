@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-url="ftp://ftp.unicode.org/Public/15.0.0/ucd"
+url="ftp://ftp.unicode.org/Public/16.0.0/ucd"
 emoji_url="${url}/emoji/emoji-data.txt"
 
 files="CaseFolding.txt DerivedNormalizationProps.txt PropList.txt \
@@ -15,5 +15,5 @@ for f in $files; do
     g="${url}/${f}"
     wget $g -O unicode/$f
 done
-    
+
 wget $emoji_url -O unicode/emoji-data.txt

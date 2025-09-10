@@ -1,8 +1,72 @@
-test262/test/annexB/language/eval-code/direct/script-decl-lex-collision-in-sloppy-mode.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: Test262Error: Expected a DummyError but got a TypeError
-test262/test/language/expressions/assignment/target-member-computed-reference-null.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
-test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: Test262Error: Expected a DummyError but got a TypeError
-test262/test/language/expressions/assignment/target-member-computed-reference-undefined.js:32: strict mode: Test262Error: Expected a DummyError but got a TypeError
-test262/test/language/expressions/in/private-field-invalid-assignment-target.js:23: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/expressions/in/private-field-invalid-assignment-target.js:23: strict mode: unexpected error type: Test262: This statement should not be evaluated.
-test262/test/language/global-code/script-decl-lex-var-declared-via-eval-sloppy.js:13: Test262Error: variable Expected a SyntaxError to be thrown but no exception was thrown at all
+test262/test/language/module-code/top-level-await/module-graphs-does-not-hang.js:10: TypeError: $DONE() not called
+test262/test/staging/sm/Date/UTC-convert-all-arguments.js:75: Test262Error: index 1: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
+test262/test/staging/sm/Date/constructor-convert-all-arguments.js:75: Test262Error: index undefined: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
+test262/test/staging/sm/Date/non-iso.js:76: Test262Error: Expected SameValue(«NaN», «-40071559730000») to be true
+test262/test/staging/sm/Date/two-digit-years.js:76: Test262Error: Expected SameValue(«915177600000», «NaN») to be true
+test262/test/staging/sm/Function/arguments-parameter-shadowing.js:15: Test262Error: Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/Function/constructor-binding.js:12: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
+test262/test/staging/sm/Function/function-bind.js:14: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/Function/function-name-for.js:12: Test262Error: Expected SameValue(«""», «"forInHead"») to be true
+test262/test/staging/sm/Function/function-toString-builtin.js:14: Test262Error: Expected match to '/^\s*function\s*(get|set)?\s*(\w+|(?:'[^']*')|(?:"[^"]*")|\d+|(?:\[[^\]]+\]))?\s*\(\s*\)\s*\{\s*\[native code\]\s*\}\s*$/', Actual value 'function bound fn() {
+    [native code]
+}' Expected SameValue(«null», «null») to be false
+test262/test/staging/sm/Function/implicit-this-in-parameter-expression.js:13: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
+test262/test/staging/sm/Function/invalid-parameter-list.js:35: Error: Assertion failed: expected exception SyntaxError, no exception thrown
+test262/test/staging/sm/JSON/parse-number-syntax.js:39: Test262Error: parsing string <1.> threw a non-SyntaxError exception: Test262Error: string <1.> shouldn't have parsed as JSON Expected SameValue(«false», «true») to be true Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/JSON/parse-syntax-errors-02.js:51: Test262Error: parsing string <["Illegal backslash escape: \x15"]> threw a non-SyntaxError exception: Test262Error: string <["Illegal backslash escape: \x15"]> shouldn't have parsed as JSON Expected SameValue(«false», «true») to be true Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/Math/cbrt-approx.js:26: Error: got 1.39561242508609, expected a number near 1.3956124250860895 (relative error: 2)
+test262/test/staging/sm/RegExp/constructor-ordering-2.js:15: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/RegExp/escape.js:13: Test262Error: Expected SameValue(«"\\\n"», «"\\n"») to be true
+test262/test/staging/sm/RegExp/match-trace.js:13: Test262Error: Expected SameValue(«"get:flags,get:unicode,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[0],get:exec,call:exec,"», «"get:flags,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[0],get:exec,call:exec,"») to be true
+test262/test/staging/sm/RegExp/regress-613820-1.js:13: Test262Error: Expected SameValue(«"aaa"», «"aa"») to be true
+test262/test/staging/sm/RegExp/regress-613820-2.js:13: Test262Error: Expected SameValue(«"f"», «undefined») to be true
+test262/test/staging/sm/RegExp/regress-613820-3.js:13: Test262Error: Expected SameValue(«"aab"», «"aa"») to be true
+test262/test/staging/sm/RegExp/replace-trace.js:13: Test262Error: Expected SameValue(«"get:flags,get:unicode,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[length],get:result[0],get:result[index],get:result[groups],"», «"get:flags,set:lastIndex,get:exec,call:exec,get:result[0],get:exec,call:exec,get:result[length],get:result[0],get:result[index],get:result[groups],"») to be true
+test262/test/staging/sm/RegExp/unicode-ignoreCase-escape.js:22: Test262Error: Actual argument shouldn't be nullish. 
+test262/test/staging/sm/RegExp/unicode-ignoreCase-word-boundary.js:13: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/String/match-defines-match-elements.js:52: Test262Error: Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/TypedArray/constructor-buffer-sequence.js:73: Error: Assertion failed: expected exception ExpectedError, got Error: Poisoned Value
+test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: Test262Error: Expected SameValue(«2», «6») to be true
+test262/test/staging/sm/TypedArray/set-detached-bigint.js:27: Error: Assertion failed: expected exception SyntaxError, got RangeError: invalid array length
+test262/test/staging/sm/TypedArray/set-detached.js:112: RangeError: invalid array length
+test262/test/staging/sm/TypedArray/sort-negative-nan.js:102: TypeError: cannot read property 'name' of undefined
+test262/test/staging/sm/TypedArray/sort_modifications.js:12: Test262Error: Int8Array at index 0 for size 4 Expected SameValue(«0», «1») to be true
+test262/test/staging/sm/TypedArray/subarray.js:15: Test262Error: Expected SameValue(«0», «1») to be true
+test262/test/staging/sm/async-functions/async-contains-unicode-escape.js:45: Error: Assertion failed: expected exception SyntaxError, no exception thrown
+test262/test/staging/sm/async-functions/await-error.js:12: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/async-functions/await-in-arrow-parameters.js:33: Error: Assertion failed: expected exception SyntaxError, no exception thrown - AsyncFunction:(a = (b = await/r/g) => {}) => {}
+test262/test/staging/sm/class/boundFunctionSubclassing.js:12: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/class/compPropNames.js:26: Error: Expected syntax error: ({[1, 2]: 3})
+test262/test/staging/sm/class/methDefn.js:26: Error: Expected syntax error: b = {a() => 0}
+test262/test/staging/sm/class/strictExecution.js:32: Error: Assertion failed: expected exception TypeError, no exception thrown
+test262/test/staging/sm/class/superPropOrdering.js:83: Error: Assertion failed: expected exception TypeError, no exception thrown
+test262/test/staging/sm/expressions/optional-chain.js:25: Error: Assertion failed: expected exception SyntaxError, no exception thrown
+test262/test/staging/sm/expressions/short-circuit-compound-assignment-const.js:97: TypeError: 'a' is read-only
+test262/test/staging/sm/expressions/short-circuit-compound-assignment-tdz.js:23: Error: Assertion failed: expected exception ReferenceError, got TypeError: 'a' is read-only
+test262/test/staging/sm/extensions/TypedArray-set-object-funky-length-detaches.js:55: RangeError: invalid array length
+test262/test/staging/sm/extensions/regress-469625-01.js:16: Test262Error: TM: Array prototype and expression closures Expected SameValue(«"TypeError: [].__proto__ is not a function"», «"TypeError: not a function"») to be true
+test262/test/staging/sm/generators/syntax.js:30: Error: Assertion failed: expected SyntaxError, but no exception thrown - function* g() { (function* yield() {}); }
+test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js:14: Test262Error: Expected SameValue(«"object"», «"function"») to be true
+test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js:12: Test262Error: Expected SameValue(«"outer-gouter-geval-gtruefalseq"», «"outer-geval-gwith-gtruefalseq"») to be true
+test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js:20: TypeError: not a function
+test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-notapplicable.js:15: Test262Error: Expected SameValue(«function x() {2}», «function x() {1}») to be true
+test262/test/staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js:23: Test262Error: Expected SameValue(«3», «4») to be true
+test262/test/staging/sm/lexical-environment/unscopables-proto.js:15: Test262Error: Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js:17: Test262Error: Expected SameValue(«"g"», «"global-x"») to be true
+test262/test/staging/sm/module/module-export-name-star.js:15: SyntaxError: identifier expected
+test262/test/staging/sm/object/defineProperties-order.js:14: Test262Error: Expected SameValue(«"ownKeys,getOwnPropertyDescriptor,getOwnPropertyDescriptor,get,get"», «"ownKeys,getOwnPropertyDescriptor,get,getOwnPropertyDescriptor,get"») to be true
+test262/test/staging/sm/object/defineProperty-proxy.js:32: Test262Error: Expected ["has configurable", "get configurable", "has writable", "get writable", "has enumerable", "get enumerable", "has value", "get value", "has get", "has set"] to be structurally equal to ["has enumerable", "get enumerable", "has configurable", "get configurable", "has value", "get value", "has writable", "get writable", "has get", "has set"]. 
+test262/test/staging/sm/regress/regress-577648-1.js:21: Test262Error: 1 Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/regress/regress-577648-2.js:14: Test262Error:  Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/regress/regress-584355.js:12: Test262Error:  Expected SameValue(«"function f () { ff (); }"», «"undefined"») to be true
+test262/test/staging/sm/regress/regress-586482-1.js:19: Test262Error: ok Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/regress/regress-586482-2.js:19: Test262Error: ok Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/regress/regress-586482-3.js:18: Test262Error: ok Expected SameValue(«true», «false») to be true
+test262/test/staging/sm/regress/regress-586482-4.js:14: Test262Error: ok Expected SameValue(«function() { this.f(); }», «undefined») to be true
+test262/test/staging/sm/regress/regress-602621.js:14: Test262Error: function sub-statement must override arguments Expected SameValue(«"function"», «"object"») to be true
+test262/test/staging/sm/regress/regress-699682.js:15: Test262Error: Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/regress/regress-1383630.js:30: Error: Assertion failed: expected exception TypeError, no exception thrown
+test262/test/staging/sm/statements/arrow-function-in-for-statement-head.js:15: Test262Error: expected syntax error, got Error: didn't throw Expected SameValue(«false», «true») to be true
+test262/test/staging/sm/statements/regress-642975.js:14: Test262Error: Expected SameValue(«undefined», «"y"») to be true
+test262/test/staging/sm/statements/try-completion.js:17: Test262Error: Expected SameValue(«"try"», «undefined») to be true
+test262/test/staging/sm/syntax/syntax-parsed-arrow-then-directive.js:77: Test262Error: stack should contain 'http://example.com/foo.js': block, semi Expected SameValue(«false», «true») to be true

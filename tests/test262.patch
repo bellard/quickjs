@@ -1,8 +1,8 @@
 diff --git a/harness/atomicsHelper.js b/harness/atomicsHelper.js
-index 9c1217351e..3c24755558 100644
+index 9828b15..4a5919d 100644
 --- a/harness/atomicsHelper.js
 +++ b/harness/atomicsHelper.js
-@@ -227,10 +227,14 @@ $262.agent.waitUntil = function(typedArray, index, expected) {
+@@ -272,10 +272,14 @@ $262.agent.waitUntil = function(typedArray, index, expected) {
   *   }
   */
  $262.agent.timeouts = {
@@ -22,11 +22,11 @@ index 9c1217351e..3c24755558 100644
  
  /**
 diff --git a/harness/regExpUtils.js b/harness/regExpUtils.js
-index be7039fda0..7b38abf8df 100644
+index b397be0..c197ddc 100644
 --- a/harness/regExpUtils.js
 +++ b/harness/regExpUtils.js
-@@ -6,24 +6,27 @@ description: |
- defines: [buildString, testPropertyEscapes, matchValidator]
+@@ -6,27 +6,30 @@ description: |
+ defines: [buildString, testPropertyEscapes, testPropertyOfStrings, testExtendedCharacterClass, matchValidator]
  ---*/
  
 +if ($262 && typeof $262.codePointRange === "function") {
@@ -44,28 +44,62 @@ index be7039fda0..7b38abf8df 100644
 +    }
 +}
 +
- function buildString({ loneCodePoints, ranges }) {
+ function buildString(args) {
+   // Use member expressions rather than destructuring `args` for improved
+   // compatibility with engines that only implement assignment patterns
+   // partially or not at all.
+   const loneCodePoints = args.loneCodePoints;
+   const ranges = args.ranges;
 -  const CHUNK_SIZE = 10000;
--  let result = Reflect.apply(String.fromCodePoint, null, loneCodePoints);
+   let result = String.fromCodePoint.apply(null, loneCodePoints);
 -  for (let i = 0; i < ranges.length; i++) {
--    const range = ranges[i];
--    const start = range[0];
--    const end = range[1];
--    const codePoints = [];
+-    let range = ranges[i];
+-    let start = range[0];
+-    let end = range[1];
+-    let codePoints = [];
 -    for (let length = 0, codePoint = start; codePoint <= end; codePoint++) {
 -      codePoints[length++] = codePoint;
 -      if (length === CHUNK_SIZE) {
--        result += Reflect.apply(String.fromCodePoint, null, codePoints);
+-        result += String.fromCodePoint.apply(null, codePoints);
 -        codePoints.length = length = 0;
 -      }
-+    let result = String.fromCodePoint.apply(null, loneCodePoints);
-+    for (const [start, end] of ranges) {
-+        result += codePointRange(start, end + 1);
-     }
--    result += Reflect.apply(String.fromCodePoint, null, codePoints);
--  }
--  return result;
-+    return result;
+-    }
+-    result += String.fromCodePoint.apply(null, codePoints);
++  for (const [start, end] of ranges) {
++    result += codePointRange(start, end + 1);
+   }
+   return result;
+ }
+diff --git a/harness/sm/non262.js b/harness/sm/non262.js
+index c1829e3..3a3ee27 100644
+--- a/harness/sm/non262.js
++++ b/harness/sm/non262.js
+@@ -41,8 +41,6 @@ globalThis.createNewGlobal = function() {
+   return $262.createRealm().global
  }
  
- function testPropertyEscapes(regex, string, expression) {
+-function print(...args) {
+-}
+ function assertEq(...args) {
+   assert.sameValue(...args)
+ }
+@@ -71,4 +69,4 @@ if (globalThis.createExternalArrayBuffer === undefined) {
+ if (globalThis.enableGeckoProfilingWithSlowAssertions === undefined) {
+   globalThis.enableGeckoProfilingWithSlowAssertions = globalThis.enableGeckoProfiling =
+     globalThis.disableGeckoProfiling = () => {}
+-}
+\ No newline at end of file
++}
+diff --git a/test/staging/sm/misc/new-with-non-constructor.js b/test/staging/sm/misc/new-with-non-constructor.js
+index 18c2f0c..f9aa209 100644
+--- a/test/staging/sm/misc/new-with-non-constructor.js
++++ b/test/staging/sm/misc/new-with-non-constructor.js
+@@ -16,7 +16,7 @@ function checkConstruct(thing) {
+         new thing();
+         assert.sameValue(0, 1, "not reached " + thing);
+     } catch (e) {
+-        assert.sameValue(e.message.includes(" is not a constructor") ||
++        assert.sameValue(e.message.includes("not a constructor") ||
+                  e.message === "Function.prototype.toString called on incompatible object", true);
+     }
+ }

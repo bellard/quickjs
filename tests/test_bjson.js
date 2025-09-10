@@ -34,7 +34,7 @@ function toHex(a)
 
 function isArrayLike(a)
 {
-    return Array.isArray(a) || 
+    return Array.isArray(a) ||
         (a instanceof Uint8ClampedArray) ||
         (a instanceof Uint8Array) ||
         (a instanceof Uint16Array) ||
@@ -87,7 +87,6 @@ function toStr(a)
     case "string":
         return a.__quote();
     case "number":
-    case "bigfloat":
         if (a == 0 && 1 / a < 0)
             return "-0";
         else
@@ -147,7 +146,7 @@ function bjson_test_reference()
 function bjson_test_all()
 {
     var obj;
-    
+
     bjson_test({x:1, y:2, if:3});
     bjson_test([1, 2, 3]);
     bjson_test([1.0, "aa", true, false, undefined, null, NaN, -Infinity, -0.0]);
@@ -155,26 +154,11 @@ function bjson_test_all()
         bjson_test([BigInt("1"), -BigInt("0x123456789"),
                BigInt("0x123456789abcdef123456789abcdef")]);
     }
-    if (typeof BigFloat !== "undefined") {
-        BigFloatEnv.setPrec(function () {
-            bjson_test([BigFloat("0.1"), BigFloat("-1e30"), BigFloat("0"),
-                   BigFloat("-0"), BigFloat("Infinity"), BigFloat("-Infinity"),
-                   0.0 / BigFloat("0"), BigFloat.MAX_VALUE,
-                   BigFloat.MIN_VALUE]);
-        }, 113, 15);
-    }
-    if (typeof BigDecimal !== "undefined") {
-        bjson_test([BigDecimal("0"),
-                    BigDecimal("0.8"), BigDecimal("123321312321321e100"),
-                    BigDecimal("-1233213123213214332333223332e100"),
-                    BigDecimal("1.233e-1000")]);
-    }
-
     bjson_test([new Date(1234), new String("abc"), new Number(-12.1), new Boolean(true)]);
 
     bjson_test(new Int32Array([123123, 222111, -32222]));
     bjson_test(new Float64Array([123123, 222111.5]));
-    
+
     /* tested with a circular reference */
     obj = {};
     obj.x = obj;

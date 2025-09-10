@@ -1,6 +1,6 @@
 /*
  * QuickJS command line compiler
- * 
+ *
  * Copyright (c) 2018-2021 Fabrice Bellard
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -76,7 +76,7 @@ static const FeatureEntry feature_list[] = {
     { "promise", "Promise" },
 #define FE_MODULE_LOADER 9
     { "module-loader", NULL },
-    { "bigint", "BigInt" },
+    { "weakref", "WeakRef" },
 };
 
 void namelist_add(namelist_t *lp, const char *name, const char *short_name,
@@ -129,7 +129,7 @@ static void get_c_name(char *buf, size_t buf_size, const char *file)
     size_t len, i;
     int c;
     char *q;
-    
+
     p = strrchr(file, '/');
     if (!p)
         p = file;
@@ -187,8 +187,8 @@ static void output_object_code(JSContext *ctx,
     }
 
     namelist_add(&cname_list, c_name, NULL, load_only);
-    
-    fprintf(fo, "const uint32_t %s_size = %u;\n\n", 
+
+    fprintf(fo, "const uint32_t %s_size = %u;\n\n",
             c_name, (unsigned int)out_buf_len);
     fprintf(fo, "const uint8_t %s[%u] = {\n",
             c_name, (unsigned int)out_buf_len);
@@ -251,14 +251,14 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
         uint8_t *buf;
         JSValue func_val;
         char cname[1024];
-        
+
         buf = js_load_file(ctx, &buf_len, module_name);
         if (!buf) {
             JS_ThrowReferenceError(ctx, "could not load module filename '%s'",
                                    module_name);
             return NULL;
         }
-        
+
         /* compile the module */
         func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
                            JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -270,7 +270,7 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
             find_unique_cname(cname, sizeof(cname));
         }
         output_object_code(ctx, outfile, func_val, cname, TRUE);
-        
+
         /* the module is already referenced, so we must free it */
         m = JS_VALUE_GET_PTR(func_val);
         JS_FreeValue(ctx, func_val);
@@ -288,7 +288,7 @@ static void compile_file(JSContext *ctx, FILE *fo,
     int eval_flags;
     JSValue obj;
     size_t buf_len;
-    
+
     buf = js_load_file(ctx, &buf_len, filename);
     if (!buf) {
         fprintf(stderr, "Could not load '%s'\n", filename);
@@ -353,13 +353,14 @@ void help(void)
            "-M module_name[,cname] add initialization code for an external C module\n"
            "-x          byte swapped output\n"
            "-p prefix   set the prefix of the generated C names\n"
-           "-S n        set the maximum stack size to 'n' bytes (default=%d)\n",
+           "-S n        set the maximum stack size to 'n' bytes (default=%d)\n"
+           "-s            strip all the debug info\n"
+           "--keep-source keep the source code\n",
            JS_DEFAULT_STACK_SIZE);
 #ifdef CONFIG_LTO
     {
         int i;
         printf("-flto       use link time optimization\n");
-        printf("-fbignum    enable bignum extensions\n");
         printf("-fno-[");
         for(i = 0; i < countof(feature_list); i++) {
             if (i != 0)
@@ -383,7 +384,7 @@ int exec_cmd(char **argv)
     if (pid == 0) {
         execvp(argv[0], argv);
         exit(1);
-    } 
+    }
 
     for(;;) {
         ret = waitpid(pid, &status, 0);
@@ -401,7 +402,7 @@ static int output_executable(const char *out_filename, const char *cfilename,
     char libjsname[1024];
     char exe_dir[1024], inc_dir[1024], lib_dir[1024], buf[1024], *p;
     int ret;
-    
+
     /* get the directory of the executable */
     pstrcpy(exe_dir, sizeof(exe_dir), exename);
     p = strrchr(exe_dir, '/');
@@ -421,10 +422,10 @@ static int output_executable(const char *out_filename, const char *cfilename,
         snprintf(inc_dir, sizeof(inc_dir), "%s/include/quickjs", CONFIG_PREFIX);
         snprintf(lib_dir, sizeof(lib_dir), "%s/lib/quickjs", CONFIG_PREFIX);
     }
-    
+
     lto_suffix = "";
     bn_suffix = "";
-    
+
     arg = argv;
     *arg++ = CONFIG_CC;
     *arg++ = "-O2";
@@ -452,13 +453,13 @@ static int output_executable(const char *out_filename, const char *cfilename,
     *arg++ = "-ldl";
     *arg++ = "-lpthread";
     *arg = NULL;
-    
+
     if (verbose) {
         for(arg = argv; *arg != NULL; arg++)
             printf("%s ", *arg);
         printf("\n");
     }
-    
+
     ret = exec_cmd((char **)argv);
     unlink(cfilename);
     return ret;
@@ -473,6 +474,31 @@ static int output_executable(const char *out_filename, const char *cfilename,
 }
 #endif
 
+static size_t get_suffixed_size(const char *str)
+{
+    char *p;
+    size_t v;
+    v = (size_t)strtod(str, &p);
+    switch(*p) {
+    case 'G':
+        v <<= 30;
+        break;
+    case 'M':
+        v <<= 20;
+        break;
+    case 'k':
+    case 'K':
+        v <<= 10;
+        break;
+    default:
+        if (*p != '\0') {
+            fprintf(stderr, "qjs: invalid suffix: %s\n", p);
+            exit(1);
+        }
+        break;
+    }
+    return v;
+}
 
 typedef enum {
     OUTPUT_C,
@@ -480,9 +506,24 @@ typedef enum {
     OUTPUT_EXECUTABLE,
 } OutputTypeEnum;
 
+static const char *get_short_optarg(int *poptind, int opt,
+                                    const char *arg, int argc, char **argv)
+{
+    const char *optarg;
+    if (*arg) {
+        optarg = arg;
+    } else if (*poptind < argc) {
+        optarg = argv[(*poptind)++];
+    } else {
+        fprintf(stderr, "qjsc: expecting parameter for -%c\n", opt);
+        exit(1);
+    }
+    return optarg;
+}
+
 int main(int argc, char **argv)
 {
-    int c, i, verbose;
+    int i, verbose, strip_flags;
     const char *out_filename, *cname;
     char cfilename[1024];
     FILE *fo;
@@ -492,11 +533,8 @@ int main(int argc, char **argv)
     int module;
     OutputTypeEnum output_type;
     size_t stack_size;
-#ifdef CONFIG_BIGNUM
-    BOOL bignum_ext = FALSE;
-#endif
     namelist_t dynamic_module_list;
-    
+
     out_filename = NULL;
     output_type = OUTPUT_EXECUTABLE;
     cname = NULL;
@@ -504,38 +542,60 @@ int main(int argc, char **argv)
     module = -1;
     byte_swap = FALSE;
     verbose = 0;
+    strip_flags = JS_STRIP_SOURCE;
     use_lto = FALSE;
     stack_size = 0;
     memset(&dynamic_module_list, 0, sizeof(dynamic_module_list));
-    
+
     /* add system modules */
     namelist_add(&cmodule_list, "std", "std", 0);
     namelist_add(&cmodule_list, "os", "os", 0);
 
-    for(;;) {
-        c = getopt(argc, argv, "ho:cN:f:mxevM:p:S:D:");
-        if (c == -1)
+    optind = 1;
+    while (optind < argc && *argv[optind] == '-') {
+        char *arg = argv[optind] + 1;
+        const char *longopt = "";
+        const char *optarg;
+        /* a single - is not an option, it also stops argument scanning */
+        if (!*arg)
             break;
-        switch(c) {
-        case 'h':
-            help();
-        case 'o':
-            out_filename = optarg;
-            break;
-        case 'c':
-            output_type = OUTPUT_C;
-            break;
-        case 'e':
-            output_type = OUTPUT_C_MAIN;
-            break;
-        case 'N':
-            cname = optarg;
-            break;
-        case 'f':
-            {
+        optind++;
+        if (*arg == '-') {
+            longopt = arg + 1;
+            arg += strlen(arg);
+            /* -- stops argument scanning */
+            if (!*longopt)
+                break;
+        }
+        for (; *arg || *longopt; longopt = "") {
+            char opt = *arg;
+            if (opt)
+                arg++;
+            if (opt == 'h' || opt == '?' || !strcmp(longopt, "help")) {
+                help();
+                continue;
+            }
+            if (opt == 'o') {
+                out_filename = get_short_optarg(&optind, opt, arg, argc, argv);
+                break;
+            }
+            if (opt == 'c') {
+                output_type = OUTPUT_C;
+                continue;
+            }
+            if (opt == 'e') {
+                output_type = OUTPUT_C_MAIN;
+                continue;
+            }
+            if (opt == 'N') {
+                cname = get_short_optarg(&optind, opt, arg, argc, argv);
+                break;
+            }
+            if (opt == 'f') {
                 const char *p;
+                optarg = get_short_optarg(&optind, opt, arg, argc, argv);
                 p = optarg;
-                if (!strcmp(optarg, "lto")) {
+                if (!strcmp(p, "lto")) {
                     use_lto = TRUE;
                 } else if (strstart(p, "no-", &p)) {
                     use_lto = TRUE;
@@ -547,27 +607,23 @@ int main(int argc, char **argv)
                     }
                     if (i == countof(feature_list))
                         goto bad_feature;
-                } else
-#ifdef CONFIG_BIGNUM
-                if (!strcmp(optarg, "bignum")) {
-                    bignum_ext = TRUE;
-                } else
-#endif
-                {
+                } else {
                 bad_feature:
                     fprintf(stderr, "unsupported feature: %s\n", optarg);
                     exit(1);
                 }
+                break;
             }
-            break;
-        case 'm':
-            module = 1;
-            break;
-        case 'M':
-            {
+            if (opt == 'm') {
+                module = 1;
+                continue;
+            }
+            if (opt == 'M') {
                 char *p;
                 char path[1024];
                 char cname[1024];
+
+                optarg = get_short_optarg(&optind, opt, arg, argc, argv);
                 pstrcpy(path, sizeof(path), optarg);
                 p = strchr(path, ',');
                 if (p) {
@@ -577,25 +633,44 @@ int main(int argc, char **argv)
                     get_c_name(cname, sizeof(cname), path);
                 }
                 namelist_add(&cmodule_list, path, cname, 0);
+                break;
             }
-            break;
-        case 'D':
-            namelist_add(&dynamic_module_list, optarg, NULL, 0);
-            break;
-        case 'x':
-            byte_swap = TRUE;
-            break;
-        case 'v':
-            verbose++;
-            break;
-        case 'p':
-            c_ident_prefix = optarg;
-            break;
-        case 'S':
-            stack_size = (size_t)strtod(optarg, NULL);
-            break;
-        default:
-            break;
+            if (opt == 'D') {
+                optarg = get_short_optarg(&optind, opt, arg, argc, argv);
+                namelist_add(&dynamic_module_list, optarg, NULL, 0);
+                break;
+            }
+            if (opt == 'x') {
+                byte_swap = 1;
+                continue;
+            }
+            if (opt == 'v') {
+                verbose++;
+                continue;
+            }
+            if (opt == 'p') {
+                c_ident_prefix = get_short_optarg(&optind, opt, arg, argc, argv);
+                break;
+            }
+            if (opt == 'S') {
+                optarg = get_short_optarg(&optind, opt, arg, argc, argv);
+                stack_size = get_suffixed_size(optarg);
+                break;
+            }
+            if (opt == 's') {
+                strip_flags = JS_STRIP_DEBUG;
+                continue;
+            }
+            if (!strcmp(longopt, "keep-source")) {
+                strip_flags = 0;
+                continue;
+            }
+            if (opt) {
+                fprintf(stderr, "qjsc: unknown option '-%c'\n", opt);
+            } else {
+                fprintf(stderr, "qjsc: unknown option '--%s'\n", longopt);
+            }
+            help();
         }
     }
 
@@ -620,32 +695,26 @@ int main(int argc, char **argv)
     } else {
         pstrcpy(cfilename, sizeof(cfilename), out_filename);
     }
-    
+
     fo = fopen(cfilename, "w");
     if (!fo) {
         perror(cfilename);
         exit(1);
     }
     outfile = fo;
-    
+
     rt = JS_NewRuntime();
     ctx = JS_NewContext(rt);
-#ifdef CONFIG_BIGNUM
-    if (bignum_ext) {
-        JS_AddIntrinsicBigFloat(ctx);
-        JS_AddIntrinsicBigDecimal(ctx);
-        JS_AddIntrinsicOperators(ctx);
-        JS_EnableBignumExt(ctx, TRUE);
-    }
-#endif
-    
+
+    JS_SetStripInfo(rt, strip_flags);
+
     /* loader for ES6 modules */
     JS_SetModuleLoaderFunc(rt, NULL, jsc_module_loader, NULL);
 
     fprintf(fo, "/* File generated automatically by the QuickJS compiler. */\n"
             "\n"
             );
-    
+
     if (output_type != OUTPUT_C) {
         fprintf(fo, "#include \"quickjs-libc.h\"\n"
                 "\n"
@@ -669,7 +738,7 @@ int main(int argc, char **argv)
             exit(1);
         }
     }
-    
+
     if (output_type != OUTPUT_C) {
         fprintf(fo,
                 "static JSContext *JS_NewCustomContext(JSRuntime *rt)\n"
@@ -686,21 +755,12 @@ int main(int argc, char **argv)
                         feature_list[i].init_name);
             }
         }
-#ifdef CONFIG_BIGNUM
-        if (bignum_ext) {
-            fprintf(fo,
-                    "  JS_AddIntrinsicBigFloat(ctx);\n"
-                    "  JS_AddIntrinsicBigDecimal(ctx);\n"
-                    "  JS_AddIntrinsicOperators(ctx);\n"
-                    "  JS_EnableBignumExt(ctx, 1);\n");
-        }
-#endif
         /* add the precompiled modules (XXX: could modify the module
            loader instead) */
         for(i = 0; i < init_module_list.count; i++) {
             namelist_entry_t *e = &init_module_list.array[i];
             /* initialize the static C modules */
-            
+
             fprintf(fo,
                     "  {\n"
                     "    extern JSModuleDef *js_init_module_%s(JSContext *ctx, const char *name);\n"
@@ -718,19 +778,19 @@ int main(int argc, char **argv)
         fprintf(fo,
                 "  return ctx;\n"
                 "}\n\n");
-        
+
         fputs(main_c_template1, fo);
 
         if (stack_size != 0) {
             fprintf(fo, "  JS_SetMaxStackSize(rt, %u);\n",
                     (unsigned int)stack_size);
         }
-        
+
         /* add the module loader if necessary */
         if (feature_bitmap & (1 << FE_MODULE_LOADER)) {
             fprintf(fo, "  JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);\n");
         }
-        
+
         fprintf(fo,
                 "  ctx = JS_NewCustomContext(rt);\n"
                 "  js_std_add_helpers(ctx, argc, argv);\n");
@@ -744,7 +804,7 @@ int main(int argc, char **argv)
         }
         fputs(main_c_template2, fo);
     }
-    
+
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
 

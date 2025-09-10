@@ -1,6 +1,6 @@
 /*
  * QuickJS Read Eval Print Loop
- * 
+ *
  * Copyright (c) 2017-2020 Fabrice Bellard
  * Copyright (c) 2017-2020 Charlie Gordon
  *
@@ -22,8 +22,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-"use strip";
-
 import * as std from "std";
 import * as os from "os";
 
@@ -31,7 +29,7 @@ import * as os from "os";
     /* add 'os' and 'std' bindings */
     g.os = os;
     g.std = std;
-    
+
     /* close global objects */
     var Object = g.Object;
     var String = g.String;
@@ -41,11 +39,6 @@ import * as os from "os";
     var isFinite = g.isFinite;
     var parseFloat = g.parseFloat;
 
-    /* XXX: use preprocessor ? */
-    var config_numcalc = (typeof os.open === "undefined");
-    var has_jscalc = (typeof Fraction === "function");
-    var has_bignum = (typeof BigFloat === "function");
-    
     var colors = {
         none:    "\x1b[0m",
         black:   "\x1b[30m",
@@ -67,60 +60,38 @@ import * as os from "os";
         bright_white:   "\x1b[37;1m",
     };
 
-    var styles;
-    if (config_numcalc) {
-        styles = {
-            'default':    'black',
-            'comment':    'white',
-            'string':     'green',
-            'regex':      'cyan',
-            'number':     'green',
-            'keyword':    'blue',
-            'function':   'gray',
-            'type':       'bright_magenta',
-            'identifier': 'yellow',
-            'error':      'bright_red',
-            'result':     'black',
-            'error_msg':  'bright_red',
-        };
-    } else {
-        styles = {
-            'default':    'bright_green',
-            'comment':    'white',
-            'string':     'bright_cyan',
-            'regex':      'cyan',
-            'number':     'green',
-            'keyword':    'bright_white',
-            'function':   'bright_yellow',
-            'type':       'bright_magenta',
-            'identifier': 'bright_green',
-            'error':      'red',
-            'result':     'bright_white',
-            'error_msg':  'bright_red',
-        };
-    }
+    var styles = {
+        'default':    'bright_green',
+        'comment':    'white',
+        'string':     'bright_cyan',
+        'regex':      'cyan',
+        'number':     'green',
+        'keyword':    'bright_white',
+        'function':   'bright_yellow',
+        'type':       'bright_magenta',
+        'identifier': 'bright_green',
+        'error':      'red',
+        'result':     'bright_white',
+        'error_msg':  'bright_red',
+    };
 
     var history = [];
     var clip_board = "";
     var prec;
     var expBits;
     var log2_10;
-    
+
     var pstate = "";
     var prompt = "";
     var plen = 0;
-    var ps1;
-    if (config_numcalc)
-        ps1 = "> ";
-    else
-        ps1 = "qjs > ";
+    var ps1 = "qjs > ";
     var ps2 = "  ... ";
     var utf8 = true;
     var show_time = false;
     var show_colors = true;
     var eval_start_time;
     var eval_time = 0;
-    
+
     var mexpr = "";
     var level = 0;
     var cmd = "";
@@ -138,12 +109,12 @@ import * as os from "os";
     var term_read_buf;
     var term_width;
     /* current X position of the cursor in the terminal */
-    var term_cursor_x = 0; 
-    
+    var term_cursor_x = 0;
+
     function termInit() {
         var tab;
         term_fd = std.in.fileno();
-        
+
         /* get the terminal size */
         term_width = 80;
         if (os.isatty(term_fd)) {
@@ -170,14 +141,14 @@ import * as os from "os";
         /* send Ctrl-C to readline */
         handle_byte(3);
     }
-    
+
     function term_read_handler() {
         var l, i;
         l = os.read(term_fd, term_read_buf.buffer, 0, term_read_buf.length);
         for(i = 0; i < l; i++)
             handle_byte(term_read_buf[i]);
     }
-    
+
     function handle_byte(c) {
         if (!utf8) {
             handle_char(c);
@@ -195,12 +166,12 @@ import * as os from "os";
             handle_char(c);
         }
     }
-    
+
     function is_alpha(c) {
         return typeof c === "string" &&
             ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
     }
-    
+
     function is_digit(c) {
         return typeof c === "string" && (c >= '0' && c <= '9');
     }
@@ -232,7 +203,7 @@ import * as os from "os";
         d = c.codePointAt(0); /* can be NaN if empty string */
         return d >= 0xdc00 && d < 0xe000;
     }
-    
+
     function is_balanced(a, b) {
         switch (a + b) {
         case "()":
@@ -271,7 +242,7 @@ import * as os from "os";
                 } else {
                     l = Math.min(term_width - 1 - term_cursor_x, delta);
                     print_csi(l, "C"); /* right */
-                    delta -= l; 
+                    delta -= l;
                     term_cursor_x += l;
                 }
             }
@@ -399,7 +370,7 @@ import * as os from "os";
 
     function backward_word() {
         cursor_pos = skip_word_backward(cursor_pos);
-    }        
+    }
 
     function accept_line() {
         std.puts("\n");
@@ -577,7 +548,7 @@ import * as os from "os";
             readline_print_prompt();
         }
     }
-    
+
     function reset() {
         cmd = "";
         cursor_pos = 0;
@@ -613,6 +584,9 @@ import * as os from "os";
                     base = get_context_word(line, pos);
                     if (["true", "false", "null", "this"].includes(base) || !isNaN(+base))
                         return eval(base);
+                    // Check if `base` is a set of regexp flags
+                    if (pos - base.length >= 3 && line[pos - base.length - 1] === '/')
+                        return new RegExp('', base);
                     obj = get_context_object(line, pos - base.length);
                     if (obj === null || obj === void 0)
                         return obj;
@@ -731,7 +705,7 @@ import * as os from "os";
             readline_print_prompt();
         }
     }
-    
+
     var commands = {        /* command table */
         "\x01":     beginning_of_line,      /* ^A - bol */
         "\x02":     backward_char,          /* ^B - backward-char */
@@ -807,9 +781,9 @@ import * as os from "os";
         cursor_pos = cmd.length;
         history_index = history.length;
         readline_cb = cb;
-        
+
         prompt = pstate;
-    
+
         if (mexpr) {
             prompt += dupstr(" ", plen - prompt.length);
             prompt += ps2;
@@ -894,7 +868,7 @@ import * as os from "os";
         } else {
             alert(); /* beep! */
         }
-        
+
         cursor_pos = (cursor_pos < 0) ? 0 :
             (cursor_pos > cmd.length) ? cmd.length : cursor_pos;
         update();
@@ -932,48 +906,6 @@ import * as os from "os";
         }
     }
 
-    function bigfloat_to_string(a, radix) {
-        var s;
-        if (!BigFloat.isFinite(a)) {
-            /* NaN, Infinite */
-            if (eval_mode !== "math") {
-                return "BigFloat(" + a.toString() + ")";
-            } else {
-                return a.toString();
-            }
-        } else {
-            if (a == 0) {
-                if (1 / a < 0)
-                    s = "-0";
-                else
-                    s = "0";
-            } else {
-                if (radix == 16) {
-                    var s;
-                    if (a < 0) {
-                        a = -a;
-                        s = "-";
-                    } else {
-                        s = "";
-                    }
-                    s += "0x" + a.toString(16);
-                } else {
-                    s = a.toString();
-                }
-            }
-            if (typeof a === "bigfloat" && eval_mode !== "math") {
-                s += "l";
-            } else if (eval_mode !== "std" && s.indexOf(".") < 0 &&
-                ((radix == 16 && s.indexOf("p") < 0) ||
-                 (radix == 10 && s.indexOf("e") < 0))) {
-                /* add a decimal point so that the floating point type
-                   is visible */
-                s += ".0";
-            }
-            return s;
-        }
-    }
-
     function bigint_to_string(a, radix) {
         var s;
         if (radix == 16) {
@@ -992,27 +924,21 @@ import * as os from "os";
             s += "n";
         return s;
     }
-    
+
     function print(a) {
         var stack = [];
 
         function print_rec(a) {
             var n, i, keys, key, type, s;
-            
+
             type = typeof(a);
             if (type === "object") {
                 if (a === null) {
                     std.puts(a);
                 } else if (stack.indexOf(a) >= 0) {
                     std.puts("[circular]");
-                } else if (has_jscalc && (a instanceof Fraction ||
-                                        a instanceof Complex ||
-                                        a instanceof Mod ||
-                                        a instanceof Polynomial ||
-                                        a instanceof PolyMod ||
-                                        a instanceof RationalFunction ||
-                                        a instanceof Series)) {
-                    std.puts(a.toString());
+                } else if (a instanceof Date) {
+                    std.puts("Date " + a.toGMTString().__quote());
                 } else {
                     stack.push(a);
                     if (Array.isArray(a)) {
@@ -1058,10 +984,6 @@ import * as os from "os";
                 std.puts(number_to_string(a, hex_mode ? 16 : 10));
             } else if (type === "bigint") {
                 std.puts(bigint_to_string(a, hex_mode ? 16 : 10));
-            } else if (type === "bigfloat") {
-                std.puts(bigfloat_to_string(a, hex_mode ? 16 : 10));
-            } else if (type === "bigdecimal") {
-                std.puts(a.toString() + "m");
             } else if (type === "symbol") {
                 std.puts(String(a));
             } else if (type === "function") {
@@ -1072,7 +994,7 @@ import * as os from "os";
         }
         print_rec(a);
     }
-    
+
     function extract_directive(a) {
         var pos;
         if (a[0] !== '\\')
@@ -1087,7 +1009,7 @@ import * as os from "os";
     /* return true if the string after cmd can be evaluted as JS */
     function handle_directive(cmd, expr) {
         var param, prec1, expBits1;
-        
+
         if (cmd === "h" || cmd === "?" || cmd == "help") {
             help();
         } else if (cmd === "load") {
@@ -1102,75 +1024,10 @@ import * as os from "os";
             hex_mode = false;
         } else if (cmd === "t") {
             show_time = !show_time;
-        } else if (has_bignum && cmd === "p") {
-            param = expr.substring(cmd.length + 1).trim().split(" ");
-            if (param.length === 1 && param[0] === "") {
-                std.puts("BigFloat precision=" + prec + " bits (~" +
-                          Math.floor(prec / log2_10) +
-                          " digits), exponent size=" + expBits + " bits\n");
-            } else if (param[0] === "f16") {
-                prec = 11;
-                expBits = 5;
-            } else if (param[0] === "f32") {
-                prec = 24;
-                expBits = 8;
-            } else if (param[0] === "f64") {
-                prec = 53;
-                expBits = 11;
-            } else if (param[0] === "f128") {
-                prec = 113;
-                expBits = 15;
-            } else {
-                prec1 = parseInt(param[0]);
-                if (param.length >= 2)
-                    expBits1 = parseInt(param[1]);
-                else
-                    expBits1 = BigFloatEnv.expBitsMax;
-                if (Number.isNaN(prec1) ||
-                    prec1 < BigFloatEnv.precMin ||
-                    prec1 > BigFloatEnv.precMax) {
-                    std.puts("Invalid precision\n");
-                    return false;
-                }
-                if (Number.isNaN(expBits1) ||
-                    expBits1 < BigFloatEnv.expBitsMin ||
-                    expBits1 > BigFloatEnv.expBitsMax) {
-                    std.puts("Invalid exponent bits\n");
-                    return false;
-                }
-                prec = prec1;
-                expBits = expBits1;
-            }
-            return false;
-        } else if (has_bignum && cmd === "digits") {
-            param = expr.substring(cmd.length + 1).trim();
-            prec1 = Math.ceil(parseFloat(param) * log2_10);
-            if (prec1 < BigFloatEnv.precMin ||
-                prec1 > BigFloatEnv.precMax) {
-                std.puts("Invalid precision\n");
-                return false;
-            }
-            prec = prec1;
-            expBits = BigFloatEnv.expBitsMax;
-            return false;
-        } else if (has_bignum && cmd === "mode") {
-            param = expr.substring(cmd.length + 1).trim();
-            if (param === "") {
-                std.puts("Running mode=" + eval_mode + "\n");
-            } else if (param === "std" || param === "math") {
-                eval_mode = param;
-            } else {
-                std.puts("Invalid mode\n");
-            }
-            return false;
         } else if (cmd === "clear") {
             std.puts("\x1b[H\x1b[J");
         } else if (cmd === "q") {
             std.exit(0);
-        } else if (has_jscalc && cmd === "a") {
-            algebraicMode = true;
-        } else if (has_jscalc && cmd === "n") {
-            algebraicMode = false;
         } else {
             std.puts("Unknown directive: " + cmd + "\n");
             return false;
@@ -1178,26 +1035,6 @@ import * as os from "os";
         return true;
     }
 
-    if (config_numcalc) {
-        /* called by the GUI */
-        g.execCmd = function (cmd) {
-            switch(cmd) {
-            case "dec":
-                hex_mode = false;
-                break;
-            case "hex":
-                hex_mode = true;
-                break;
-            case "num":
-                algebraicMode = false;
-                break;
-            case "alg":
-                algebraicMode = true;
-                break;
-            }
-        }
-    }
-    
     function help() {
         function sel(n) {
             return n ? "*": " ";
@@ -1206,40 +1043,12 @@ import * as os from "os";
                  "\\x         " + sel(hex_mode) + "hexadecimal number display\n" +
                  "\\d         " + sel(!hex_mode) + "decimal number display\n" +
                  "\\t         " + sel(show_time) + "toggle timing display\n" +
-                  "\\clear      clear the terminal\n");
-        if (has_jscalc) {
-            std.puts("\\a         " + sel(algebraicMode) + "algebraic mode\n" +
-                     "\\n         " + sel(!algebraicMode) + "numeric mode\n");
-        }
-        if (has_bignum) {
-            std.puts("\\p [m [e]]  set the BigFloat precision to 'm' bits\n" +
-                     "\\digits n   set the BigFloat precision to 'ceil(n*log2(10))' bits\n");
-            if (!has_jscalc) {
-                std.puts("\\mode [std|math] change the running mode (current = " + eval_mode + ")\n");
-            }
-        }
-        if (!config_numcalc) {
-            std.puts("\\q          exit\n");
-        }
+                  "\\clear      clear the terminal\n" +
+                 "\\q          exit\n");
     }
 
     function cmd_start() {
-        if (!config_numcalc) {
-            if (has_jscalc)
-                std.puts('QJSCalc - Type "\\h" for help\n');
-            else
-                std.puts('QuickJS - Type "\\h" for help\n');
-        }
-        if (has_bignum) {
-            log2_10 = Math.log(10) / Math.log(2);
-            prec = 113;
-            expBits = 15;
-            if (has_jscalc) {
-                eval_mode = "math";
-                /* XXX: numeric mode should always be the default ? */
-                g.algebraicMode = config_numcalc;
-            }
-        }
+        std.puts('QuickJS - Type "\\h" for help\n');
 
         cmd_readline_start();
     }
@@ -1247,7 +1056,7 @@ import * as os from "os";
     function cmd_readline_start() {
         readline_start(dupstr("    ", level), readline_handle_cmd);
     }
-    
+
     function readline_handle_cmd(expr) {
         if (!handle_cmd(expr)) {
             cmd_readline_start();
@@ -1257,7 +1066,7 @@ import * as os from "os";
     /* return true if async termination */
     function handle_cmd(expr) {
         var colorstate, cmd;
-        
+
         if (expr === null) {
             expr = "";
             return false;
@@ -1275,7 +1084,7 @@ import * as os from "os";
         }
         if (expr === "")
             return false;
-        
+
         if (mexpr)
             expr = mexpr + '\n' + expr;
         colorstate = colorize_js(expr);
@@ -1286,38 +1095,28 @@ import * as os from "os";
             return false;
         }
         mexpr = "";
-        
-        if (has_bignum) {
-            /* XXX: async is not supported in this case */
-            BigFloatEnv.setPrec(eval_and_print_start.bind(null, expr, false),
-                                prec, expBits);
-        } else {
-            eval_and_print_start(expr, true);
-        }
+
+        eval_and_print_start(expr);
+
         return true;
     }
 
-    function eval_and_print_start(expr, is_async) {
+    function eval_and_print_start(expr) {
         var result;
-        
+
         try {
-            if (eval_mode === "math")
-                expr = '"use math"; void 0;' + expr;
             eval_start_time = os.now();
             /* eval as a script */
-            result = std.evalScript(expr, { backtrace_barrier: true, async: is_async });
-            if (is_async) {
-                /* result is a promise */
-                result.then(print_eval_result, print_eval_error);
-            } else {
-                print_eval_result(result);
-            }
+            result = std.evalScript(expr, { backtrace_barrier: true, async: true });
+            /* result is a promise */
+            result.then(print_eval_result, print_eval_error);
         } catch (error) {
             print_eval_error(error);
         }
     }
 
     function print_eval_result(result) {
+        result = result.value;
         eval_time = os.now() - eval_start_time;
         std.puts(colors[styles.result]);
         print(result);
@@ -1341,7 +1140,7 @@ import * as os from "os";
             console.log(error);
         }
         std.puts(colors.none);
-        
+
         handle_cmd_end();
     }
 
@@ -1584,7 +1383,7 @@ import * as os from "os";
     }
 
     termInit();
-    
+
     cmd_start();
 
 })(globalThis);
