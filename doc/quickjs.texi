@@ -5,11 +5,14 @@
 @headings double
 @end iftex
 
+@include version.texi
+
 @titlepage
 @afourpaper
 @sp 7
 @center @titlefont{QuickJS Javascript Engine}
 @sp 3
+@center Version: @value{VERSION}
 @end titlepage
 
 @setfilename spec.info
@@ -19,14 +22,10 @@
 
 @chapter Introduction
 
-QuickJS is a small and embeddable Javascript engine. It supports most of the
-ES2023 specification
-@footnote{@url{https://tc39.es/ecma262/2023 }}
-including modules, asynchronous generators, proxies and BigInt.
-
-It supports mathematical extensions such as big decimal float float
-numbers (BigDecimal), big binary floating point numbers (BigFloat),
-and operator overloading.
+QuickJS (version @value{VERSION}) is a small and embeddable Javascript
+engine. It supports most of the ES2023 specification
+@footnote{@url{https://tc39.es/ecma262/2023 }} including modules,
+asynchronous generators, proxies and BigInt.
 
 @section Main Features
 
@@ -46,8 +45,6 @@ features from the upcoming ES2024 specification
 @item Compile Javascript sources to executables with no external dependency.
 
 @item Garbage collection using reference counting (to reduce memory usage and have deterministic behavior) with cycle removal.
-
-@item Mathematical extensions: BigDecimal, BigFloat, operator overloading, bigint mode, math mode.
 
 @item Command line interpreter with contextual colorization and completion implemented in Javascript.
 
@@ -123,10 +120,6 @@ source is @code{import}.
 @item --script
 Load as ES6 script (default=autodetect).
 
-@item --bignum
-Enable the bignum extensions: BigDecimal object, BigFloat object and
-the @code{"use math"} directive.
-
 @item -I file
 @item --include file
 Include an additional file.
@@ -160,7 +153,7 @@ Options are:
 @table @code
 @item -c
 Only output bytecode in a C file. The default is to output an executable file.
-@item -e 
+@item -e
 Output @code{main()} and bytecode in a C file. The default is to output an
 executable file.
 @item -o output
@@ -193,20 +186,7 @@ when the @code{-fno-x} options are used.
 @item -fno-[eval|string-normalize|regexp|json|proxy|map|typedarray|promise|bigint]
 Disable selected language features to produce a smaller executable file.
 
-@item -fbignum
-Enable the bignum extensions: BigDecimal object, BigFloat object and
-the @code{"use math"} directive.
-
 @end table
-
-@section @code{qjscalc} application
-
-The @code{qjscalc} application is a superset of the @code{qjs}
-command line interpreter implementing a Javascript calculator with
-arbitrarily large integer and floating point numbers, fractions,
-complex numbers, polynomials and matrices. The source code is in
-@file{qjscalc.js}. More documentation and a web version are available at
-@url{http://numcalc.com}.
 
 @section Built-in tests
 
@@ -281,44 +261,11 @@ The following features are not supported yet:
 
 @item Tail calls@footnote{We believe the current specification of tails calls is too complicated and presents limited practical interests.}
 
-@item WeakRef and FinalizationRegistry objects
-
-@item Symbols as WeakMap keys
-
 @end itemize
 
 @subsection ECMA402
 
 ECMA402 (Internationalization API) is not supported.
-
-@subsection Extensions
-
-@itemize
-
-@item The directive @code{"use strip"} indicates that the debug information (including the source code of the functions) should not be retained to save memory. As @code{"use strict"}, the directive can be global to a script or local to a function.
-
-@item The first line of a script beginning with @code{#!} is ignored.
-
-@end itemize
-
-@subsection Mathematical extensions
-
-The mathematical extensions are fully backward compatible with
-standard Javascript. See @code{jsbignum.pdf} for more information.
-
-@itemize
-
-@item @code{BigDecimal} support: arbitrary large floating point numbers in base 10.
-
-@item @code{BigFloat} support: arbitrary large floating point numbers in base 2.
-
-@item Operator overloading.
-
-@item The directive @code{"use bigint"} enables the bigint mode where integers are @code{BigInt} by default.
-
-@item The directive @code{"use math"} enables the math mode where the division and power operators on integers produce fractions. Floating point literals are @code{BigFloat} by default and integers are @code{BigInt} by default.
-
-@end itemize
 
 @section Modules
 
@@ -379,7 +326,9 @@ optional properties:
   stack frames below the evalScript.
   @item async
   Boolean (default = false). If true, @code{await} is accepted in the
-  script and a promise is returned.
+  script and a promise is returned. The promise is resolved with an
+  object whose @code{value} property holds the value returned by the
+  script.
   @end table
 
 @item loadScript(filename)
@@ -487,7 +436,7 @@ optional properties:
   to be UTF-8 encoded.
 
   @item full
-  
+
   Boolean (default = false). If true, return the an object contains
   the properties @code{response} (response content),
   @code{responseHeaders} (headers separated by CRLF), @code{status}
@@ -594,7 +543,7 @@ Available exports:
 Open a file. Return a handle or < 0 if error.
 
 @item O_RDONLY
-@item O_WRONLY        
+@item O_WRONLY
 @item O_RDWR
 @item O_APPEND
 @item O_CREAT
@@ -732,7 +681,7 @@ object containing optional parameters:
   terminated. In this case, @code{exec} return the exit code if positive
   or the negated signal number if the process was interrupted by a
   signal. If false, do not block and return the process id of the child.
-  
+
   @item usePath
   Boolean (default = true). If true, the file is searched in the
   @code{PATH} environment variable.
@@ -756,7 +705,7 @@ object containing optional parameters:
   @item uid
   Integer. If present, the process uid with @code{setuid}.
 
-  @item gid 
+  @item gid
   Integer. If present, the process gid with @code{setgid}.
 
   @end table
@@ -827,7 +776,7 @@ The worker instances have the following properties:
 
   @table @code
   @item postMessage(msg)
-  
+
   Send a message to the corresponding worker. @code{msg} is cloned in
   the destination worker using an algorithm similar to the @code{HTML}
   structured clone algorithm. @code{SharedArrayBuffer} are shared
@@ -970,7 +919,7 @@ The compiler generates bytecode directly with no intermediate
 representation such as a parse tree, hence it is very fast. Several
 optimizations passes are done over the generated bytecode.
 
-A stack-based bytecode was chosen because it is simple and generates 
+A stack-based bytecode was chosen because it is simple and generates
 compact code.
 
 For each function, the maximum stack size is computed at compile time so that
@@ -1103,12 +1052,11 @@ binary properties.
 
 The full Unicode library weights about 45 KiB (x86 code).
 
-@section BigInt, BigFloat, BigDecimal
+@section BigInt
 
-BigInt, BigFloat and BigDecimal are implemented with the @code{libbf}
-library@footnote{@url{https://bellard.org/libbf}}. It weights about 90
-KiB (x86 code) and provides arbitrary precision IEEE 754 floating
-point operations and transcendental functions with exact rounding.
+BigInts are represented using binary two's complement notation. An
+additional short bigint value is used to optimize the performance on
+small BigInt values.
 
 @chapter License
 

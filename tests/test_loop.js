@@ -149,7 +149,7 @@ function test_for_in()
 
 function test_for_in2()
 {
-    var i;
+    var i, tab;
     tab = [];
     for(i in {x:1, y: 2, z:3}) {
         if (i === "y")
@@ -356,7 +356,7 @@ function test_try_catch7()
 function test_try_catch8()
 {
     var i, s;
-    
+
     s = "";
     for(var i in {x:1, y:2}) {
         try {
@@ -369,6 +369,16 @@ function test_try_catch8()
         }
     }
     assert(s === "xafyaf");
+}
+
+function test_cyclic_labels()
+{
+    /* just check that it compiles without a crash */
+    for (;;) {
+        l: break l;
+        l: break l;
+        l: break l;
+    }
 }
 
 test_while();

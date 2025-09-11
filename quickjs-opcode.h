@@ -1,6 +1,6 @@
 /*
  * QuickJS opcode definitions
- * 
+ *
  * Copyright (c) 2017-2018 Fabrice Bellard
  * Copyright (c) 2017-2018 Charlie Gordon
  *
@@ -110,6 +110,7 @@ DEF(         return, 1, 1, 0, none)
 DEF(   return_undef, 1, 0, 0, none)
 DEF(check_ctor_return, 1, 1, 2, none)
 DEF(     check_ctor, 1, 0, 0, none)
+DEF(      init_ctor, 1, 0, 1, none)
 DEF(    check_brand, 1, 2, 2, none) /* this_obj func -> this_obj func */
 DEF(      add_brand, 1, 2, 0, none) /* this_obj home_obj -> */
 DEF(   return_async, 1, 1, 0, none)
@@ -165,7 +166,7 @@ DEF(        set_loc, 3, 1, 1, loc) /* must come after put_loc */
 DEF(        get_arg, 3, 0, 1, arg)
 DEF(        put_arg, 3, 1, 0, arg) /* must come after get_arg */
 DEF(        set_arg, 3, 1, 1, arg) /* must come after put_arg */
-DEF(    get_var_ref, 3, 0, 1, var_ref) 
+DEF(    get_var_ref, 3, 0, 1, var_ref)
 DEF(    put_var_ref, 3, 1, 0, var_ref) /* must come after get_var_ref */
 DEF(    set_var_ref, 3, 1, 1, var_ref) /* must come after put_var_ref */
 DEF(set_loc_uninitialized, 3, 0, 0, loc)
@@ -173,7 +174,7 @@ DEF(  get_loc_check, 3, 0, 1, loc)
 DEF(  put_loc_check, 3, 1, 0, loc) /* must come after get_loc_check */
 DEF(  put_loc_check_init, 3, 1, 0, loc)
 DEF(get_loc_checkthis, 3, 0, 1, loc)
-DEF(get_var_ref_check, 3, 0, 1, var_ref) 
+DEF(get_var_ref_check, 3, 0, 1, var_ref)
 DEF(put_var_ref_check, 3, 1, 0, var_ref) /* must come after get_var_ref_check */
 DEF(put_var_ref_check_init, 3, 1, 0, var_ref)
 DEF(      close_loc, 3, 0, 0, loc)
@@ -195,7 +196,6 @@ DEF(   with_put_var, 10, 2, 1, atom_label_u8)     /* must be in the same order a
 DEF(with_delete_var, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
 DEF(  with_make_ref, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
 DEF(   with_get_ref, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
-DEF(with_get_ref_undef, 10, 1, 0, atom_label_u8)
 
 DEF(   make_loc_ref, 7, 0, 2, atom_u16)
 DEF(   make_arg_ref, 7, 0, 2, atom_u16)
@@ -207,8 +207,9 @@ DEF(   for_of_start, 1, 1, 3, none)
 DEF(for_await_of_start, 1, 1, 3, none)
 DEF(    for_in_next, 1, 1, 3, none)
 DEF(    for_of_next, 2, 3, 5, u8)
+DEF(for_await_of_next, 1, 3, 4, none) /* iter next catch_offset -> iter next catch_offset obj */
 DEF(iterator_check_object, 1, 1, 1, none)
-DEF(iterator_get_value_done, 1, 1, 2, none)
+DEF(iterator_get_value_done, 1, 2, 3, none) /* catch_offset obj -> catch_offset value done */
 DEF( iterator_close, 1, 3, 0, none)
 DEF(  iterator_next, 1, 4, 4, none)
 DEF(  iterator_call, 2, 4, 5, u8)
@@ -258,12 +259,9 @@ DEF(            xor, 1, 2, 1, none)
 DEF(             or, 1, 2, 1, none)
 DEF(is_undefined_or_null, 1, 1, 1, none)
 DEF(     private_in, 1, 2, 1, none)
-#ifdef CONFIG_BIGNUM
-DEF(      mul_pow10, 1, 2, 1, none)
-DEF(       math_mod, 1, 2, 1, none)
-#endif
+DEF(push_bigint_i32, 5, 0, 1, i32)
 /* must be the last non short and non temporary opcode */
-DEF(            nop, 1, 0, 0, none) 
+DEF(            nop, 1, 0, 0, none)
 
 /* temporary opcodes: never emitted in the final bytecode */
 
@@ -289,7 +287,7 @@ def(scope_in_private_field, 7, 1, 1, atom_u16) /* obj -> res emitted in phase 1,
 def(get_field_opt_chain, 5, 1, 1, atom) /* emitted in phase 1, removed in phase 2 */
 def(get_array_el_opt_chain, 1, 2, 1, none) /* emitted in phase 1, removed in phase 2 */
 def( set_class_name, 5, 1, 1, u32) /* emitted in phase 1, removed in phase 2 */
-    
+
 def(       line_num, 5, 0, 0, u32) /* emitted in phase 1, removed in phase 3 */
 
 #if SHORT_OPCODES

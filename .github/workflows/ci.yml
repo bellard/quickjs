@@ -1,0 +1,285 @@
+name: ci
+
+on:
+  pull_request:
+    paths:
+      - '**'
+      - '!.gitignore'
+      - '!LICENSE'
+      - '!TODO'
+      - '!doc/**'
+      - '!examples/**'
+      - '.github/workflows/ci.yml'
+  push:
+    branches:
+      - '*'
+
+jobs:
+  linux:
+    name: Linux (Ubuntu)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
+      - name: Stats
+        run: |
+          ./qjs -qd
+      - name: Run built-in tests
+        run: |
+          make test
+      - name: Run microbench
+        run: |
+          make microbench
+
+  linux-lto:
+    name: Linux LTO
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_LTO=y
+      - name: Run built-in tests
+        run: |
+          make test
+      - name: Run microbench
+        run: |
+          make microbench
+
+  linux-32bit:
+    name: Linux 32bit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install gcc-multilib
+        run: |
+          sudo apt install -y gcc-multilib
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_M32=y
+      - name: Run built-in tests
+        run: |
+          make CONFIG_M32=y test
+
+  linux-asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
+      - name: Run built-in tests
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_ASAN=y test
+
+  linux-msan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        env:
+          CC: clang
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_MSAN=y CONFIG_CLANG=y
+      - name: Run built-in tests
+        env:
+          MSAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_MSAN=y CONFIG_CLANG=y test
+
+  linux-ubsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
+      - name: Run built-in tests
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_UBSAN=y test
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
+      - name: Stats
+        run: |
+          ./qjs -qd
+      - name: Run built-in tests
+        run: |
+          make test
+
+  macos-asan:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
+      - name: Run built-in tests
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_ASAN=y test
+
+  macos-ubsan:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
+      - name: Run built-in tests
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          make CONFIG_UBSAN=y test
+
+  freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + test
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y gmake
+          run: |
+            gmake
+            ./qjs -qd
+            gmake test
+
+  cosmopolitan:
+    name: Cosmopolitan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Cosmopolitan
+        run: |
+          mkdir ~/cosmocc
+          cd ~/cosmocc
+          wget https://cosmo.zip/pub/cosmocc/cosmocc.zip
+          unzip cosmocc.zip
+          echo "$HOME/cosmocc/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: |
+          make CONFIG_COSMO=y
+      - name: Run built-in tests
+        run: |
+          make CONFIG_COSMO=y test
+
+  mingw-windows:
+    name: MinGW Windows target
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install MinGW and Wine
+        run: |
+          sudo apt install -y wine mingw-w64
+          cp /usr/x86_64-w64-mingw32/lib/libwinpthread-1.dll .
+      - name: Setup Wine
+        run: |
+          wine --version
+          winecfg /v
+          # binfmt doesn't work in GitHub Actions
+          #sudo apt install -y binfmt-support wine-binfmt
+          #echo ":Wine:M::MZ::/usr/bin/wine:" > /etc/binfmt.d/wine.conf
+          #sudo systemctl restart systemd-binfmt
+      - name: Build
+        run: |
+          make CONFIG_WIN32=y
+      - name: Run built-in tests
+        run: |
+          # If binfmt support worked, could just run `make CONFIG_WIN32=y test`
+          make WINE=/usr/bin/wine CONFIG_WIN32=y test
+
+  windows-msys:
+    name: Windows MSYS2
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: git make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-dlfcn
+      - name: Build
+        run: |
+           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
+      - name: Stats
+        run: |
+          ./qjs -qd
+      - name: Run built-in tests
+        run: |
+          make test
+      - name: Run microbench
+        run: |
+          make microbench
+
+
+  qemu-alpine:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/386
+          - linux/riscv64
+          - linux/arm64
+          - linux/arm/v6
+          - linux/arm/v7
+          - linux/s390x
+          - linux/ppc64le
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            submodules: recursive
+      - name: Get qemu
+        # See https://github.com/tonistiigi/binfmt/issues/215#issuecomment-2613004741
+        run: docker run --privileged --rm tonistiigi/binfmt:master --install all
+      - name: Run tests on ${{ matrix.platform }}
+        run: docker run --rm --interactive --mount type=bind,source=$(pwd),target=/host --platform ${{ matrix.platform }} alpine sh -c "apk add git patch make gcc libc-dev && cd /host && make test"
