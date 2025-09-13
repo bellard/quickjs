@@ -34924,7 +34924,8 @@ static void free_function_bytecode(JSRuntime *rt, JSFunctionBytecode *b)
                JS_AtomGetStrRT(rt, buf, sizeof(buf), b->func_name));
     }
 #endif
-    free_bytecode_atoms(rt, b->byte_code_buf, b->byte_code_len, TRUE);
+    if (b->byte_code_buf)
+        free_bytecode_atoms(rt, b->byte_code_buf, b->byte_code_len, TRUE);
 
     if (b->vardefs) {
         for(i = 0; i < b->arg_count + b->var_count; i++) {
