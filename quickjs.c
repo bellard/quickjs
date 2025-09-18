@@ -40802,8 +40802,10 @@ done:
             goto exception;
         args[0] = ret;
         res = JS_Invoke(ctx, arr, JS_ATOM_set, 1, args);
-        if (check_exception_free(ctx, res))
+        if (check_exception_free(ctx, res)) {
+            JS_FreeValue(ctx, arr);
             goto exception;
+        }
         JS_FreeValue(ctx, ret);
         ret = arr;
     }
