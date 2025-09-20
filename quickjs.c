@@ -42176,7 +42176,7 @@ static JSValue js_array_iterator_next(JSContext *ctx, JSValueConst this_val,
     }
 }
 
-/* IteratorWrap */
+/* Iterator Wrap */
 
 typedef struct JSIteratorWrapData {
     JSValue wrapped_iter;
@@ -42214,18 +42214,20 @@ static JSValue js_iterator_wrap_next(JSContext *ctx, JSValueConst this_val,
     it = JS_GetOpaque2(ctx, this_val, JS_CLASS_ITERATOR_WRAP);
     if (!it)
         return JS_EXCEPTION;
-    if (magic == GEN_MAGIC_NEXT)
-        return JS_IteratorNext(ctx, it->wrapped_iter, it->wrapped_next, argc, argv, pdone);
-    method = JS_GetProperty(ctx, it->wrapped_iter, JS_ATOM_return);
-    if (JS_IsException(method))
-        return JS_EXCEPTION;
-    if (JS_IsNull(method) || JS_IsUndefined(method)) {
-        *pdone = TRUE;
-        return JS_UNDEFINED;
+    if (magic == GEN_MAGIC_NEXT) {
+        return JS_IteratorNext(ctx, it->wrapped_iter, it->wrapped_next, 0, NULL, pdone);
+    } else {
+        method = JS_GetProperty(ctx, it->wrapped_iter, JS_ATOM_return);
+        if (JS_IsException(method))
+            return JS_EXCEPTION;
+        if (JS_IsNull(method) || JS_IsUndefined(method)) {
+            *pdone = TRUE;
+            return JS_UNDEFINED;
+        }
+        ret = JS_IteratorNext2(ctx, it->wrapped_iter, method, 0, NULL, pdone);
+        JS_FreeValue(ctx, method);
+        return ret;
     }
-    ret = JS_IteratorNext2(ctx, it->wrapped_iter, method, argc, argv, pdone);
-    JS_FreeValue(ctx, method);
-    return ret;
 }
 
 static const JSCFunctionListEntry js_iterator_wrap_proto_funcs[] = {
@@ -42275,50 +42277,55 @@ static JSValue js_iterator_constructor(JSContext *ctx, JSValueConst new_target,
 static JSValue js_iterator_from(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
-    JSValue method, iter;
+    JSValueConst obj = argv[0];
+    JSValue method, iter, wrapper;
     JSIteratorWrapData *it;
     int ret;
 
-    JSValueConst obj = argv[0];
-    if (JS_IsString(obj)) {
-        method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
-        if (JS_IsException(method))
-            return JS_EXCEPTION;
-        return JS_CallFree(ctx, method, obj, 0, NULL);
+    if (!JS_IsObject(obj)) {
+        if (!JS_IsString(obj))
+            return JS_ThrowTypeError(ctx, "Iterator.from called on non-object");
     }
-    if (!JS_IsObject(obj))
-        return JS_ThrowTypeError(ctx, "Iterator.from called on non-object");
-    ret = JS_OrdinaryIsInstanceOf(ctx, obj, ctx->iterator_ctor);
-    if (ret < 0)
-        return JS_EXCEPTION;
-    if (ret)
-        return JS_DupValue(ctx, obj);
     method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
     if (JS_IsException(method))
         return JS_EXCEPTION;
     if (JS_IsNull(method) || JS_IsUndefined(method)) {
-        method = JS_GetProperty(ctx, obj, JS_ATOM_next);
-        if (JS_IsException(method))
-            return JS_EXCEPTION;
-        iter = JS_NewObjectClass(ctx, JS_CLASS_ITERATOR_WRAP);
-        if (JS_IsException(iter))
-            goto fail;
-        it = js_malloc(ctx, sizeof(*it));
-        if (!it)
-            goto fail;
-        it->wrapped_iter = JS_DupValue(ctx, obj);
-        it->wrapped_next = method;
-        JS_SetOpaque(iter, it);
+        iter = JS_DupValue(ctx, obj);
     } else {
         iter = JS_GetIterator2(ctx, obj, method);
         JS_FreeValue(ctx, method);
         if (JS_IsException(iter))
             return JS_EXCEPTION;
     }
-    return iter;
-fail:
+
+    wrapper = JS_UNDEFINED;
+    method = JS_GetProperty(ctx, iter, JS_ATOM_next);
+    if (JS_IsException(method))
+        goto fail;
+
+    ret = JS_OrdinaryIsInstanceOf(ctx, iter, ctx->iterator_ctor);
+    if (ret < 0)
+        goto fail;
+    if (ret) {
+        JS_FreeValue(ctx, method);
+        return iter;
+    }
+    
+    wrapper = JS_NewObjectClass(ctx, JS_CLASS_ITERATOR_WRAP);
+    if (JS_IsException(wrapper))
+        goto fail;
+    it = js_malloc(ctx, sizeof(*it));
+    if (!it)
+        goto fail;
+    it->wrapped_iter = iter;
+    it->wrapped_next = method;
+    JS_SetOpaque(wrapper, it);
+    return wrapper;
+
+ fail:
     JS_FreeValue(ctx, method);
     JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, wrapper);
     return JS_EXCEPTION;
 }
 
@@ -42450,12 +42457,13 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeErrorNotAnObject(ctx);
     func = JS_UNDEFINED;
     method = JS_UNDEFINED;
+    
     if (check_function(ctx, argv[0]))
         goto fail;
     func = JS_DupValue(ctx, argv[0]);
     method = JS_GetProperty(ctx, this_val, JS_ATOM_next);
     if (JS_IsException(method))
-        goto fail;
+        goto fail_no_close;
 
     r = JS_UNDEFINED;
 
@@ -42466,7 +42474,7 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
             for (idx = 0; /*empty*/; idx++) {
                 item = JS_IteratorNext(ctx, this_val, method, 0, NULL, &done);
                 if (JS_IsException(item))
-                    goto fail;
+                    goto fail_no_close;
                 if (done)
                     break;
                 index_val = JS_NewInt64(ctx, idx);
@@ -42495,7 +42503,7 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
             for (idx = 0; /*empty*/; idx++) {
                 item = JS_IteratorNext(ctx, this_val, method, 0, NULL, &done);
                 if (JS_IsException(item))
-                    goto fail;
+                    goto fail_no_close;
                 if (done)
                     break;
                 index_val = JS_NewInt64(ctx, idx);
@@ -42516,6 +42524,7 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
                     }
                     break;
                 }
+                JS_FreeValue(ctx, item);
                 index_val = JS_UNDEFINED;
                 ret = JS_UNDEFINED;
                 item = JS_UNDEFINED;
@@ -42527,7 +42536,7 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
             for (idx = 0; /*empty*/; idx++) {
                 item = JS_IteratorNext(ctx, this_val, method, 0, NULL, &done);
                 if (JS_IsException(item))
-                    goto fail;
+                    goto fail_no_close;
                 if (done)
                     break;
                 index_val = JS_NewInt64(ctx, idx);
@@ -42551,7 +42560,7 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
             for (idx = 0; /*empty*/; idx++) {
                 item = JS_IteratorNext(ctx, this_val, method, 0, NULL, &done);
                 if (JS_IsException(item))
-                    goto fail;
+                    goto fail_no_close;
                 if (done)
                     break;
                 index_val = JS_NewInt64(ctx, idx);
@@ -42583,8 +42592,9 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
     JS_FreeValue(ctx, func);
     JS_FreeValue(ctx, method);
     return r;
-fail:
+ fail:
     JS_IteratorClose(ctx, this_val, TRUE);
+ fail_no_close:
     JS_FreeValue(ctx, func);
     JS_FreeValue(ctx, method);
     return JS_EXCEPTION;
@@ -42615,7 +42625,7 @@ static JSValue js_iterator_proto_reduce(JSContext *ctx, JSValueConst this_val,
     } else {
         acc = JS_IteratorNext(ctx, this_val, method, 0, NULL, &done);
         if (JS_IsException(acc))
-            goto exception;
+            goto exception_no_close;
         if (done) {
             JS_ThrowTypeError(ctx, "empty iterator");
             goto exception;
@@ -42625,7 +42635,7 @@ static JSValue js_iterator_proto_reduce(JSContext *ctx, JSValueConst this_val,
     for (/* empty */; /*empty*/; idx++) {
         item = JS_IteratorNext(ctx, this_val, method, 0, NULL, &done);
         if (JS_IsException(item))
-            goto exception;
+            goto exception_no_close;
         if (done)
             break;
         index_val = JS_NewInt64(ctx, idx);
@@ -42646,8 +42656,9 @@ static JSValue js_iterator_proto_reduce(JSContext *ctx, JSValueConst this_val,
     JS_FreeValue(ctx, func);
     JS_FreeValue(ctx, method);
     return acc;
-exception:
+ exception:
     JS_IteratorClose(ctx, this_val, TRUE);
+ exception_no_close:
     JS_FreeValue(ctx, acc);
     JS_FreeValue(ctx, func);
     JS_FreeValue(ctx, method);
@@ -42787,7 +42798,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
                 item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
                 if (JS_IsException(item)) {
                     JS_FreeValue(ctx, method);
-                    goto fail;
+                    goto fail_no_close;
                 }
                 JS_FreeValue(ctx, item);
                 if (magic == GEN_MAGIC_RETURN)
@@ -42802,7 +42813,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
             item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
             JS_FreeValue(ctx, method);
             if (JS_IsException(item))
-                goto fail;
+                goto fail_no_close;
             ret = item;
             goto done;
         }
@@ -42822,7 +42833,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
             item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
             if (JS_IsException(item)) {
                 JS_FreeValue(ctx, method);
-                goto fail;
+                goto fail_no_close;
             }
             if (*pdone || magic == GEN_MAGIC_RETURN) {
                 JS_FreeValue(ctx, method);
@@ -42835,6 +42846,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
             selected = JS_Call(ctx, it->func, JS_UNDEFINED, countof(args), args);
             JS_FreeValue(ctx, index_val);
             if (JS_IsException(selected)) {
+                JS_FreeValue(ctx, item);
                 JS_FreeValue(ctx, method);
                 goto fail;
             }
@@ -42843,6 +42855,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
                 ret = item;
                 goto done;
             }
+            JS_FreeValue(ctx, item);
             goto filter_again;
         }
         break;
@@ -42862,7 +42875,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
                 item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
                 JS_FreeValue(ctx, method);
                 if (JS_IsException(item))
-                    goto fail;
+                    goto fail_no_close;
                 if (*pdone || magic == GEN_MAGIC_RETURN) {
                     ret = item;
                     goto done;
@@ -42944,7 +42957,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
             item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
             JS_FreeValue(ctx, method);
             if (JS_IsException(item))
-                goto fail;
+                goto fail_no_close;
             if (*pdone || magic == GEN_MAGIC_RETURN) {
                 ret = item;
                 goto done;
@@ -42974,7 +42987,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
                 item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
                 JS_FreeValue(ctx, method);
                 if (JS_IsException(item))
-                    goto fail;
+                    goto fail_no_close;
                 ret = item;
                 goto done;
             }
@@ -42991,13 +43004,14 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
         abort();
     }
 
-done:
+ done:
     it->done = magic == GEN_MAGIC_NEXT ? *pdone : 1;
     it->executing = 0;
     return ret;
-fail:
+ fail:
     /* close the iterator object, preserving pending exception */
     JS_IteratorClose(ctx, it->obj, TRUE);
+ fail_no_close:
     ret = JS_EXCEPTION;
     goto done;
 }
