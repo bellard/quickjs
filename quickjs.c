@@ -48723,8 +48723,19 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
     return mr;
 }
 
+static JSMapRecord *set_add_record(JSContext *ctx, JSMapState *s,
+                                   JSValueConst key)
+{
+    JSMapRecord *mr;
+    mr = map_add_record(ctx, s, key);
+    if (!mr)
+        return NULL;
+    mr->value = JS_UNDEFINED;
+    return mr;
+}
+
 /* warning: the record must be removed from the hash table before */
-static void map_delete_record(JSRuntime *rt, JSMapState *s, JSMapRecord *mr)
+static void map_delete_record_internal(JSRuntime *rt, JSMapState *s, JSMapRecord *mr)
 {
     if (mr->empty)
         return;
@@ -48784,7 +48795,7 @@ static void map_delete_weakrefs(JSRuntime *rt, JSWeakRefHeader *wh)
             /* remove from the hash table */
             *pmr = mr1->hash_next;
         done:
-            map_delete_record(rt, s, mr);
+            map_delete_record_internal(rt, s, mr);
         }
     }
 }
@@ -48848,17 +48859,13 @@ static JSValue js_map_has(JSContext *ctx, JSValueConst this_val,
     return JS_NewBool(ctx, mr != NULL);
 }
 
-static JSValue js_map_delete(JSContext *ctx, JSValueConst this_val,
-                             int argc, JSValueConst *argv, int magic)
+/* return JS_TRUE or JS_FALSE */
+static JSValue map_delete_record(JSContext *ctx, JSMapState *s, JSValueConst key)
 {
-    JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
     JSMapRecord *mr, **pmr;
-    JSValueConst key;
     uint32_t h;
 
-    if (!s)
-        return JS_EXCEPTION;
-    key = map_normalize_key_const(ctx, argv[0]);
+    key = map_normalize_key_const(ctx, key);
     
     h = map_hash_key(key, s->hash_bits);
     pmr = &s->hash_table[h];
@@ -48878,8 +48885,17 @@ static JSValue js_map_delete(JSContext *ctx, JSValueConst this_val,
     /* remove from the hash table */
     *pmr = mr->hash_next;
     
-    map_delete_record(ctx->rt, s, mr);
+    map_delete_record_internal(ctx->rt, s, mr);
     return JS_TRUE;
+}
+
+static JSValue js_map_delete(JSContext *ctx, JSValueConst this_val,
+                             int argc, JSValueConst *argv, int magic)
+{
+    JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
+    if (!s)
+        return JS_EXCEPTION;
+    return map_delete_record(ctx, s, argv[0]);
 }
 
 static JSValue js_map_clear(JSContext *ctx, JSValueConst this_val,
@@ -48897,7 +48913,7 @@ static JSValue js_map_clear(JSContext *ctx, JSValueConst this_val,
     
     list_for_each_safe(el, el1, &s->records) {
         mr = list_entry(el, JSMapRecord, link);
-        map_delete_record(ctx->rt, s, mr);
+        map_delete_record_internal(ctx->rt, s, mr);
     }
     return JS_UNDEFINED;
 }
@@ -49257,75 +49273,108 @@ static JSValue js_map_iterator_next(JSContext *ctx, JSValueConst this_val,
     }
 }
 
-static int js_setlike_get_size(JSContext *ctx, JSValueConst setlike,
-                               int64_t *pout)
+static int get_set_record(JSContext *ctx, JSValueConst obj,
+                          int64_t *psize, JSValue *phas, JSValue *pkeys)
 {
     JSMapState *s;
-    JSValue v;
-    double d;
-
-    s = JS_GetOpaque(setlike, JS_CLASS_SET);
+    int64_t size;
+    JSValue has = JS_UNDEFINED, keys = JS_UNDEFINED;
+    
+    s = JS_GetOpaque(obj, JS_CLASS_SET);
     if (s) {
-        *pout = s->record_count;
+        size = s->record_count;
     } else {
-        v = JS_GetProperty(ctx, setlike, JS_ATOM_size);
+        JSValue v;
+        double d;
+
+        v = JS_GetProperty(ctx, obj, JS_ATOM_size);
         if (JS_IsException(v))
-            return -1;
-        if (JS_IsUndefined(v)) {
-            JS_ThrowTypeError(ctx, ".size is undefined");
-            return -1;
-        }
+            goto exception;
         if (JS_ToFloat64Free(ctx, &d, v) < 0)
-            return -1;
+            goto exception;
         if (isnan(d)) {
             JS_ThrowTypeError(ctx, ".size is not a number");
-            return -1;
+            goto exception;
         }
-        *pout = d;
+        if (d < INT64_MIN)
+            size = INT64_MIN;
+        else if (d >= 0x1p63) /* must use INT64_MAX + 1 because INT64_MAX cannot be exactly represented as a double */
+            size = INT64_MAX;
+        else
+            size = (int64_t)d;
+        if (size < 0) {
+            JS_ThrowRangeError(ctx, ".size must be positive");
+            goto exception;
+        }
     }
-    return 0;
-}
 
-static int js_setlike_get_has(JSContext *ctx, JSValueConst setlike,
-                              JSValue *pout)
-{
-    JSValue v;
-
-    v = JS_GetProperty(ctx, setlike, JS_ATOM_has);
-    if (JS_IsException(v))
-        return -1;
-    if (JS_IsUndefined(v)) {
+    has = JS_GetProperty(ctx, obj, JS_ATOM_has);
+    if (JS_IsException(has))
+        goto exception;
+    if (JS_IsUndefined(has)) {
         JS_ThrowTypeError(ctx, ".has is undefined");
-        return -1;
+        goto exception;
     }
-    if (!JS_IsFunction(ctx, v)) {
+    if (!JS_IsFunction(ctx, has)) {
         JS_ThrowTypeError(ctx, ".has is not a function");
-        JS_FreeValue(ctx, v);
-        return -1;
+        goto exception;
     }
-    *pout = v;
+
+    keys = JS_GetProperty(ctx, obj, JS_ATOM_keys);
+    if (JS_IsException(keys))
+        goto exception;
+    if (JS_IsUndefined(keys)) {
+        JS_ThrowTypeError(ctx, ".keys is undefined");
+        goto exception;
+    }
+    if (!JS_IsFunction(ctx, keys)) {
+        JS_ThrowTypeError(ctx, ".keys is not a function");
+        goto exception;
+    }
+    *psize = size;
+    *phas = has;
+    *pkeys = keys;
     return 0;
+
+ exception:
+    JS_FreeValue(ctx, has);
+    JS_FreeValue(ctx, keys);
+    *psize = 0;
+    *phas = JS_UNDEFINED;
+    *pkeys = JS_UNDEFINED;
+    return -1;
 }
 
-static int js_setlike_get_keys(JSContext *ctx, JSValueConst setlike,
-                               JSValue *pout)
+/* copy 'this_val' in a new set without side effects */
+static JSValue js_copy_set(JSContext *ctx, JSValueConst this_val)
 {
-    JSValue v;
+    JSValue newset;
+    JSMapState *s, *t;
+    struct list_head *el;
+    JSMapRecord *mr;
+   
+    s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
+    if (!s)
+        return JS_EXCEPTION;
 
-    v = JS_GetProperty(ctx, setlike, JS_ATOM_keys);
-    if (JS_IsException(v))
-        return -1;
-    if (JS_IsUndefined(v)) {
-        JS_ThrowTypeError(ctx, ".keys is undefined");
-        return -1;
+    newset = js_map_constructor(ctx, JS_UNDEFINED, 0, NULL, MAGIC_SET);
+    if (JS_IsException(newset))
+        return JS_EXCEPTION;
+    t = JS_GetOpaque(newset, JS_CLASS_SET);
+
+    // can't clone this_val using js_map_constructor(),
+    // test262 mandates we don't call the .add method
+    list_for_each(el, &s->records) {
+        mr = list_entry(el, JSMapRecord, link);
+        if (mr->empty)
+            continue;
+        if (!set_add_record(ctx, t, mr->key))
+            goto exception;
     }
-    if (!JS_IsFunction(ctx, v)) {
-        JS_ThrowTypeError(ctx, ".keys is not a function");
-        JS_FreeValue(ctx, v);
-        return -1;
-    }
-    *pout = v;
-    return 0;
+    return newset;
+ exception:
+    JS_FreeValue(ctx, newset);
+    return JS_EXCEPTION;
 }
 
 static JSValue js_set_isDisjointFrom(JSContext *ctx, JSValueConst this_val,
@@ -49346,32 +49395,9 @@ static JSValue js_set_isDisjointFrom(JSContext *ctx, JSValueConst this_val,
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         goto exception;
-    // order matters!
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
-    if (js_setlike_get_has(ctx, argv[0], &has) < 0)
-        goto exception;
-    if (js_setlike_get_keys(ctx, argv[0], &keys) < 0)
-        goto exception;
-    if (s->record_count > size) {
-        iter = JS_Call(ctx, keys, argv[0], 0, NULL);
-        if (JS_IsException(iter))
-            goto exception;
-        next = JS_GetProperty(ctx, iter, JS_ATOM_next);
-        if (JS_IsException(next))
-            goto exception;
-        found = FALSE;
-        do {
-            item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
-            if (JS_IsException(item))
-                goto exception;
-            if (done) // item is JS_UNDEFINED
-                break;
-            item = map_normalize_key(ctx, item);
-            found = (NULL != map_find_record(ctx, s, item));
-            JS_FreeValue(ctx, item);
-        } while (!found);
-    } else {
+    if (s->record_count <= size) {
         iter = js_create_map_iterator(ctx, this_val, 0, NULL, MAGIC_SET);
         if (JS_IsException(iter))
             goto exception;
@@ -49389,6 +49415,28 @@ static JSValue js_set_isDisjointFrom(JSContext *ctx, JSValueConst this_val,
                 goto exception;
             found = (ok > 0);
         } while (!found);
+    } else {
+        iter = JS_Call(ctx, keys, argv[0], 0, NULL);
+        if (JS_IsException(iter))
+            goto exception;
+        next = JS_GetProperty(ctx, iter, JS_ATOM_next);
+        if (JS_IsException(next))
+            goto exception;
+        found = FALSE;
+        for(;;) {
+            item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
+            if (JS_IsException(item))
+                goto exception;
+            if (done) // item is JS_UNDEFINED
+                break;
+            item = map_normalize_key(ctx, item);
+            found = (NULL != map_find_record(ctx, s, item));
+            JS_FreeValue(ctx, item);
+            if (found) {
+                JS_IteratorClose(ctx, iter, FALSE);
+                break;
+            }
+        }
     }
     rval = !found ? JS_TRUE : JS_FALSE;
 exception:
@@ -49416,12 +49464,7 @@ static JSValue js_set_isSubsetOf(JSContext *ctx, JSValueConst this_val,
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         goto exception;
-    // order matters!
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
-        goto exception;
-    if (js_setlike_get_has(ctx, argv[0], &has) < 0)
-        goto exception;
-    if (js_setlike_get_keys(ctx, argv[0], &keys) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
     found = FALSE;
     if (s->record_count > size)
@@ -49470,12 +49513,7 @@ static JSValue js_set_isSupersetOf(JSContext *ctx, JSValueConst this_val,
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         goto exception;
-    // order matters!
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
-        goto exception;
-    if (js_setlike_get_has(ctx, argv[0], &has) < 0)
-        goto exception;
-    if (js_setlike_get_keys(ctx, argv[0], &keys) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
     found = FALSE;
     if (s->record_count < size)
@@ -49487,7 +49525,7 @@ static JSValue js_set_isSupersetOf(JSContext *ctx, JSValueConst this_val,
     if (JS_IsException(next))
         goto exception;
     found = TRUE;
-    do {
+    for(;;) {
         item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
         if (JS_IsException(item))
             goto exception;
@@ -49496,7 +49534,11 @@ static JSValue js_set_isSupersetOf(JSContext *ctx, JSValueConst this_val,
         item = map_normalize_key(ctx, item);
         found = (NULL != map_find_record(ctx, s, item));
         JS_FreeValue(ctx, item);
-    } while (found);
+        if (!found) {
+            JS_IteratorClose(ctx, iter, FALSE);
+            break;
+        }
+    }
 fini:
     rval = found ? JS_TRUE : JS_FALSE;
 exception:
@@ -49524,12 +49566,7 @@ static JSValue js_set_intersection(JSContext *ctx, JSValueConst this_val,
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         goto exception;
-    // order matters!
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
-        goto exception;
-    if (js_setlike_get_has(ctx, argv[0], &has) < 0)
-        goto exception;
-    if (js_setlike_get_keys(ctx, argv[0], &keys) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
     if (s->record_count > size) {
         iter = JS_Call(ctx, keys, argv[0], 0, NULL);
@@ -49553,11 +49590,11 @@ static JSValue js_set_intersection(JSContext *ctx, JSValueConst this_val,
                 JS_FreeValue(ctx, item);
             } else if (map_find_record(ctx, t, item)) {
                 JS_FreeValue(ctx, item); // no duplicates
-            } else if ((mr = map_add_record(ctx, t, item))) {
-                mr->value = JS_UNDEFINED;
             } else {
+                mr = set_add_record(ctx, t, item);
                 JS_FreeValue(ctx, item);
-                goto exception;
+                if (!mr)
+                    goto exception;
             }
         }
     } else {
@@ -49580,11 +49617,11 @@ static JSValue js_set_intersection(JSContext *ctx, JSValueConst this_val,
                 item = map_normalize_key(ctx, item);
                 if (map_find_record(ctx, t, item)) {
                     JS_FreeValue(ctx, item); // no duplicates
-                } else if ((mr = map_add_record(ctx, t, item))) {
-                    mr->value = JS_UNDEFINED;
                 } else {
+                    mr = set_add_record(ctx, t, item);
                     JS_FreeValue(ctx, item);
-                    goto exception;
+                    if (!mr)
+                        goto exception;
                 }
             } else {
                 JS_FreeValue(ctx, item);
@@ -49610,7 +49647,6 @@ static JSValue js_set_difference(JSContext *ctx, JSValueConst this_val,
 {
     JSValue newset, item, iter, keys, has, next, rv;
     JSMapState *s, *t;
-    JSMapRecord *mr;
     int64_t size;
     int done;
     int ok;
@@ -49623,44 +49659,18 @@ static JSValue js_set_difference(JSContext *ctx, JSValueConst this_val,
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         goto exception;
-    // order matters!
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
-    if (js_setlike_get_has(ctx, argv[0], &has) < 0)
+
+    newset = js_copy_set(ctx, this_val);
+    if (JS_IsException(newset))
         goto exception;
-    if (js_setlike_get_keys(ctx, argv[0], &keys) < 0)
-        goto exception;
-    if (s->record_count > size) {
-        iter = JS_Call(ctx, keys, argv[0], 0, NULL);
+    t = JS_GetOpaque(newset, JS_CLASS_SET);
+    
+    if (s->record_count <= size) {
+        iter = js_create_map_iterator(ctx, newset, 0, NULL, MAGIC_SET);
         if (JS_IsException(iter))
             goto exception;
-        next = JS_GetProperty(ctx, iter, JS_ATOM_next);
-        if (JS_IsException(next))
-            goto exception;
-        newset = js_map_constructor(ctx, JS_UNDEFINED, 1, &this_val, MAGIC_SET);
-        if (JS_IsException(newset))
-            goto exception;
-        t = JS_GetOpaque(newset, JS_CLASS_SET);
-        for (;;) {
-            item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
-            if (JS_IsException(item))
-                goto exception;
-            if (done) // item is JS_UNDEFINED
-                break;
-            item = map_normalize_key(ctx, item);
-            mr = map_find_record(ctx, t, item);
-            if (mr)
-                map_delete_record(ctx->rt, t, mr);
-            JS_FreeValue(ctx, item);
-        }
-    } else {
-        iter = js_create_map_iterator(ctx, this_val, 0, NULL, MAGIC_SET);
-        if (JS_IsException(iter))
-            goto exception;
-        newset = js_map_constructor(ctx, JS_UNDEFINED, 0, NULL, MAGIC_SET);
-        if (JS_IsException(newset))
-            goto exception;
-        t = JS_GetOpaque(newset, JS_CLASS_SET);
         for (;;) {
             item = js_map_iterator_next(ctx, iter, 0, NULL, &done, MAGIC_SET);
             if (JS_IsException(item))
@@ -49669,21 +49679,30 @@ static JSValue js_set_difference(JSContext *ctx, JSValueConst this_val,
                 break;
             rv = JS_Call(ctx, has, argv[0], 1, (JSValueConst *)&item);
             ok = JS_ToBoolFree(ctx, rv); // returns -1 if rv is JS_EXCEPTION
-            if (ok == 0) {
-                item = map_normalize_key(ctx, item);
-                if (map_find_record(ctx, t, item)) {
-                    JS_FreeValue(ctx, item); // no duplicates
-                } else if ((mr = map_add_record(ctx, t, item))) {
-                    mr->value = JS_UNDEFINED;
-                } else {
-                    JS_FreeValue(ctx, item);
-                    goto exception;
-                }
-            } else {
+            if (ok < 0) {
                 JS_FreeValue(ctx, item);
-                if (ok < 0)
-                    goto exception;
+                goto exception;
             }
+            if (ok) {
+                map_delete_record(ctx, t, item);
+            }
+            JS_FreeValue(ctx, item);
+        }
+    } else {
+        iter = JS_Call(ctx, keys, argv[0], 0, NULL);
+        if (JS_IsException(iter))
+            goto exception;
+        next = JS_GetProperty(ctx, iter, JS_ATOM_next);
+        if (JS_IsException(next))
+            goto exception;
+        for (;;) {
+            item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
+            if (JS_IsException(item))
+                goto exception;
+            if (done) // item is JS_UNDEFINED
+                break;
+            map_delete_record(ctx, t, item);
+            JS_FreeValue(ctx, item);
         }
     }
     goto fini;
@@ -49701,8 +49720,7 @@ fini:
 static JSValue js_set_symmetricDifference(JSContext *ctx, JSValueConst this_val,
                                           int argc, JSValueConst *argv)
 {
-    JSValue newset, item, iter, next, rv;
-    struct list_head *el;
+    JSValue newset, item, iter, next, has, keys;
     JSMapState *s, *t;
     JSMapRecord *mr;
     int64_t size;
@@ -49712,38 +49730,21 @@ static JSValue js_set_symmetricDifference(JSContext *ctx, JSValueConst this_val,
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         return JS_EXCEPTION;
-    // order matters! they're JS-observable side effects
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         return JS_EXCEPTION;
-    if (js_setlike_get_has(ctx, argv[0], &rv) < 0)
-        return JS_EXCEPTION;
-    JS_FreeValue(ctx, rv);
-    newset = js_map_constructor(ctx, JS_UNDEFINED, 0, NULL, MAGIC_SET);
-    if (JS_IsException(newset))
-        return JS_EXCEPTION;
-    t = JS_GetOpaque(newset, JS_CLASS_SET);
-    iter = JS_UNDEFINED;
+    JS_FreeValue(ctx, has);
+
     next = JS_UNDEFINED;
-    // can't clone this_val using js_map_constructor(),
-    // test262 mandates we don't call the .add method
-    list_for_each(el, &s->records) {
-        mr = list_entry(el, JSMapRecord, link);
-        if (mr->empty)
-            continue;
-        mr = map_add_record(ctx, t, JS_DupValue(ctx, mr->key));
-        if (!mr)
-            goto exception;
-        mr->value = JS_UNDEFINED;
-    }
-    iter = JS_GetProperty(ctx, argv[0], JS_ATOM_keys);
-    if (JS_IsException(iter))
-        goto exception;
-    iter = JS_CallFree(ctx, iter, argv[0], 0, NULL);
+    iter = JS_Call(ctx, keys, argv[0], 0, NULL);
     if (JS_IsException(iter))
         goto exception;
     next = JS_GetProperty(ctx, iter, JS_ATOM_next);
     if (JS_IsException(next))
         goto exception;
+    newset = js_copy_set(ctx, this_val);
+    if (JS_IsException(newset))
+        goto exception;
+    t = JS_GetOpaque(newset, JS_CLASS_SET);
     for (;;) {
         item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
         if (JS_IsException(item))
@@ -49762,18 +49763,15 @@ static JSValue js_set_symmetricDifference(JSContext *ctx, JSValueConst this_val,
         present = (NULL != map_find_record(ctx, s, item));
         mr = map_find_record(ctx, t, item);
         if (present) {
-            if (mr)
-                map_delete_record(ctx->rt, t, mr);
+            map_delete_record(ctx, t, item);
             JS_FreeValue(ctx, item);
         } else if (mr) {
             JS_FreeValue(ctx, item);
         } else {
-            mr = map_add_record(ctx, t, item);
-            if (!mr) {
-                JS_FreeValue(ctx, item);
+            mr = set_add_record(ctx, t, item);
+            JS_FreeValue(ctx, item);
+            if (!mr)
                 goto exception;
-            }
-            mr->value = JS_UNDEFINED;
         }
     }
     goto fini;
@@ -49783,52 +49781,37 @@ exception:
 fini:
     JS_FreeValue(ctx, next);
     JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, keys);
     return newset;
 }
 
 static JSValue js_set_union(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv)
 {
-    JSValue newset, item, iter, next, rv;
-    struct list_head *el;
-    JSMapState *s, *t;
-    JSMapRecord *mr;
+    JSValue newset, item, iter, next, has, keys, rv;
+    JSMapState *s;
     int64_t size;
     int done;
 
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
         return JS_EXCEPTION;
-    // order matters! they're JS-observable side effects
-    if (js_setlike_get_size(ctx, argv[0], &size) < 0)
+    if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         return JS_EXCEPTION;
-    if (js_setlike_get_has(ctx, argv[0], &rv) < 0)
-        return JS_EXCEPTION;
-    JS_FreeValue(ctx, rv);
-    newset = js_map_constructor(ctx, JS_UNDEFINED, 0, NULL, MAGIC_SET);
-    if (JS_IsException(newset))
-        return JS_EXCEPTION;
-    t = JS_GetOpaque(newset, JS_CLASS_SET);
-    iter = JS_UNDEFINED;
+    JS_FreeValue(ctx, has);
+
     next = JS_UNDEFINED;
-    list_for_each(el, &s->records) {
-        mr = list_entry(el, JSMapRecord, link);
-        if (mr->empty)
-            continue;
-        mr = map_add_record(ctx, t, JS_DupValue(ctx, mr->key));
-        if (!mr)
-            goto exception;
-        mr->value = JS_UNDEFINED;
-    }
-    iter = JS_GetProperty(ctx, argv[0], JS_ATOM_keys);
-    if (JS_IsException(iter))
-        goto exception;
-    iter = JS_CallFree(ctx, iter, argv[0], 0, NULL);
+    iter = JS_Call(ctx, keys, argv[0], 0, NULL);
     if (JS_IsException(iter))
         goto exception;
     next = JS_GetProperty(ctx, iter, JS_ATOM_next);
     if (JS_IsException(next))
         goto exception;
+
+    newset = js_copy_set(ctx, this_val);
+    if (JS_IsException(newset))
+        goto exception;
+
     for (;;) {
         item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
         if (JS_IsException(item))
@@ -49848,6 +49831,7 @@ exception:
 fini:
     JS_FreeValue(ctx, next);
     JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, keys);
     return newset;
 }
 
