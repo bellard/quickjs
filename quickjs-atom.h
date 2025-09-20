@@ -78,6 +78,8 @@ DEF(await, "await")
 /* empty string */
 DEF(empty_string, "")
 /* identifiers */
+DEF(keys, "keys")
+DEF(size, "size")
 DEF(length, "length")
 DEF(fileName, "fileName")
 DEF(lineNumber, "lineNumber")
