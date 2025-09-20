@@ -36,6 +36,10 @@ jobs:
       - name: Run microbench
         run: |
           make microbench
+      - name: Run test262
+        run: |
+          make test2-bootstrap
+          make test2
 
   linux-lto:
     name: Linux LTO
@@ -138,6 +142,10 @@ jobs:
       - name: Run built-in tests
         run: |
           make test
+      - name: Run test262
+        run: |
+          make test2-bootstrap
+          make test2
 
   macos-asan:
     runs-on: macos-latest
@@ -172,7 +180,12 @@ jobs:
       - name: Build + test
         uses: vmactions/freebsd-vm@v1
         with:
+          # This VM has a tendency to get stuck in the "VM is booting" cycle
+          # for quite a while, so set a shorter timeout
+          timeout-minutes: 15
           usesh: true
+          copyback: false
+          mem: 16384
           prepare: |
             pkg install -y gmake
           run: |
@@ -202,6 +215,10 @@ jobs:
       - name: Run built-in tests
         run: |
           make CONFIG_COSMO=y test
+      - name: Run test262
+        run: |
+          make test2-bootstrap
+          make CONFIG_COSMO=y test2
 
   mingw-windows:
     name: MinGW Windows target
