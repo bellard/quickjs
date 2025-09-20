@@ -42260,9 +42260,15 @@ static JSValue js_iterator_constructor_getset(JSContext *ctx,
 static JSValue js_iterator_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
-    if (JS_IsUndefined(new_target))
+    JSObject *p;
+
+    if (JS_TAG_OBJECT != JS_VALUE_GET_TAG(new_target))
         return JS_ThrowTypeError(ctx, "constructor requires 'new'");
-    /* XXX: cannot be invoked directly */
+    p = JS_VALUE_GET_OBJ(new_target);
+    if (p->class_id == JS_CLASS_C_FUNCTION &&
+        p->u.cfunc.c_function.generic == js_iterator_constructor) {
+        return JS_ThrowTypeError(ctx, "abstract class not constructable");
+    }
     return js_create_from_ctor(ctx, new_target, JS_CLASS_ITERATOR);
 }
 
