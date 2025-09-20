@@ -231,6 +231,7 @@ DEF(Set, "Set") /* Map + 1 */
 DEF(WeakMap, "WeakMap") /* Map + 2 */
 DEF(WeakSet, "WeakSet") /* Map + 3 */
 DEF(Iterator, "Iterator")
+DEF(IteratorHelper, "Iterator Helper")
 DEF(IteratorWrap, "Iterator Wrap")
 DEF(Map_Iterator, "Map Iterator")
 DEF(Set_Iterator, "Set Iterator")
