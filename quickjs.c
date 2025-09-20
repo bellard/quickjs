@@ -42235,6 +42235,28 @@ static const JSCFunctionListEntry js_iterator_wrap_proto_funcs[] = {
 
 /* Iterator */
 
+static JSValue js_iterator_constructor_getset(JSContext *ctx,
+                                              JSValueConst this_val,
+                                              int argc, JSValueConst *argv,
+                                              int magic,
+                                              JSValue *func_data)
+{
+    int ret;
+
+    if (argc > 0) { // if setter
+        if (!JS_IsObject(argv[0]))
+            return JS_ThrowTypeErrorNotAnObject(ctx);
+        ret = JS_DefinePropertyValue(ctx, this_val, JS_ATOM_constructor,
+                                     JS_DupValue(ctx, argv[0]),
+                                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+        if (ret < 0)
+            return JS_EXCEPTION;
+        return JS_UNDEFINED;
+    } else {
+        return JS_DupValue(ctx, func_data[0]);
+    }
+}
+
 static JSValue js_iterator_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
@@ -53929,6 +53951,18 @@ void JS_AddIntrinsicBaseObjects(JSContext *ctx)
                                countof(js_iterator_proto_funcs));
     obj = JS_NewGlobalCConstructor(ctx, "Iterator", js_iterator_constructor, 0,
                                    ctx->class_proto[JS_CLASS_ITERATOR]);
+    // quirk: Iterator.prototype.constructor is an accessor property
+    // TODO(bnoordhuis) mildly inefficient because JS_NewGlobalCConstructor
+    // first creates a .constructor value property that we then replace with
+    // an accessor
+    obj1 = JS_NewCFunctionData(ctx, js_iterator_constructor_getset,
+                               0, 0, 1, (JSValueConst *)&obj);
+    JS_DefineProperty(ctx, ctx->class_proto[JS_CLASS_ITERATOR],
+                      JS_ATOM_constructor, JS_UNDEFINED,
+                      obj1, obj1,
+                      JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_CONFIGURABLE);
+    JS_FreeValue(ctx, obj1);
+    
     ctx->iterator_ctor = JS_DupValue(ctx, obj);
     JS_SetPropertyFunctionList(ctx, obj,
                                js_iterator_funcs,
