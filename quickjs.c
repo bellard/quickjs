@@ -54347,6 +54347,18 @@ static JSValue JS_ThrowTypeErrorDetachedArrayBuffer(JSContext *ctx)
     return JS_ThrowTypeError(ctx, "ArrayBuffer is detached");
 }
 
+// #sec-get-arraybuffer.prototype.detached
+static JSValue js_array_buffer_get_detached(JSContext *ctx,
+                                                 JSValueConst this_val)
+{
+    JSArrayBuffer *abuf = JS_GetOpaque2(ctx, this_val, JS_CLASS_ARRAY_BUFFER);
+    if (!abuf)
+        return JS_EXCEPTION;
+    if (abuf->shared)
+        return JS_ThrowTypeError(ctx, "detached called on SharedArrayBuffer");
+    return JS_NewBool(ctx, abuf->detached);
+}
+
 static JSValue js_array_buffer_get_byteLength(JSContext *ctx,
                                               JSValueConst this_val,
                                               int class_id)
@@ -54419,6 +54431,74 @@ uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj)
     return NULL;
 }
 
+// ES #sec-arraybuffer.prototype.transfer
+static JSValue js_array_buffer_transfer(JSContext *ctx,
+                                        JSValueConst this_val,
+                                        int argc, JSValueConst *argv)
+{
+    JSArrayBuffer *abuf;
+    uint64_t new_len;
+
+    abuf = JS_GetOpaque2(ctx, this_val, JS_CLASS_ARRAY_BUFFER);
+    if (!abuf)
+        return JS_EXCEPTION;
+    if (abuf->shared)
+        return JS_ThrowTypeError(ctx, "cannot transfer a SharedArrayBuffer");
+    if (argc < 1 || JS_IsUndefined(argv[0]))
+        new_len = abuf->byte_length;
+    else if (JS_ToIndex(ctx, &new_len, argv[0]))
+        return JS_EXCEPTION;
+    if (abuf->detached)
+        return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+    /* create an empty AB */
+    if (new_len == 0) {
+        JS_DetachArrayBuffer(ctx, this_val);
+        return js_array_buffer_constructor2(ctx, JS_UNDEFINED, 0, JS_CLASS_ARRAY_BUFFER);
+    } else {
+        uint64_t old_len;
+        uint8_t *bs, *new_bs;
+        JSFreeArrayBufferDataFunc *free_func;
+        
+        bs = abuf->data;
+        old_len = abuf->byte_length;
+        free_func = abuf->free_func;
+
+        /* if length mismatch, realloc. Otherwise, use the same backing buffer. */
+        if (new_len != old_len) {
+            /* XXX: we are currently limited to 2 GB */
+            if (new_len > INT32_MAX)
+                return JS_ThrowRangeError(ctx, "invalid array buffer length");
+
+            if (free_func != js_array_buffer_free) {
+                /* cannot use js_realloc() because the buffer was
+                   allocated with a custom allocator */
+                new_bs = js_mallocz(ctx, new_len);
+                if (!new_bs)
+                    return JS_EXCEPTION;
+                memcpy(new_bs, bs, min_int(old_len, new_len));
+                abuf->free_func(ctx->rt, abuf->opaque, bs);
+                bs = new_bs;
+                free_func = js_array_buffer_free;
+            } else {
+                new_bs = js_realloc(ctx, bs, new_len);
+                if (!new_bs)
+                    return JS_EXCEPTION;
+                bs = new_bs;
+                if (new_len > old_len)
+                    memset(bs + old_len, 0, new_len - old_len);
+            }
+        }
+        /* neuter the backing buffer */
+        abuf->data = NULL;
+        abuf->byte_length = 0;
+        abuf->detached = TRUE;
+        return js_array_buffer_constructor3(ctx, JS_UNDEFINED, new_len,
+                                            JS_CLASS_ARRAY_BUFFER,
+                                            bs, free_func,
+                                            NULL, FALSE);
+    }
+}
+
 static JSValue js_array_buffer_slice(JSContext *ctx,
                                      JSValueConst this_val,
                                      int argc, JSValueConst *argv, int class_id)
@@ -54487,7 +54567,10 @@ static JSValue js_array_buffer_slice(JSContext *ctx,
 
 static const JSCFunctionListEntry js_array_buffer_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("byteLength", js_array_buffer_get_byteLength, NULL, JS_CLASS_ARRAY_BUFFER ),
+    JS_CGETSET_DEF("detached", js_array_buffer_get_detached, NULL ),
     JS_CFUNC_MAGIC_DEF("slice", 2, js_array_buffer_slice, JS_CLASS_ARRAY_BUFFER ),
+    JS_CFUNC_DEF("transfer", 0, js_array_buffer_transfer ),
+    JS_CFUNC_DEF("transferToFixedLength", 0, js_array_buffer_transfer ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE ),
 };
 
