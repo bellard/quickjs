@@ -23437,7 +23437,7 @@ static int __exception js_parse_property_name(JSParseState *s,
     } else if (s->token.val == '[') {
         if (next_token(s))
             goto fail;
-        if (js_parse_expr(s))
+        if (js_parse_assign_expr(s))
             goto fail;
         if (js_parse_expect(s, ']'))
             goto fail;

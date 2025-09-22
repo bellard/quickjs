@@ -33,7 +33,6 @@ test262/test/staging/sm/async-functions/async-contains-unicode-escape.js:45: Err
 test262/test/staging/sm/async-functions/await-error.js:12: Test262Error: Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/async-functions/await-in-arrow-parameters.js:33: Error: Assertion failed: expected exception SyntaxError, no exception thrown - AsyncFunction:(a = (b = await/r/g) => {}) => {}
 test262/test/staging/sm/class/boundFunctionSubclassing.js:12: Test262Error: Expected SameValue(«false», «true») to be true
-test262/test/staging/sm/class/compPropNames.js:26: Error: Expected syntax error: ({[1, 2]: 3})
 test262/test/staging/sm/class/strictExecution.js:32: Error: Assertion failed: expected exception TypeError, no exception thrown
 test262/test/staging/sm/class/superPropOrdering.js:83: Error: Assertion failed: expected exception TypeError, no exception thrown
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-const.js:97: TypeError: 'a' is read-only
