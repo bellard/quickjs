@@ -57450,6 +57450,49 @@ static pthread_mutex_t js_atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
 static struct list_head js_atomics_waiter_list =
     LIST_HEAD_INIT(js_atomics_waiter_list);
 
+#if defined(__aarch64__)
+static inline void cpu_pause(void)
+{
+    asm volatile("yield" ::: "memory");
+}
+#elif defined(__x86_64) || defined(__i386__)
+static inline void cpu_pause(void)
+{
+    asm volatile("pause" ::: "memory");
+}
+#else
+static inline void cpu_pause(void)
+{
+}
+#endif
+
+// no-op: Atomics.pause() is not allowed to block or yield to another
+// thread, only to hint the CPU that it should back off for a bit;
+// the amount of work we do here is a good enough substitute
+static JSValue js_atomics_pause(JSContext *ctx, JSValueConst this_obj,
+                                int argc, JSValueConst *argv)
+{
+    double d;
+
+    if (argc > 0) {
+        switch (JS_VALUE_GET_TAG(argv[0])) {
+        case JS_TAG_FLOAT64: // accepted if and only if fraction == 0.0
+            d = JS_VALUE_GET_FLOAT64(argv[0]);
+            if (isfinite(d))
+                if (0 == modf(d, &d))
+                    break;
+            // fallthru
+        default:
+            return JS_ThrowTypeError(ctx, "not an integral number");
+        case JS_TAG_UNDEFINED:
+        case JS_TAG_INT:
+            break;
+        }
+    }
+    cpu_pause();
+    return JS_UNDEFINED;
+}
+
 static JSValue js_atomics_wait(JSContext *ctx,
                                JSValueConst this_obj,
                                int argc, JSValueConst *argv)
@@ -57587,6 +57630,7 @@ static const JSCFunctionListEntry js_atomics_funcs[] = {
     JS_CFUNC_MAGIC_DEF("load", 2, js_atomics_op, ATOMICS_OP_LOAD ),
     JS_CFUNC_DEF("store", 3, js_atomics_store ),
     JS_CFUNC_DEF("isLockFree", 1, js_atomics_isLockFree ),
+    JS_CFUNC_DEF("pause", 0, js_atomics_pause ),
     JS_CFUNC_DEF("wait", 4, js_atomics_wait ),
     JS_CFUNC_DEF("notify", 3, js_atomics_notify ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Atomics", JS_PROP_CONFIGURABLE ),
