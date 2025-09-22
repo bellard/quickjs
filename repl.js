@@ -875,126 +875,19 @@ import * as os from "os";
     }
 
     var hex_mode = false;
-    var eval_mode = "std";
 
-    function number_to_string(a, radix) {
+    function number_to_string_hex(a) {
         var s;
-        if (!isFinite(a)) {
-            /* NaN, Infinite */
-            return a.toString();
+        if (a < 0) {
+            a = -a;
+            s = "-";
         } else {
-            if (a == 0) {
-                if (1 / a < 0)
-                    s = "-0";
-                else
-                    s = "0";
-            } else {
-                if (radix == 16 && a === Math.floor(a)) {
-                    var s;
-                    if (a < 0) {
-                        a = -a;
-                        s = "-";
-                    } else {
-                        s = "";
-                    }
-                    s += "0x" + a.toString(16);
-                } else {
-                    s = a.toString();
-                }
-            }
-            return s;
+            s = "";
         }
-    }
-
-    function bigint_to_string(a, radix) {
-        var s;
-        if (radix == 16) {
-            var s;
-            if (a < 0) {
-                a = -a;
-                s = "-";
-            } else {
-                s = "";
-            }
-            s += "0x" + a.toString(16);
-        } else {
-            s = a.toString();
-        }
-        if (eval_mode === "std")
-            s += "n";
+        s += "0x" + a.toString(16);
         return s;
     }
-
-    function print(a) {
-        var stack = [];
-
-        function print_rec(a) {
-            var n, i, keys, key, type, s;
-
-            type = typeof(a);
-            if (type === "object") {
-                if (a === null) {
-                    std.puts(a);
-                } else if (stack.indexOf(a) >= 0) {
-                    std.puts("[circular]");
-                } else if (a instanceof Date) {
-                    std.puts("Date " + a.toGMTString().__quote());
-                } else {
-                    stack.push(a);
-                    if (Array.isArray(a)) {
-                        n = a.length;
-                        std.puts("[ ");
-                        for(i = 0; i < n; i++) {
-                            if (i !== 0)
-                                std.puts(", ");
-                            if (i in a) {
-                                print_rec(a[i]);
-                            } else {
-                                std.puts("<empty>");
-                            }
-                            if (i > 20) {
-                                std.puts("...");
-                                break;
-                            }
-                        }
-                        std.puts(" ]");
-                    } else if (Object.__getClass(a) === "RegExp") {
-                        std.puts(a.toString());
-                    } else {
-                        keys = Object.keys(a);
-                        n = keys.length;
-                        std.puts("{ ");
-                        for(i = 0; i < n; i++) {
-                            if (i !== 0)
-                                std.puts(", ");
-                            key = keys[i];
-                            std.puts(key, ": ");
-                            print_rec(a[key]);
-                        }
-                        std.puts(" }");
-                    }
-                    stack.pop(a);
-                }
-            } else if (type === "string") {
-                s = a.__quote();
-                if (s.length > 79)
-                    s = s.substring(0, 75) + "...\"";
-                std.puts(s);
-            } else if (type === "number") {
-                std.puts(number_to_string(a, hex_mode ? 16 : 10));
-            } else if (type === "bigint") {
-                std.puts(bigint_to_string(a, hex_mode ? 16 : 10));
-            } else if (type === "symbol") {
-                std.puts(String(a));
-            } else if (type === "function") {
-                std.puts("function " + a.name + "()");
-            } else {
-                std.puts(a);
-            }
-        }
-        print_rec(a);
-    }
-
+    
     function extract_directive(a) {
         var pos;
         if (a[0] !== '\\')
@@ -1116,10 +1009,25 @@ import * as os from "os";
     }
 
     function print_eval_result(result) {
+        var default_print = true;
+
         result = result.value;
         eval_time = os.now() - eval_start_time;
         std.puts(colors[styles.result]);
-        print(result);
+        if (hex_mode) {
+            if (typeof result == "number" &&
+                result === Math.floor(result)) {
+                std.puts(number_to_string_hex(result));
+                default_print = false;
+            } else if (typeof result == "bigint") {
+                std.puts(number_to_string_hex(result));
+                std.puts("n");
+                default_print = false;
+            }
+        }
+        if (default_print) {
+            std.__printObject(result);
+        }
         std.puts("\n");
         std.puts(colors.none);
         /* set the last result */
@@ -1130,15 +1038,10 @@ import * as os from "os";
 
     function print_eval_error(error) {
         std.puts(colors[styles.error_msg]);
-        if (error instanceof Error) {
-            console.log(error);
-            if (error.stack) {
-                std.puts(error.stack);
-            }
-        } else {
+        if (!(error instanceof Error))
             std.puts("Throw: ");
-            console.log(error);
-        }
+        std.__printObject(error);
+        std.puts("\n");
         std.puts(colors.none);
 
         handle_cmd_end();

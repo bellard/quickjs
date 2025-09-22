@@ -35,6 +35,7 @@
 #define LRE_FLAG_STICKY     (1 << 5)
 #define LRE_FLAG_INDICES    (1 << 6) /* Unused by libregexp, just recorded. */
 #define LRE_FLAG_NAMED_GROUPS (1 << 7) /* named groups are present in the regexp */
+#define LRE_FLAG_UNICODE_SETS (1 << 8)
 
 #define LRE_RET_MEMORY_ERROR (-1)
 #define LRE_RET_TIMEOUT      (-2)

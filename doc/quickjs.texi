@@ -449,17 +449,20 @@ optional properties:
 
 @item parseExtJSON(str)
 
-  Parse @code{str} using a superset of @code{JSON.parse}. The
-  following extensions are accepted:
+  Parse @code{str} using a superset of @code{JSON.parse}. The superset
+  is very close to the JSON5 specification. The following extensions
+  are accepted:
 
   @itemize
   @item Single line and multiline comments
   @item unquoted properties (ASCII-only Javascript identifiers)
   @item trailing comma in array and object definitions
   @item single quoted strings
+  @item @code{\v} escape and multi-line strings with trailing @code{\}
   @item @code{\f} and @code{\v} are accepted as space characters
-  @item leading plus in numbers
-  @item octal (@code{0o} prefix) and hexadecimal (@code{0x} prefix) numbers
+  @item leading plus or decimal point in numbers
+  @item hexadecimal (@code{0x} prefix), octal (@code{0o} prefix) and binary (@code{0b} prefix) integers
+  @item @code{NaN} and @code{Infinity} are accepted as numbers
   @end itemize
 @end table
 

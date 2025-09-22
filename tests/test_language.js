@@ -2,7 +2,7 @@ function assert(actual, expected, message) {
     if (arguments.length == 1)
         expected = true;
 
-    if (actual === expected)
+    if (Object.is(actual, expected))
         return;
 
     if (actual !== null && expected !== null

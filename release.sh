@@ -174,7 +174,7 @@ cp Makefile VERSION TODO Changelog readme.txt LICENSE \
 
 cp tests/*.js tests/*.patch tests/bjson.c $outdir/tests
 
-cp examples/*.js examples/*.c $outdir/examples
+cp examples/*.js examples/*.c examples/*.json $outdir/examples
 
 cp doc/quickjs.texi doc/quickjs.pdf doc/quickjs.html \
    $outdir/doc
