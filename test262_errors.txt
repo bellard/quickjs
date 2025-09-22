@@ -5,8 +5,6 @@ test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-
 test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-prefix-update.js:27: SyntaxError: invalid increment/decrement operand
 test262/test/annexB/language/expressions/assignmenttargettype/callexpression.js:33: SyntaxError: invalid assignment left-hand side
 test262/test/annexB/language/expressions/assignmenttargettype/cover-callexpression-and-asyncarrowhead.js:20: SyntaxError: invalid assignment left-hand side
-test262/test/built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-detached.js:34: TypeError: ArrayBuffer is detached
-test262/test/built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-detached.js:34: strict mode: TypeError: ArrayBuffer is detached
 test262/test/staging/sm/Date/UTC-convert-all-arguments.js:75: Test262Error: index 1: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
 test262/test/staging/sm/Date/constructor-convert-all-arguments.js:75: Test262Error: index undefined: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
 test262/test/staging/sm/Date/non-iso.js:76: Test262Error: Expected SameValue(«NaN», «-40071559730000») to be true
@@ -26,8 +24,6 @@ test262/test/staging/sm/RegExp/regress-613820-3.js:12: Test262Error: Actual [aab
 test262/test/staging/sm/RegExp/regress-613820-3.js:12: strict mode: Test262Error: Actual [aab, a, undefined, ab] and expected [aa, undefined, a, undefined] should have the same contents. 
 test262/test/staging/sm/TypedArray/constructor-buffer-sequence.js:73: Error: Assertion failed: expected exception ExpectedError, got Error: Poisoned Value
 test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: Test262Error: Expected SameValue(«2», «6») to be true
-test262/test/staging/sm/TypedArray/set-detached-bigint.js:27: Error: Assertion failed: expected exception SyntaxError, got RangeError: invalid array length
-test262/test/staging/sm/TypedArray/set-detached.js:112: RangeError: invalid array length
 test262/test/staging/sm/TypedArray/sort_modifications.js:12: Test262Error: Int8Array at index 0 for size 4 Expected SameValue(«0», «1») to be true
 test262/test/staging/sm/async-functions/async-contains-unicode-escape.js:45: Error: Assertion failed: expected exception SyntaxError, no exception thrown
 test262/test/staging/sm/async-functions/await-error.js:12: Test262Error: Expected SameValue(«false», «true») to be true
@@ -37,7 +33,6 @@ test262/test/staging/sm/class/strictExecution.js:32: Error: Assertion failed: ex
 test262/test/staging/sm/class/superPropOrdering.js:83: Error: Assertion failed: expected exception TypeError, no exception thrown
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-const.js:97: TypeError: 'a' is read-only
 test262/test/staging/sm/expressions/short-circuit-compound-assignment-tdz.js:23: Error: Assertion failed: expected exception ReferenceError, got TypeError: 'a' is read-only
-test262/test/staging/sm/extensions/TypedArray-set-object-funky-length-detaches.js:55: RangeError: invalid array length
 test262/test/staging/sm/generators/syntax.js:30: Error: Assertion failed: expected SyntaxError, but no exception thrown - function* g() { (function* yield() {}); }
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js:14: Test262Error: Expected SameValue(«"object"», «"function"») to be true
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js:12: Test262Error: Expected SameValue(«"outer-gouter-geval-gtruefalseq"», «"outer-geval-gwith-gtruefalseq"») to be true

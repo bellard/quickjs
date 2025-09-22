@@ -115,6 +115,41 @@ function bjson_test(a)
     }
 }
 
+function bjson_test_arraybuffer()
+{
+    var buf, array_buffer;
+
+    array_buffer = new ArrayBuffer(4);
+    assert(array_buffer.byteLength, 4);
+    assert(array_buffer.maxByteLength, 4);
+    assert(array_buffer.resizable, false);
+    buf = bjson.write(array_buffer);
+    array_buffer = bjson.read(buf, 0, buf.byteLength);
+    assert(array_buffer.byteLength, 4);
+    assert(array_buffer.maxByteLength, 4);
+    assert(array_buffer.resizable, false);
+
+    array_buffer = new ArrayBuffer(4, {maxByteLength: 4});
+    assert(array_buffer.byteLength, 4);
+    assert(array_buffer.maxByteLength, 4);
+    assert(array_buffer.resizable, true);
+    buf = bjson.write(array_buffer);
+    array_buffer = bjson.read(buf, 0, buf.byteLength);
+    assert(array_buffer.byteLength, 4);
+    assert(array_buffer.maxByteLength, 4);
+    assert(array_buffer.resizable, true);
+
+    array_buffer = new ArrayBuffer(4, {maxByteLength: 8});
+    assert(array_buffer.byteLength, 4);
+    assert(array_buffer.maxByteLength, 8);
+    assert(array_buffer.resizable, true);
+    buf = bjson.write(array_buffer);
+    array_buffer = bjson.read(buf, 0, buf.byteLength);
+    assert(array_buffer.byteLength, 4);
+    assert(array_buffer.maxByteLength, 8);
+    assert(array_buffer.resizable, true);
+}
+
 /* test multiple references to an object including circular
    references */
 function bjson_test_reference()
@@ -171,6 +206,7 @@ function bjson_test_all()
         assert(e instanceof TypeError);
     }
 
+    bjson_test_arraybuffer();
     bjson_test_reference();
 }
 
