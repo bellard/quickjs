@@ -45458,6 +45458,262 @@ static JSValue js_math_clz32(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, r);
 }
 
+/* we add one extra limb to avoid having to test for overflows during the sum */
+#define SUM_PRECISE_ACC_LEN 34
+
+typedef enum {
+    SUM_PRECISE_STATE_MINUS_ZERO,
+    SUM_PRECISE_STATE_FINITE,
+    SUM_PRECISE_STATE_INFINITY,
+    SUM_PRECISE_STATE_MINUS_INFINITY, /* must be after SUM_PRECISE_STATE_INFINITY */
+    SUM_PRECISE_STATE_NAN, /* must be after SUM_PRECISE_STATE_MINUS_INFINITY */
+} SumPreciseStateEnum;
+
+typedef struct {
+    uint64_t acc[SUM_PRECISE_ACC_LEN];
+    int n_limbs; /* acc is not necessarily normalized */
+    SumPreciseStateEnum state;
+} SumPreciseState;
+
+static void sum_precise_init(SumPreciseState *s)
+{
+    s->state = SUM_PRECISE_STATE_MINUS_ZERO;
+    s->acc[0] = 0;
+    s->n_limbs = 1;
+}
+
+#define ADDC64(res, carry_out, op1, op2, carry_in)      \
+do {                                                    \
+    uint64_t __v, __a, __k, __k1;                       \
+    __v = (op1);                                        \
+    __a = __v + (op2);                                  \
+    __k1 = __a < __v;                                   \
+    __k = (carry_in);                                   \
+    __a = __a + __k;                                    \
+    carry_out = (__a < __k) | __k1;                     \
+    res = __a;                                          \
+} while (0)
+
+static void sum_precise_add(SumPreciseState *s, double d)
+{
+    uint64_t a, m, a0, carry, acc_sign, a_sign;
+    int sgn, e, p, n, i;
+    unsigned shift;
+    
+    a = float64_as_uint64(d);
+    sgn = a >> 63;
+    e = (a >> 52) & ((1 << 11) - 1);
+    m = a & (((uint64_t)1 << 52) - 1);
+    if (unlikely(e == 2047)) {
+        if (m == 0) {
+            /* +/- infinity */
+            if (s->state == SUM_PRECISE_STATE_NAN ||
+                (s->state == SUM_PRECISE_STATE_MINUS_INFINITY && !sgn) ||
+                (s->state == SUM_PRECISE_STATE_INFINITY && sgn)) {
+                s->state = SUM_PRECISE_STATE_NAN;
+            } else {
+                s->state = SUM_PRECISE_STATE_INFINITY + sgn;
+            }
+        } else {
+            /* NaN */
+            s->state = SUM_PRECISE_STATE_NAN;
+        }
+    } else if (e == 0) {
+        if (likely(m == 0)) {
+            /* zero */
+            if (s->state == SUM_PRECISE_STATE_MINUS_ZERO && !sgn)
+                s->state = SUM_PRECISE_STATE_FINITE;
+        } else {
+            /* subnormal */
+            p = 0;
+            shift = 0;
+            goto add;
+        }
+    } else {
+        m |= (uint64_t)1 << 52;
+        shift = e - 1;
+        p = shift / 64;
+        /* 'p' is the position of a0 in acc */
+        shift %= 64;
+    add:
+        if (s->state >= SUM_PRECISE_STATE_INFINITY)
+            return;
+        s->state = SUM_PRECISE_STATE_FINITE;
+        n = s->n_limbs;
+
+        acc_sign = (int64_t)s->acc[n - 1] >> 63;
+
+        /* sign extend acc */
+        for(i = n; i <= p; i++)
+            s->acc[i] = acc_sign;
+        
+        carry = sgn;
+        a_sign = -sgn;
+        a0 = m << shift;
+        ADDC64(s->acc[p], carry, s->acc[p], a0 ^ a_sign, carry);
+        if (shift >= 12) {
+            p++;
+            if (p >= n)
+                s->acc[p] = acc_sign;
+            a0 = m >> (64 - shift);
+            ADDC64(s->acc[p], carry, s->acc[p], a0 ^ a_sign, carry);
+        }
+        p++;
+        if (p >= n) {
+            n = p;
+        } else {
+            /* carry */
+            for(i = p; i < n; i++) {
+                /* if 'a' positive: stop condition: carry = 0.
+                   if 'a' negative: stop condition: carry = 1. */
+                if (carry == sgn)
+                    goto done;
+                ADDC64(s->acc[i], carry, s->acc[i], a_sign, carry);
+            }
+        }
+        
+        /* extend the accumulator if needed */
+        a0 = carry + acc_sign + a_sign;
+        /* -1 <= a0 <= 1 (if both acc and a are negative, carry is set) */
+        if (a0 != ((int64_t)s->acc[n - 1] >> 63)) {
+            s->acc[n++] = a0;
+        }
+    done:
+        s->n_limbs = n;
+    }
+}
+
+static double sum_precise_get_result(SumPreciseState *s)
+{
+    int n, shift, e, p, is_neg, i;
+    uint64_t m, addend, carry;
+        
+    if (s->state != SUM_PRECISE_STATE_FINITE) {
+        switch(s->state) {
+        default:
+        case SUM_PRECISE_STATE_MINUS_ZERO:
+            return -0.0;
+        case SUM_PRECISE_STATE_INFINITY:
+            return INFINITY;
+        case SUM_PRECISE_STATE_MINUS_INFINITY:
+            return -INFINITY;
+        case SUM_PRECISE_STATE_NAN:
+            return NAN;
+        }
+    }
+
+    /* extract the sign and absolute value */
+    n = s->n_limbs;
+    is_neg = s->acc[n - 1] >> 63;
+    if (is_neg) {
+        /* acc = -acc */
+        carry = 1;
+        for(i = 0; i < n; i++) {
+            ADDC64(s->acc[i], carry, ~s->acc[i], 0, carry);
+        }
+    }
+    /* normalize */
+    while (n > 0 && s->acc[n - 1] == 0)
+        n--;
+#if 0
+    {
+        printf("res=");
+        for(i = n - 1; i >= 0; i--)
+            printf(" %016lx", s->acc[i]);
+        printf("\n");
+    }
+#endif
+    /* zero result. The spec tells it is always positive in the finite case */
+    if (n == 0)
+        return 0.0;
+    /* subnormal case */
+    if (n == 1 && s->acc[0] < ((uint64_t)1 << 52))
+        return uint64_as_float64(((uint64_t)is_neg << 63) | s->acc[0]); 
+    /* normal case */
+    e = n * 64;
+    p = n - 1;
+    m = s->acc[p];
+    shift = clz64(m);
+    e = e - shift - 52;
+    if (shift != 0) {
+        m <<= shift;
+        if (p > 0) {
+            int shift1;
+            uint64_t nz;
+            p--;
+            shift1 = 64 - shift;
+            nz = s->acc[p] & (((uint64_t)1 << shift1) - 1);
+            m = m | (s->acc[p] >> shift1) | (nz != 0);
+        }
+    }
+    if ((m & ((1 << 10) - 1)) == 0) {
+        /* see if the LSB part is non zero for the final rounding  */
+        while (p > 0) {
+            p--;
+            if (s->acc[p] != 0) {
+                m |= 1;
+                break;
+            }
+        }
+    }
+    /* rounding to nearest with ties to even */
+    addend = (1 << 10) - 1 + ((m >> 11) & 1);
+    m = (m + addend) >> 11;
+    /* handle overflow in the rounding */
+    if (m == 0)
+        e++;
+    if (unlikely(e >= 2047)) {
+        /* infinity */
+        return uint64_as_float64(((uint64_t)is_neg << 63) | ((uint64_t)2047 << 52));
+    } else {
+        m &= (((uint64_t)1 << 52) - 1);
+        return uint64_as_float64(((uint64_t)is_neg << 63) | ((uint64_t)e << 52) | m);
+    }
+}
+
+static JSValue js_math_sumPrecise(JSContext *ctx, JSValueConst this_val,
+                                  int argc, JSValueConst *argv)
+{
+    JSValue iter, next, item, ret;
+    uint32_t tag;
+    int done;
+    double d;
+    SumPreciseState s_s, *s = &s_s;
+
+    iter = JS_GetIterator(ctx, argv[0], FALSE);
+    if (JS_IsException(iter))
+        return JS_EXCEPTION;
+    ret = JS_EXCEPTION;
+    next = JS_GetProperty(ctx, iter, JS_ATOM_next);
+    if (JS_IsException(next))
+        goto fail;
+    sum_precise_init(s);
+    for (;;) {
+        item = JS_IteratorNext(ctx, iter, next, 0, NULL, &done);
+        if (JS_IsException(item))
+            goto fail;
+        if (done)
+            break;
+        tag = JS_VALUE_GET_TAG(item);
+        if (JS_TAG_IS_FLOAT64(tag)) {
+            d = JS_VALUE_GET_FLOAT64(item);
+        } else if (tag == JS_TAG_INT) {
+            d = JS_VALUE_GET_INT(item);
+        } else {
+            JS_FreeValue(ctx, item);
+            JS_ThrowTypeError(ctx, "not a number");
+            JS_IteratorClose(ctx, iter, TRUE);
+            goto fail;
+        }
+        sum_precise_add(s, d);
+    }
+    ret = __JS_NewFloat64(ctx, sum_precise_get_result(s));
+fail:
+    JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, next);
+    return ret;
+}
+
 /* xorshift* random number generator by Marsaglia */
 static uint64_t xorshift64star(uint64_t *pstate)
 {
@@ -45531,6 +45787,7 @@ static const JSCFunctionListEntry js_math_funcs[] = {
     JS_CFUNC_SPECIAL_DEF("fround", 1, f_f, js_math_fround ),
     JS_CFUNC_DEF("imul", 2, js_math_imul ),
     JS_CFUNC_DEF("clz32", 1, js_math_clz32 ),
+    JS_CFUNC_DEF("sumPrecise", 1, js_math_sumPrecise ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE ),
     JS_PROP_DOUBLE_DEF("E", 2.718281828459045, 0 ),
     JS_PROP_DOUBLE_DEF("LN10", 2.302585092994046, 0 ),
