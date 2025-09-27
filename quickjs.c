@@ -49759,20 +49759,6 @@ static JSValue js_map_get(JSContext *ctx, JSValueConst this_val,
         return JS_DupValue(ctx, mr->value);
 }
 
-static JSValue js_map_has(JSContext *ctx, JSValueConst this_val,
-                          int argc, JSValueConst *argv, int magic)
-{
-    JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
-    JSMapRecord *mr;
-    JSValueConst key;
-
-    if (!s)
-        return JS_EXCEPTION;
-    key = map_normalize_key_const(ctx, argv[0]);
-    mr = map_find_record(ctx, s, key);
-    return JS_NewBool(ctx, mr != NULL);
-}
-
 /* return JS_TRUE or JS_FALSE */
 static JSValue map_delete_record(JSContext *ctx, JSMapState *s, JSValueConst key)
 {
@@ -49801,6 +49787,57 @@ static JSValue map_delete_record(JSContext *ctx, JSMapState *s, JSValueConst key
     
     map_delete_record_internal(ctx->rt, s, mr);
     return JS_TRUE;
+}
+
+static JSValue js_map_getOrInsert(JSContext *ctx, JSValueConst this_val,
+                                  int argc, JSValueConst *argv, int magic)
+{
+    BOOL computed = magic & 1;
+    JSClassID class_id = magic >> 1;
+    JSMapState *s = JS_GetOpaque2(ctx, this_val, class_id);
+    JSMapRecord *mr;
+    JSValueConst key;
+    JSValue value;
+
+    if (!s)
+        return JS_EXCEPTION;
+    if (computed && !JS_IsFunction(ctx, argv[1]))
+        return JS_ThrowTypeError(ctx, "not a function");
+    key = map_normalize_key_const(ctx, argv[0]);
+    if (s->is_weak && !js_weakref_is_target(key))
+        return JS_ThrowTypeError(ctx, "invalid value used as WeakMap key");
+    mr = map_find_record(ctx, s, key);
+    if (!mr) {
+        if (computed) {
+            value = JS_Call(ctx, argv[1], JS_UNDEFINED, 1, &key);
+            if (JS_IsException(value))
+                return JS_EXCEPTION;
+            map_delete_record(ctx, s, key);
+        } else {
+            value = JS_DupValue(ctx, argv[1]);
+        }
+        mr = map_add_record(ctx, s, key);
+        if (!mr) {
+            JS_FreeValue(ctx, value);
+            return JS_EXCEPTION;
+        }
+        mr->value = value;
+    }
+    return JS_DupValue(ctx, mr->value);
+}
+
+static JSValue js_map_has(JSContext *ctx, JSValueConst this_val,
+                          int argc, JSValueConst *argv, int magic)
+{
+    JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
+    JSMapRecord *mr;
+    JSValueConst key;
+
+    if (!s)
+        return JS_EXCEPTION;
+    key = map_normalize_key_const(ctx, argv[0]);
+    mr = map_find_record(ctx, s, key);
+    return JS_NewBool(ctx, mr != NULL);
 }
 
 static JSValue js_map_delete(JSContext *ctx, JSValueConst this_val,
@@ -50749,6 +50786,10 @@ static const JSCFunctionListEntry js_map_funcs[] = {
 static const JSCFunctionListEntry js_map_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("set", 2, js_map_set, 0 ),
     JS_CFUNC_MAGIC_DEF("get", 1, js_map_get, 0 ),
+    JS_CFUNC_MAGIC_DEF("getOrInsert", 2, js_map_getOrInsert,
+                       (JS_CLASS_MAP << 1) | /*computed*/FALSE ),
+    JS_CFUNC_MAGIC_DEF("getOrInsertComputed", 2, js_map_getOrInsert,
+                       (JS_CLASS_MAP << 1) | /*computed*/TRUE ),
     JS_CFUNC_MAGIC_DEF("has", 1, js_map_has, 0 ),
     JS_CFUNC_MAGIC_DEF("delete", 1, js_map_delete, 0 ),
     JS_CFUNC_MAGIC_DEF("clear", 0, js_map_clear, 0 ),
@@ -50795,6 +50836,10 @@ static const JSCFunctionListEntry js_set_iterator_proto_funcs[] = {
 static const JSCFunctionListEntry js_weak_map_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("set", 2, js_map_set, MAGIC_WEAK ),
     JS_CFUNC_MAGIC_DEF("get", 1, js_map_get, MAGIC_WEAK ),
+    JS_CFUNC_MAGIC_DEF("getOrInsert", 2, js_map_getOrInsert,
+                       (JS_CLASS_WEAKMAP << 1) | /*computed*/FALSE ),
+    JS_CFUNC_MAGIC_DEF("getOrInsertComputed", 2, js_map_getOrInsert,
+                       (JS_CLASS_WEAKMAP << 1) | /*computed*/TRUE ),
     JS_CFUNC_MAGIC_DEF("has", 1, js_map_has, MAGIC_WEAK ),
     JS_CFUNC_MAGIC_DEF("delete", 1, js_map_delete, MAGIC_WEAK ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE ),
