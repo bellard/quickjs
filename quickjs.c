@@ -57777,7 +57777,7 @@ static JSValue js_atomics_pause(JSContext *ctx, JSValueConst this_obj,
     double d;
 
     if (argc > 0) {
-        switch (JS_VALUE_GET_TAG(argv[0])) {
+        switch (JS_VALUE_GET_NORM_TAG(argv[0])) {
         case JS_TAG_FLOAT64: // accepted if and only if fraction == 0.0
             d = JS_VALUE_GET_FLOAT64(argv[0]);
             if (isfinite(d))
