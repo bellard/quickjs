@@ -53427,9 +53427,14 @@ static BOOL string_get_tzoffset(const uint8_t *sp, int *pp, int *tzp, BOOL stric
             hh = hh / 100;
         } else {
             mm = 0;
-            if (string_skip_char(sp, &p, ':')  /* optional separator */
-            &&  !string_get_digits(sp, &p, &mm, 2, 2))
-                return FALSE;
+            if (string_skip_char(sp, &p, ':')) {
+                /* optional separator */
+                if (!string_get_digits(sp, &p, &mm, 2, 2))
+                    return FALSE;
+            } else {
+                if (strict)
+                    return FALSE; /* [+-]HH is not accepted in strict mode */
+            }
         }
         if (hh > 23 || mm > 59)
             return FALSE;
@@ -53628,6 +53633,10 @@ static BOOL js_date_parse_otherstring(const uint8_t *sp,
                     string_get_milliseconds(sp, &p, &fields[6]);
                 }
                 has_time = TRUE;
+                if ((sp[p] == '+' || sp[p] == '-') &&
+                    string_get_tzoffset(sp, &p, &fields[8], FALSE)) {
+                    *is_local = FALSE;
+                }
             } else {
                 if (p - p_start > 2) {
                     fields[0] = val;
