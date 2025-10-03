@@ -8973,11 +8973,9 @@ static void js_free_desc(JSContext *ctx, JSPropertyDescriptor *desc)
 }
 
 /* return -1 in case of exception or TRUE or FALSE. Warning: 'val' is
-   freed by the function. 'flags' is a bitmask of JS_PROP_NO_ADD,
-   JS_PROP_THROW or JS_PROP_THROW_STRICT. If JS_PROP_NO_ADD is set,
-   the new property is not added and an error is raised. 'this_obj' is
-   the receiver. If obj != this_obj, then obj must be an object
-   (Reflect.set case). */
+   freed by the function. 'flags' is a bitmask of JS_PROP_THROW and
+   JS_PROP_THROW_STRICT. 'this_obj' is the receiver. If obj !=
+   this_obj, then obj must be an object (Reflect.set case). */
 int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                            JSAtom prop, JSValue val, JSValueConst this_obj, int flags)
 {
@@ -9171,12 +9169,6 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                 break;
             }
         }
-    }
-
-    if (unlikely(flags & JS_PROP_NO_ADD)) {
-        JS_FreeValue(ctx, val);
-        JS_ThrowReferenceErrorNotDefined(ctx, prop);
-        return -1;
     }
 
     if (unlikely(!p)) {
