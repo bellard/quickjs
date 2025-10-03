@@ -123,12 +123,10 @@ DEF(         regexp, 1, 2, 1, none) /* create a RegExp object from the pattern a
 DEF(      get_super, 1, 1, 1, none)
 DEF(         import, 1, 2, 1, none) /* dynamic module import */
 
-DEF(      check_var, 5, 0, 1, atom) /* check if a variable exists */
 DEF(  get_var_undef, 5, 0, 1, atom) /* push undefined if the variable does not exist */
 DEF(        get_var, 5, 0, 1, atom) /* throw an exception if the variable does not exist */
 DEF(        put_var, 5, 1, 0, atom) /* must come after get_var */
 DEF(   put_var_init, 5, 1, 0, atom) /* must come after put_var. Used to initialize a global lexical variable */
-DEF( put_var_strict, 5, 2, 0, atom) /* for strict mode variable write */
 
 DEF(  get_ref_value, 1, 2, 3, none)
 DEF(  put_ref_value, 1, 3, 0, none)
