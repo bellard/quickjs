@@ -18228,99 +18228,64 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             }
             BREAK;
 
-        CASE(OP_get_field):
-            {
-                JSValue val, obj;
-                JSAtom atom;
-                JSObject *p;
-                JSProperty *pr;
-                JSShapeProperty *prs;
-
-                atom = get_u32(pc);
-                pc += 4;
-                
-                obj = sp[-1];
-                if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT)) {
-                    p = JS_VALUE_GET_OBJ(obj);
-                    for(;;) {
-                        prs = find_own_property(&pr, p, atom);
-                        if (prs) {
-                            /* found */
-                            if (unlikely(prs->flags & JS_PROP_TMASK))
-                                goto get_field_slow_path;
-                            val = JS_DupValue(ctx, pr->u.value);
-                            break;
-                        }
-                        if (unlikely(p->is_exotic)) {
-                            /* XXX: should avoid the slow path for arrays
-                               and typed arrays by ensuring that 'prop' is
-                               not numeric */
-                            obj = JS_MKPTR(JS_TAG_OBJECT, p);
-                            goto get_field_slow_path;
-                        }
-                        p = p->shape->proto;
-                        if (!p) {
-                            val = JS_UNDEFINED;
-                            break;
-                        }
-                    }
-                } else {
-                get_field_slow_path:
-                    sf->cur_pc = pc;
-                    val = JS_GetPropertyInternal(ctx, obj, atom, sp[-1], 0);
-                    if (unlikely(JS_IsException(val)))
-                        goto exception;
-                }
-                JS_FreeValue(ctx, sp[-1]);
-                sp[-1] = val;
+#define GET_FIELD_INLINE(name, keep)                                    \
+            {                                                           \
+                JSValue val, obj;                                       \
+                JSAtom atom;                                            \
+                JSObject *p;                                            \
+                JSProperty *pr;                                         \
+                JSShapeProperty *prs;                                   \
+                                                                        \
+                atom = get_u32(pc);                                     \
+                pc += 4;                                                \
+                                                                        \
+                obj = sp[-1];                                           \
+                if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT)) {   \
+                    p = JS_VALUE_GET_OBJ(obj);                          \
+                    for(;;) {                                           \
+                        prs = find_own_property(&pr, p, atom);          \
+                        if (prs) {                                      \
+                            /* found */                                 \
+                            if (unlikely(prs->flags & JS_PROP_TMASK))   \
+                                    goto name ## _slow_path;            \
+                            val = JS_DupValue(ctx, pr->u.value);        \
+                            break;                                      \
+                        }                                               \
+                        if (unlikely(p->is_exotic)) {                   \
+                            /* XXX: should avoid the slow path for arrays \
+                               and typed arrays by ensuring that 'prop' is \
+                               not numeric */                           \
+                            obj = JS_MKPTR(JS_TAG_OBJECT, p);           \
+                            goto name ## _slow_path;                    \
+                        }                                               \
+                        p = p->shape->proto;                            \
+                        if (!p) {                                       \
+                            val = JS_UNDEFINED;                         \
+                            break;                                      \
+                        }                                               \
+                    }                                                   \
+                } else {                                                \
+                name ## _slow_path:                                     \
+                    sf->cur_pc = pc;                                    \
+                    val = JS_GetPropertyInternal(ctx, obj, atom, sp[-1], 0); \
+                    if (unlikely(JS_IsException(val)))                  \
+                        goto exception;                                 \
+                }                                                       \
+                if (keep) {                                             \
+                    *sp++ = val;                                        \
+                } else {                                                \
+                    JS_FreeValue(ctx, sp[-1]);                          \
+                    sp[-1] = val;                                       \
+                }                                                       \
             }
+
+            
+        CASE(OP_get_field):
+            GET_FIELD_INLINE(get_field, 0);
             BREAK;
 
         CASE(OP_get_field2):
-            {
-                JSValue val, obj;
-                JSAtom atom;
-                JSObject *p;
-                JSProperty *pr;
-                JSShapeProperty *prs;
-                
-                atom = get_u32(pc);
-                pc += 4;
-                
-                obj = sp[-1];
-                if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT)) {
-                    p = JS_VALUE_GET_OBJ(obj);
-                    for(;;) {
-                        prs = find_own_property(&pr, p, atom);
-                        if (prs) {
-                            /* found */
-                            if (unlikely(prs->flags & JS_PROP_TMASK))
-                                goto get_field2_slow_path;
-                            val = JS_DupValue(ctx, pr->u.value);
-                            break;
-                        }
-                        if (unlikely(p->is_exotic)) {
-                            /* XXX: should avoid the slow path for arrays
-                               and typed arrays by ensuring that 'prop' is
-                               not numeric */
-                            obj = JS_MKPTR(JS_TAG_OBJECT, p);
-                            goto get_field2_slow_path;
-                        }
-                        p = p->shape->proto;
-                        if (!p) {
-                            val = JS_UNDEFINED;
-                            break;
-                        }
-                    }
-                } else {
-                get_field2_slow_path:
-                    sf->cur_pc = pc;
-                    val = JS_GetPropertyInternal(ctx, obj, atom, sp[-1], 0);
-                    if (unlikely(JS_IsException(val)))
-                        goto exception;
-                }
-                *sp++ = val;
-            }
+            GET_FIELD_INLINE(get_field2, 1);
             BREAK;
 
         CASE(OP_put_field):
@@ -18542,61 +18507,95 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             }
             BREAK;
 
-        CASE(OP_get_array_el):
-            {
-                JSValue val;
-
-                sf->cur_pc = pc;
-                val = JS_GetPropertyValue(ctx, sp[-2], sp[-1]);
-                JS_FreeValue(ctx, sp[-2]);
-                sp[-2] = val;
-                sp--;
-                if (unlikely(JS_IsException(val)))
-                    goto exception;
+#define GET_ARRAY_EL_INLINE(name, keep)                                 \
+            {                                                           \
+                JSValue val, obj, prop;                                 \
+                JSObject *p;                                            \
+                uint32_t idx;                                           \
+                                                                        \
+                obj = sp[-2];                                           \
+                prop = sp[-1];                                          \
+                if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT &&    \
+                           JS_VALUE_GET_TAG(prop) == JS_TAG_INT)) {     \
+                    p = JS_VALUE_GET_OBJ(obj);                          \
+                    idx = JS_VALUE_GET_INT(prop);                       \
+                    if (unlikely(p->class_id != JS_CLASS_ARRAY))        \
+                        goto name ## _slow_path;                        \
+                    if (unlikely(idx >= p->u.array.count))              \
+                        goto name ## _slow_path;                        \
+                    val = JS_DupValue(ctx, p->u.array.u.values[idx]);   \
+                } else {                                                \
+                    name ## _slow_path:                                 \
+                    sf->cur_pc = pc;                                    \
+                    val = JS_GetPropertyValue(ctx, obj, prop);          \
+                    if (unlikely(JS_IsException(val))) {                \
+                        if (keep)                                       \
+                            sp[-1] = JS_UNDEFINED;                      \
+                        else                                            \
+                            sp--;                                       \
+                        goto exception;                                 \
+                    }                                                   \
+                }                                                       \
+                if (keep) {                                             \
+                    sp[-1] = val;                                       \
+                } else {                                                \
+                    JS_FreeValue(ctx, obj);                             \
+                    sp[-2] = val;                                       \
+                    sp--;                                               \
+                }                                                       \
             }
+            
+        CASE(OP_get_array_el):
+            GET_ARRAY_EL_INLINE(get_array_el, 0);
             BREAK;
 
         CASE(OP_get_array_el2):
-            {
-                JSValue val;
-
-                sf->cur_pc = pc;
-                val = JS_GetPropertyValue(ctx, sp[-2], sp[-1]);
-                sp[-1] = val;
-                if (unlikely(JS_IsException(val)))
-                    goto exception;
-            }
+            GET_ARRAY_EL_INLINE(get_array_el2, 1);
             BREAK;
 
         CASE(OP_get_array_el3):
             {
                 JSValue val;
+                JSObject *p;
+                uint32_t idx;
 
-                switch (JS_VALUE_GET_TAG(sp[-2])) {
-                case JS_TAG_INT:
-                case JS_TAG_STRING:
-                case JS_TAG_SYMBOL:
-                    /* undefined and null are tested in JS_GetPropertyValue() */
-                    break;
-                default:
-                    /* must be tested nefore JS_ToPropertyKey */
-                    if (unlikely(JS_IsUndefined(sp[-2]) || JS_IsNull(sp[-2]))) {
-                        JS_ThrowTypeError(ctx, "value has no property");
-                        goto exception;
+                if (likely(JS_VALUE_GET_TAG(sp[-2]) == JS_TAG_OBJECT &&
+                           JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_INT)) {
+                    p = JS_VALUE_GET_OBJ(sp[-2]);
+                    idx = JS_VALUE_GET_INT(sp[-1]);
+                    if (unlikely(p->class_id != JS_CLASS_ARRAY))
+                        goto get_array_el3_slow_path;
+                    if (unlikely(idx >= p->u.array.count))
+                        goto get_array_el3_slow_path;
+                    val = JS_DupValue(ctx, p->u.array.u.values[idx]);
+                } else {
+                get_array_el3_slow_path:
+                    switch (JS_VALUE_GET_TAG(sp[-1])) {
+                    case JS_TAG_INT:
+                    case JS_TAG_STRING:
+                    case JS_TAG_SYMBOL:
+                        /* undefined and null are tested in JS_GetPropertyValue() */
+                        break;
+                    default:
+                        /* must be tested before JS_ToPropertyKey */
+                        if (unlikely(JS_IsUndefined(sp[-2]) || JS_IsNull(sp[-2]))) {
+                            JS_ThrowTypeError(ctx, "value has no property");
+                            goto exception;
+                        }
+                        sf->cur_pc = pc;
+                        ret_val = JS_ToPropertyKey(ctx, sp[-1]);
+                        if (JS_IsException(ret_val))
+                            goto exception;
+                        JS_FreeValue(ctx, sp[-1]);
+                        sp[-1] = ret_val;
+                        break;
                     }
                     sf->cur_pc = pc;
-                    ret_val = JS_ToPropertyKey(ctx, sp[-1]);
-                    if (JS_IsException(ret_val))
+                    val = JS_GetPropertyValue(ctx, sp[-2], JS_DupValue(ctx, sp[-1]));
+                    if (unlikely(JS_IsException(val)))
                         goto exception;
-                    JS_FreeValue(ctx, sp[-1]);
-                    sp[-1] = ret_val;
-                    break;
                 }
-                sf->cur_pc = pc;
-                val = JS_GetPropertyValue(ctx, sp[-2], JS_DupValue(ctx, sp[-1]));
                 *sp++ = val;
-                if (unlikely(JS_IsException(val)))
-                    goto exception;
             }
             BREAK;
             
@@ -18661,13 +18660,29 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         CASE(OP_put_array_el):
             {
                 int ret;
+                JSObject *p;
+                uint32_t idx;
 
-                sf->cur_pc = pc;
-                ret = JS_SetPropertyValue(ctx, sp[-3], sp[-2], sp[-1], JS_PROP_THROW_STRICT);
-                JS_FreeValue(ctx, sp[-3]);
-                sp -= 3;
-                if (unlikely(ret < 0))
-                    goto exception;
+                if (likely(JS_VALUE_GET_TAG(sp[-3]) == JS_TAG_OBJECT &&
+                           JS_VALUE_GET_TAG(sp[-2]) == JS_TAG_INT)) {
+                    p = JS_VALUE_GET_OBJ(sp[-3]);
+                    idx = JS_VALUE_GET_INT(sp[-2]);
+                    if (unlikely(p->class_id != JS_CLASS_ARRAY))
+                        goto put_array_el_slow_path;
+                    if (unlikely(idx >= (uint32_t)p->u.array.count))
+                        goto put_array_el_slow_path;
+                    set_value(ctx, &p->u.array.u.values[idx], sp[-1]);
+                    JS_FreeValue(ctx, sp[-3]);
+                    sp -= 3;
+                } else {
+                put_array_el_slow_path:
+                    sf->cur_pc = pc;
+                    ret = JS_SetPropertyValue(ctx, sp[-3], sp[-2], sp[-1], JS_PROP_THROW_STRICT);
+                    JS_FreeValue(ctx, sp[-3]);
+                    sp -= 3;
+                    if (unlikely(ret < 0))
+                        goto exception;
+                }
             }
             BREAK;
 

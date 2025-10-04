@@ -375,6 +375,28 @@ function array_write(n)
     return len * n;
 }
 
+function array_update(n)
+{
+    var tab, len, i, j;
+    tab = [];
+    len = 10;
+    for(i = 0; i < len; i++)
+        tab[i] = i;
+    for(j = 0; j < n; j++) {
+        tab[0] += j;
+        tab[1] += j;
+        tab[2] += j;
+        tab[3] += j;
+        tab[4] += j;
+        tab[5] += j;
+        tab[6] += j;
+        tab[7] += j;
+        tab[8] += j;
+        tab[9] += j;
+    }
+    return len * n;
+}
+
 function array_prop_create(n)
 {
     var tab, i, j, len;
@@ -1357,6 +1379,7 @@ function main(argc, argv, g)
         prop_delete,
         array_read,
         array_write,
+        array_update,
         array_prop_create,
         array_slice,
         array_length_decr,
