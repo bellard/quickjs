@@ -51319,14 +51319,16 @@ int JS_AddIntrinsicMapSet(JSContext *ctx)
     char buf[ATOM_GET_STR_BUF_SIZE];
 
     for(i = 0; i < 4; i++) {
+        JSCFunctionType ft;
         const char *name = JS_AtomGetStr(ctx, buf, sizeof(buf),
                                          JS_ATOM_Map + i);
+        ft.constructor_magic = js_map_constructor;
         obj1 = JS_NewCConstructor(ctx, JS_CLASS_MAP + i, name,
-                                         (JSCFunction *)js_map_constructor, 0, JS_CFUNC_constructor_magic, i,
-                                         JS_UNDEFINED,
-                                         js_map_funcs, i < 2 ? countof(js_map_funcs) : 0,
-                                         js_map_proto_funcs_ptr[i], js_map_proto_funcs_count[i],
-                                         0);
+                                  ft.generic, 0, JS_CFUNC_constructor_magic, i,
+                                  JS_UNDEFINED,
+                                  js_map_funcs, i < 2 ? countof(js_map_funcs) : 0,
+                                  js_map_proto_funcs_ptr[i], js_map_proto_funcs_count[i],
+                                  0);
         if (JS_IsException(obj1))
             return -1;
         JS_FreeValue(ctx, obj1);
