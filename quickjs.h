@@ -394,18 +394,18 @@ JSValue JS_GetClassProto(JSContext *ctx, JSClassID class_id);
 /* the following functions are used to select the intrinsic object to
    save memory */
 JSContext *JS_NewContextRaw(JSRuntime *rt);
-void JS_AddIntrinsicBaseObjects(JSContext *ctx);
-void JS_AddIntrinsicDate(JSContext *ctx);
-void JS_AddIntrinsicEval(JSContext *ctx);
-void JS_AddIntrinsicStringNormalize(JSContext *ctx);
+int JS_AddIntrinsicBaseObjects(JSContext *ctx);
+int JS_AddIntrinsicDate(JSContext *ctx);
+int JS_AddIntrinsicEval(JSContext *ctx);
+int JS_AddIntrinsicStringNormalize(JSContext *ctx);
 void JS_AddIntrinsicRegExpCompiler(JSContext *ctx);
-void JS_AddIntrinsicRegExp(JSContext *ctx);
-void JS_AddIntrinsicJSON(JSContext *ctx);
-void JS_AddIntrinsicProxy(JSContext *ctx);
-void JS_AddIntrinsicMapSet(JSContext *ctx);
-void JS_AddIntrinsicTypedArrays(JSContext *ctx);
-void JS_AddIntrinsicPromise(JSContext *ctx);
-void JS_AddIntrinsicWeakRef(JSContext *ctx);
+int JS_AddIntrinsicRegExp(JSContext *ctx);
+int JS_AddIntrinsicJSON(JSContext *ctx);
+int JS_AddIntrinsicProxy(JSContext *ctx);
+int JS_AddIntrinsicMapSet(JSContext *ctx);
+int JS_AddIntrinsicTypedArrays(JSContext *ctx);
+int JS_AddIntrinsicPromise(JSContext *ctx);
+int JS_AddIntrinsicWeakRef(JSContext *ctx);
 
 JSValue js_string_codePointRange(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv);
@@ -1052,8 +1052,8 @@ static inline JSValue JS_NewCFunctionMagic(JSContext *ctx, JSCFunctionMagic *fun
     JSCFunctionType ft = { .generic_magic = func };
     return JS_NewCFunction2(ctx, ft.generic, name, length, cproto, magic);
 }
-void JS_SetConstructor(JSContext *ctx, JSValueConst func_obj,
-                       JSValueConst proto);
+int JS_SetConstructor(JSContext *ctx, JSValueConst func_obj,
+                      JSValueConst proto);
 
 /* C property definition */
 
@@ -1097,6 +1097,8 @@ typedef struct JSCFunctionListEntry {
 #define JS_DEF_PROP_UNDEFINED 7
 #define JS_DEF_OBJECT         8
 #define JS_DEF_ALIAS          9
+#define JS_DEF_PROP_SYMBOL   10
+#define JS_DEF_PROP_BOOL     11
 
 /* Note: c++ does not like nested designators */
 #define JS_CFUNC_DEF(name, length, func1) { name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE, JS_DEF_CFUNC, 0, .u = { .func = { length, JS_CFUNC_generic, { .generic = func1 } } } }
@@ -1110,6 +1112,8 @@ typedef struct JSCFunctionListEntry {
 #define JS_PROP_INT64_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_INT64, 0, .u = { .i64 = val } }
 #define JS_PROP_DOUBLE_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_DOUBLE, 0, .u = { .f64 = val } }
 #define JS_PROP_UNDEFINED_DEF(name, prop_flags) { name, prop_flags, JS_DEF_PROP_UNDEFINED, 0, .u = { .i32 = 0 } }
+#define JS_PROP_SYMBOL_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_SYMBOL, 0, .u = { .i32 = val } }
+#define JS_PROP_BOOL_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_BOOL, 0, .u = { .i32 = val } }
 #define JS_OBJECT_DEF(name, tab, len, prop_flags) { name, prop_flags, JS_DEF_OBJECT, 0, .u = { .prop_list = { tab, len } } }
 #define JS_ALIAS_DEF(name, from) { name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE, JS_DEF_ALIAS, 0, .u = { .alias = { from, -1 } } }
 #define JS_ALIAS_BASE_DEF(name, from, base) { name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE, JS_DEF_ALIAS, 0, .u = { .alias = { from, base } } }
