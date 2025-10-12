@@ -38475,7 +38475,7 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
     case JS_DEF_PROP_UNDEFINED:
         val = JS_UNDEFINED;
         break;
-    case JS_DEF_PROP_SYMBOL:
+    case JS_DEF_PROP_ATOM:
         val = JS_AtomToValue(ctx, e->u.i32);
         break;
     case JS_DEF_PROP_BOOL:
@@ -40328,19 +40328,21 @@ static const JSCFunctionListEntry js_error_proto_funcs[] = {
 };
 
 /* 2 entries for each native error class */
+/* Note: we use an atom to avoid the autoinit definition which does
+   not work in get_prop_string() */
 static const JSCFunctionListEntry js_native_error_proto_funcs[] = {
 #define DEF(name) \
-    JS_PROP_STRING_DEF("name", name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE ),\
+    JS_PROP_ATOM_DEF("name", name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE ),\
     JS_PROP_STRING_DEF("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE ),
     
-    DEF("EvalError")
-    DEF("RangeError")
-    DEF("ReferenceError")
-    DEF("SyntaxError")
-    DEF("TypeError")
-    DEF("URIError")
-    DEF("InternalError")
-    DEF("AggregateError")
+    DEF(JS_ATOM_EvalError)
+    DEF(JS_ATOM_RangeError)
+    DEF(JS_ATOM_ReferenceError)
+    DEF(JS_ATOM_SyntaxError)
+    DEF(JS_ATOM_TypeError)
+    DEF(JS_ATOM_URIError)
+    DEF(JS_ATOM_InternalError)
+    DEF(JS_ATOM_AggregateError)
 #undef DEF    
 };
 
@@ -49700,19 +49702,19 @@ static JSValue js_symbol_keyFor(JSContext *ctx, JSValueConst this_val,
 static const JSCFunctionListEntry js_symbol_funcs[] = {
     JS_CFUNC_DEF("for", 1, js_symbol_for ),
     JS_CFUNC_DEF("keyFor", 1, js_symbol_keyFor ),
-    JS_PROP_SYMBOL_DEF("toPrimitive", JS_ATOM_Symbol_toPrimitive, 0),
-    JS_PROP_SYMBOL_DEF("iterator", JS_ATOM_Symbol_iterator, 0),
-    JS_PROP_SYMBOL_DEF("match", JS_ATOM_Symbol_match, 0),
-    JS_PROP_SYMBOL_DEF("matchAll", JS_ATOM_Symbol_matchAll, 0),
-    JS_PROP_SYMBOL_DEF("replace", JS_ATOM_Symbol_replace, 0),
-    JS_PROP_SYMBOL_DEF("search", JS_ATOM_Symbol_search, 0),
-    JS_PROP_SYMBOL_DEF("split", JS_ATOM_Symbol_split, 0),
-    JS_PROP_SYMBOL_DEF("toStringTag", JS_ATOM_Symbol_toStringTag, 0),
-    JS_PROP_SYMBOL_DEF("isConcatSpreadable", JS_ATOM_Symbol_isConcatSpreadable, 0),
-    JS_PROP_SYMBOL_DEF("hasInstance", JS_ATOM_Symbol_hasInstance, 0),
-    JS_PROP_SYMBOL_DEF("species", JS_ATOM_Symbol_species, 0),
-    JS_PROP_SYMBOL_DEF("unscopables", JS_ATOM_Symbol_unscopables, 0),
-    JS_PROP_SYMBOL_DEF("asyncIterator", JS_ATOM_Symbol_asyncIterator, 0),
+    JS_PROP_ATOM_DEF("toPrimitive", JS_ATOM_Symbol_toPrimitive, 0),
+    JS_PROP_ATOM_DEF("iterator", JS_ATOM_Symbol_iterator, 0),
+    JS_PROP_ATOM_DEF("match", JS_ATOM_Symbol_match, 0),
+    JS_PROP_ATOM_DEF("matchAll", JS_ATOM_Symbol_matchAll, 0),
+    JS_PROP_ATOM_DEF("replace", JS_ATOM_Symbol_replace, 0),
+    JS_PROP_ATOM_DEF("search", JS_ATOM_Symbol_search, 0),
+    JS_PROP_ATOM_DEF("split", JS_ATOM_Symbol_split, 0),
+    JS_PROP_ATOM_DEF("toStringTag", JS_ATOM_Symbol_toStringTag, 0),
+    JS_PROP_ATOM_DEF("isConcatSpreadable", JS_ATOM_Symbol_isConcatSpreadable, 0),
+    JS_PROP_ATOM_DEF("hasInstance", JS_ATOM_Symbol_hasInstance, 0),
+    JS_PROP_ATOM_DEF("species", JS_ATOM_Symbol_species, 0),
+    JS_PROP_ATOM_DEF("unscopables", JS_ATOM_Symbol_unscopables, 0),
+    JS_PROP_ATOM_DEF("asyncIterator", JS_ATOM_Symbol_asyncIterator, 0),
 };
 
 /* Set/Map/WeakSet/WeakMap */
@@ -54447,9 +54449,12 @@ static int JS_AddIntrinsicBasicObjects(JSContext *ctx)
         JSValue func_obj;
         const JSCFunctionListEntry *funcs;
         int n_args;
+        char buf[ATOM_GET_STR_BUF_SIZE];
+        const char *name = JS_AtomGetStr(ctx, buf, sizeof(buf),
+                                         JS_ATOM_EvalError + i);
         n_args = 1 + (i == JS_AGGREGATE_ERROR);
         funcs = js_native_error_proto_funcs + 2 * i;
-        func_obj = JS_NewCConstructor(ctx, -1, funcs[0].u.str,
+        func_obj = JS_NewCConstructor(ctx, -1, name,
                                       ft.generic, n_args, JS_CFUNC_constructor_or_func_magic, i,
                                       obj,
                                       NULL, 0,
