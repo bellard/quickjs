@@ -6,6 +6,7 @@ test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-
 test262/test/annexB/language/expressions/assignmenttargettype/callexpression.js:33: SyntaxError: invalid assignment left-hand side
 test262/test/annexB/language/expressions/assignmenttargettype/cover-callexpression-and-asyncarrowhead.js:20: SyntaxError: invalid assignment left-hand side
 test262/test/language/identifier-resolution/assign-to-global-undefined.js:20: strict mode: expected error
+test262/test/language/module-code/top-level-await/rejection-order.js:20: TypeError: $DONE() not called
 test262/test/staging/sm/Date/UTC-convert-all-arguments.js:13: Test262Error: index 1: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
 test262/test/staging/sm/Date/UTC-convert-all-arguments.js:13: strict mode: Test262Error: index 1: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
 test262/test/staging/sm/Date/constructor-convert-all-arguments.js:13: Test262Error: index undefined: expected 42, got Error: didn't throw Expected SameValue(«Error: didn't throw», «42») to be true
@@ -20,14 +21,6 @@ test262/test/staging/sm/Function/function-name-for.js:13: Test262Error: Expected
 test262/test/staging/sm/Function/implicit-this-in-parameter-expression.js:12: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: strict mode: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/staging/sm/Math/acosh-exact.js:15: ReferenceError: 'ONE_MINUS_EPSILON' is not defined
-test262/test/staging/sm/Math/acosh-exact.js:15: strict mode: ReferenceError: 'ONE_MINUS_EPSILON' is not defined
-test262/test/staging/sm/Math/atanh-exact.js:15: ReferenceError: 'ONE_PLUS_EPSILON' is not defined
-test262/test/staging/sm/Math/atanh-exact.js:15: strict mode: ReferenceError: 'ONE_PLUS_EPSILON' is not defined
-test262/test/staging/sm/Math/log1p-exact.js:18: ReferenceError: 'ONE_PLUS_EPSILON' is not defined
-test262/test/staging/sm/Math/log1p-exact.js:18: strict mode: ReferenceError: 'ONE_PLUS_EPSILON' is not defined
-test262/test/staging/sm/Math/trunc.js:29: ReferenceError: 'ONE_MINUS_EPSILON' is not defined
-test262/test/staging/sm/Math/trunc.js:29: strict mode: ReferenceError: 'ONE_MINUS_EPSILON' is not defined
 test262/test/staging/sm/RegExp/constructor-ordering-2.js:12: Test262Error: Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/RegExp/constructor-ordering-2.js:12: strict mode: Test262Error: Expected SameValue(«false», «true») to be true
 test262/test/staging/sm/RegExp/regress-613820-1.js:12: Test262Error: Actual [aaa, aa, a] and expected [aa, a, a] should have the same contents. 
