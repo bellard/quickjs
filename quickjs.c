@@ -1373,7 +1373,7 @@ static JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
 static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
                                JSValue prop, JSValue val, int flags);
 static int JS_NumberIsInteger(JSContext *ctx, JSValueConst val);
-static BOOL JS_NumberIsNegativeOrMinusZero(JSContext *ctx, JSValueConst val);
+BOOL JS_NumberIsNegativeOrMinusZero(JSContext *ctx, JSValueConst val);
 static JSValue JS_ToNumberFree(JSContext *ctx, JSValue val);
 static int JS_GetOwnPropertyInternal(JSContext *ctx, JSPropertyDescriptor *desc,
                                      JSObject *p, JSAtom prop);
@@ -13685,7 +13685,7 @@ static int JS_NumberIsInteger(JSContext *ctx, JSValueConst val)
     return isfinite(d) && floor(d) == d;
 }
 
-static BOOL JS_NumberIsNegativeOrMinusZero(JSContext *ctx, JSValueConst val)
+BOOL JS_NumberIsNegativeOrMinusZero(JSContext *ctx, JSValueConst val)
 {
     uint32_t tag;
 
@@ -60295,7 +60295,6 @@ int JS_AddIntrinsicBaseObjects(JSContext *ctx)
         return -1;
     return 0;
 }
-
 /* Typed Arrays */
 
 static uint8_t const typed_array_size_log2[JS_TYPED_ARRAY_COUNT] = {
