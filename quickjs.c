@@ -5130,7 +5130,7 @@ static JSValue js_rebalancee_string_rope(JSContext *ctx, JSValueConst rope)
 
 /* op1 and op2 are converted to strings. For convenience, op1 or op2 =
    JS_EXCEPTION are accepted and return JS_EXCEPTION.  */
-static JSValue JS_ConcatString(JSContext *ctx, JSValue op1, JSValue op2)
+JSValue JS_ConcatString(JSContext *ctx, JSValue op1, JSValue op2)
 {
     JSString *p1, *p2;
 
