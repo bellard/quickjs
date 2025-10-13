@@ -22835,7 +22835,7 @@ static void emit_op(JSParseState *s, uint8_t val)
 static void emit_atom(JSParseState *s, JSAtom name)
 {
     DynBuf *bc = &s->cur_func->byte_code;
-    if (dbuf_realloc(bc, bc->size + 4))
+    if (dbuf_claim(bc, 4))
         return; /* not enough memory : don't duplicate the atom */
     put_u32(bc->buf + bc->size, JS_DupAtom(s->ctx, name));
     bc->size += 4;
@@ -27751,7 +27751,7 @@ static __exception int js_parse_for_in_of(JSParseState *s, int label_name,
         int chunk_size = pos_expr - pos_next;
         int offset = bc->size - pos_next;
         int i;
-        dbuf_realloc(bc, bc->size + chunk_size);
+        dbuf_claim(bc, chunk_size);
         dbuf_put(bc, bc->buf + pos_next, chunk_size);
         memset(bc->buf + pos_next, OP_nop, chunk_size);
         /* `next` part ends with a goto */
@@ -28157,7 +28157,7 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
                 int chunk_size = pos_body - pos_cont;
                 int offset = bc->size - pos_cont;
                 int i;
-                dbuf_realloc(bc, bc->size + chunk_size);
+                dbuf_claim(bc, chunk_size);
                 dbuf_put(bc, bc->buf + pos_cont, chunk_size);
                 memset(bc->buf + pos_cont, OP_nop, chunk_size);
                 /* increment part ends with a goto */
@@ -37097,7 +37097,7 @@ static int JS_WriteObjectAtoms(BCWriterState *s)
     /* XXX: could just append dbuf1 data, but it uses more memory if
        dbuf1 is larger than dbuf */
     atoms_size = s->dbuf.size;
-    if (dbuf_realloc(&dbuf1, dbuf1.size + atoms_size))
+    if (dbuf_claim(&dbuf1, atoms_size))
         goto fail;
     memmove(dbuf1.buf + atoms_size, dbuf1.buf, dbuf1.size);
     memcpy(dbuf1.buf, s->dbuf.buf, atoms_size);

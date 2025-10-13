@@ -100,15 +100,20 @@ void dbuf_init(DynBuf *s)
     dbuf_init2(s, NULL, NULL);
 }
 
-/* return < 0 if error */
-int dbuf_realloc(DynBuf *s, size_t new_size)
+/* Try to allocate 'len' more bytes. return < 0 if error */
+int dbuf_claim(DynBuf *s, size_t len)
 {
-    size_t size;
+    size_t new_size, size;
     uint8_t *new_buf;
+    new_size = s->size + len;
+    if (new_size < len)
+        return -1; /* overflow case */
     if (new_size > s->allocated_size) {
         if (s->error)
             return -1;
-        size = s->allocated_size * 3 / 2;
+        size = s->allocated_size + (s->allocated_size / 2);
+        if (size < s->allocated_size)
+            return -1; /* overflow case */
         if (size > new_size)
             new_size = size;
         new_buf = s->realloc_func(s->opaque, s->buf, new_size);
@@ -122,22 +127,10 @@ int dbuf_realloc(DynBuf *s, size_t new_size)
     return 0;
 }
 
-int dbuf_write(DynBuf *s, size_t offset, const uint8_t *data, size_t len)
-{
-    size_t end;
-    end = offset + len;
-    if (dbuf_realloc(s, end))
-        return -1;
-    memcpy(s->buf + offset, data, len);
-    if (end > s->size)
-        s->size = end;
-    return 0;
-}
-
 int dbuf_put(DynBuf *s, const uint8_t *data, size_t len)
 {
-    if (unlikely((s->size + len) > s->allocated_size)) {
-        if (dbuf_realloc(s, s->size + len))
+    if (unlikely((s->allocated_size - s->size) < len)) {
+        if (dbuf_claim(s, len))
             return -1;
     }
     memcpy_no_ub(s->buf + s->size, data, len);
@@ -147,8 +140,8 @@ int dbuf_put(DynBuf *s, const uint8_t *data, size_t len)
 
 int dbuf_put_self(DynBuf *s, size_t offset, size_t len)
 {
-    if (unlikely((s->size + len) > s->allocated_size)) {
-        if (dbuf_realloc(s, s->size + len))
+    if (unlikely((s->allocated_size - s->size) < len)) {
+        if (dbuf_claim(s, len))
             return -1;
     }
     memcpy(s->buf + s->size, s->buf + offset, len);
@@ -156,9 +149,24 @@ int dbuf_put_self(DynBuf *s, size_t offset, size_t len)
     return 0;
 }
 
-int dbuf_putc(DynBuf *s, uint8_t c)
+int __dbuf_putc(DynBuf *s, uint8_t c)
 {
     return dbuf_put(s, &c, 1);
+}
+
+int __dbuf_put_u16(DynBuf *s, uint16_t val)
+{
+    return dbuf_put(s, (uint8_t *)&val, 2);
+}
+
+int __dbuf_put_u32(DynBuf *s, uint32_t val)
+{
+    return dbuf_put(s, (uint8_t *)&val, 4);
+}
+
+int __dbuf_put_u64(DynBuf *s, uint64_t val)
+{
+    return dbuf_put(s, (uint8_t *)&val, 8);
 }
 
 int dbuf_putstr(DynBuf *s, const char *str)
@@ -182,7 +190,7 @@ int __attribute__((format(printf, 2, 3))) dbuf_printf(DynBuf *s,
         /* fast case */
         return dbuf_put(s, (uint8_t *)buf, len);
     } else {
-        if (dbuf_realloc(s, s->size + len + 1))
+        if (dbuf_claim(s, len + 1))
             return -1;
         va_start(ap, fmt);
         vsnprintf((char *)(s->buf + s->size), s->allocated_size - s->size,

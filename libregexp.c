@@ -117,7 +117,7 @@ static inline int is_digit(int c) {
 /* insert 'len' bytes at position 'pos'. Return < 0 if error. */
 static int dbuf_insert(DynBuf *s, int pos, int len)
 {
-    if (dbuf_realloc(s, s->size + len))
+    if (dbuf_claim(s, len))
         return -1;
     memmove(s->buf + pos + len, s->buf + pos, s->size - pos);
     s->size += len;
@@ -2340,7 +2340,7 @@ static int re_parse_alternative(REParseState *s, BOOL is_backward_dir)
                speed is not really critical here) */
             end = s->byte_code.size;
             term_size = end - term_start;
-            if (dbuf_realloc(&s->byte_code, end + term_size))
+            if (dbuf_claim(&s->byte_code, term_size))
                 return -1;
             memmove(s->byte_code.buf + start + term_size,
                     s->byte_code.buf + start,

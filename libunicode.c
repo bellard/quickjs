@@ -1179,7 +1179,7 @@ int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
     is_compat = n_type >> 1;
 
     dbuf_init2(dbuf, opaque, realloc_func);
-    if (dbuf_realloc(dbuf, sizeof(int) * src_len))
+    if (dbuf_claim(dbuf, sizeof(int) * src_len))
         goto fail;
 
     /* common case: latin1 is unaffected by NFC */
