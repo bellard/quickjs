@@ -53236,6 +53236,21 @@ static double set_date_fields(double fields[minimum_length(7)], int is_local) {
     return time_clip(tv);
 }
 
+static double set_date_fields_checked(double fields[minimum_length(7)], int is_local)
+{
+    int i;
+    double a;
+    for(i = 0; i < 7; i++) {
+        a = fields[i];
+        if (!isfinite(a))
+            return NAN;
+        fields[i] = trunc(a);
+        if (i == 0 && fields[0] >= 0 && fields[0] < 100)
+            fields[0] += 1900;
+    }
+    return set_date_fields(fields, is_local);
+}
+
 static JSValue get_date_field(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv, int magic)
 {
@@ -53421,7 +53436,7 @@ static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
     // Date(y, mon, d, h, m, s, ms)
     JSValue rv;
     int i, n;
-    double a, val;
+    double val;
 
     if (JS_IsUndefined(new_target)) {
         /* invoked as function */
@@ -53459,15 +53474,10 @@ static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
         if (n > 7)
             n = 7;
         for(i = 0; i < n; i++) {
-            if (JS_ToFloat64(ctx, &a, argv[i]))
+            if (JS_ToFloat64(ctx, &fields[i], argv[i]))
                 return JS_EXCEPTION;
-            if (!isfinite(a))
-                break;
-            fields[i] = trunc(a);
-            if (i == 0 && fields[0] >= 0 && fields[0] < 100)
-                fields[0] += 1900;
         }
-        val = (i == n) ? set_date_fields(fields, 1) : NAN;
+        val = set_date_fields_checked(fields, 1);
     }
 has_val:
 #if 0
@@ -53497,7 +53507,6 @@ static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
     // UTC(y, mon, d, h, m, s, ms)
     double fields[] = { 0, 0, 1, 0, 0, 0, 0 };
     int i, n;
-    double a;
 
     n = argc;
     if (n == 0)
@@ -53505,15 +53514,10 @@ static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
     if (n > 7)
         n = 7;
     for(i = 0; i < n; i++) {
-        if (JS_ToFloat64(ctx, &a, argv[i]))
+        if (JS_ToFloat64(ctx, &fields[i], argv[i]))
             return JS_EXCEPTION;
-        if (!isfinite(a))
-            return JS_NAN;
-        fields[i] = trunc(a);
-        if (i == 0 && fields[0] >= 0 && fields[0] < 100)
-            fields[0] += 1900;
     }
-    return JS_NewFloat64(ctx, set_date_fields(fields, 0));
+    return JS_NewFloat64(ctx, set_date_fields_checked(fields, 0));
 }
 
 /* Date string parsing */
