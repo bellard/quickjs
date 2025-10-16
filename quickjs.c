@@ -17132,18 +17132,6 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         CASE(OP_push_empty_string):
             *sp++ = JS_AtomToString(ctx, JS_ATOM_empty_string);
             BREAK;
-        CASE(OP_get_length):
-            {
-                JSValue val;
-
-                sf->cur_pc = pc;
-                val = JS_GetProperty(ctx, sp[-1], JS_ATOM_length);
-                if (unlikely(JS_IsException(val)))
-                    goto exception;
-                JS_FreeValue(ctx, sp[-1]);
-                sp[-1] = val;
-            }
-            BREAK;
 #endif
         CASE(OP_push_atom_value):
             *sp++ = JS_AtomToValue(ctx, get_u32(pc));
@@ -18317,7 +18305,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             }
             BREAK;
 
-#define GET_FIELD_INLINE(name, keep)                                    \
+#define GET_FIELD_INLINE(name, keep, is_length)                         \
             {                                                           \
                 JSValue val, obj;                                       \
                 JSAtom atom;                                            \
@@ -18325,8 +18313,12 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 JSProperty *pr;                                         \
                 JSShapeProperty *prs;                                   \
                                                                         \
-                atom = get_u32(pc);                                     \
-                pc += 4;                                                \
+                if (is_length) {                                        \
+                    atom = JS_ATOM_length;                              \
+                } else {                                                \
+                    atom = get_u32(pc);                                 \
+                    pc += 4;                                            \
+                }                                                       \
                                                                         \
                 obj = sp[-1];                                           \
                 if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT)) {   \
@@ -18370,13 +18362,19 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 
             
         CASE(OP_get_field):
-            GET_FIELD_INLINE(get_field, 0);
+            GET_FIELD_INLINE(get_field, 0, 0);
             BREAK;
 
         CASE(OP_get_field2):
-            GET_FIELD_INLINE(get_field2, 1);
+            GET_FIELD_INLINE(get_field2, 1, 0);
             BREAK;
 
+#if SHORT_OPCODES
+        CASE(OP_get_length):
+            GET_FIELD_INLINE(get_length, 0, 1);
+            BREAK;
+#endif
+            
         CASE(OP_put_field):
             {
                 int ret;
