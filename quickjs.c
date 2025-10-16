@@ -41533,6 +41533,31 @@ static JSValue js_array_push(JSContext *ctx, JSValueConst this_val,
     int i;
     int64_t len, from, newLen;
 
+    if (likely(JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT && !unshift)) {
+        JSObject *p = JS_VALUE_GET_OBJ(this_val);
+        if (likely(p->class_id == JS_CLASS_ARRAY && p->fast_array &&
+                   p->extensible &&
+                   p->shape->proto == JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]) &&
+                   ctx->std_array_prototype &&
+                   JS_VALUE_GET_TAG(p->prop[0].u.value) == JS_TAG_INT &&
+                   JS_VALUE_GET_INT(p->prop[0].u.value) == p->u.array.count &&
+                   (get_shape_prop(p->shape)->flags & JS_PROP_WRITABLE) != 0)) {
+            /* fast case */
+            uint32_t new_len;
+            new_len = p->u.array.count + argc;
+            if (likely(new_len <= INT32_MAX)) {
+                if (unlikely(new_len > p->u.array.u1.size)) {
+                    if (expand_fast_array(ctx, p, new_len))
+                        return JS_EXCEPTION;
+                }
+                for(i = 0; i < argc; i++)
+                    p->u.array.u.values[p->u.array.count + i] = JS_DupValue(ctx, argv[i]);
+                p->prop[0].u.value = JS_NewInt32(ctx, new_len);
+                p->u.array.count = new_len;
+                return JS_NewInt32(ctx, new_len);
+            }
+        }
+    }
     obj = JS_ToObject(ctx, this_val);
     if (js_get_length64(ctx, &len, obj))
         goto exception;
