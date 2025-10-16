@@ -1261,6 +1261,8 @@ static JSValue js_promise_resolve(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv, int magic);
 static JSValue js_promise_then(JSContext *ctx, JSValueConst this_val,
                                int argc, JSValueConst *argv);
+static BOOL js_string_eq(JSContext *ctx,
+                         const JSString *p1, const JSString *p2);
 static int js_string_compare(JSContext *ctx,
                              const JSString *p1, const JSString *p2);
 static JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
@@ -3226,9 +3228,9 @@ static JSValue JS_AtomIsNumericIndex1(JSContext *ctx, JSAtom atom)
         JS_FreeValue(ctx, num);
         return str;
     }
-    ret = js_string_compare(ctx, p, JS_VALUE_GET_STRING(str));
+    ret = js_string_eq(ctx, p, JS_VALUE_GET_STRING(str));
     JS_FreeValue(ctx, str);
-    if (ret == 0) {
+    if (ret) {
         return num;
     } else {
         JS_FreeValue(ctx, num);
@@ -4128,6 +4130,16 @@ static int js_string_memcmp(const JSString *p1, int pos1, const JSString *p2,
             res = memcmp16(p1->u.str16 + pos1, p2->u.str16 + pos2, len);
     }
     return res;
+}
+
+static BOOL js_string_eq(JSContext *ctx,
+                         const JSString *p1, const JSString *p2)
+{
+    if (p1->len != p2->len)
+        return FALSE;
+    if (p1 == p2)
+        return TRUE;
+    return js_string_memcmp(p1, 0, p2, 0, p1->len) == 0;
 }
 
 /* return < 0, 0 or > 0 */
@@ -15265,8 +15277,8 @@ static BOOL js_strict_eq2(JSContext *ctx, JSValue op1, JSValue op2,
             if (!tag_is_string(tag2)) {
                 res = FALSE;
             } else if (tag1 == JS_TAG_STRING && tag2 == JS_TAG_STRING) {
-                res = (js_string_compare(ctx, JS_VALUE_GET_STRING(op1),
-                                         JS_VALUE_GET_STRING(op2)) == 0);
+                res = js_string_eq(ctx, JS_VALUE_GET_STRING(op1),
+                                   JS_VALUE_GET_STRING(op2));
             } else {
                 res = (js_string_rope_compare(ctx, op1, op2, TRUE) == 0);
             }
