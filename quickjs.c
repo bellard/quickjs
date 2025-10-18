@@ -46285,6 +46285,7 @@ static JSValue js_regexp_constructor(JSContext *ctx, JSValueConst new_target,
         }
     }
     re = js_get_regexp(ctx, pat, FALSE);
+    flags = JS_UNDEFINED;
     if (re) {
         pattern = JS_DupValue(ctx, JS_MKPTR(JS_TAG_STRING, re->pattern));
         if (JS_IsUndefined(flags1)) {
@@ -46297,7 +46298,6 @@ static JSValue js_regexp_constructor(JSContext *ctx, JSValueConst new_target,
             flags = JS_DupValue(ctx, flags1);
         }
     } else {
-        flags = JS_UNDEFINED;
         if (pat_is_regexp) {
             pattern = JS_GetProperty(ctx, pat, JS_ATOM_source);
             if (JS_IsException(pattern))
