@@ -55626,7 +55626,7 @@ static JSValue js_array_buffer_slice(JSContext *ctx,
         goto fail;
     }
     /* must test again because of side effects */
-    if (abuf->detached) {
+    if (abuf->detached || abuf->byte_length < start + new_len) {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         goto fail;
     }
