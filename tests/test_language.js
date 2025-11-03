@@ -248,6 +248,15 @@ function test_delete()
     assert(err, true, "delete");
 }
 
+function test_constructor()
+{
+    function *G() {}
+    let ex
+    try { new G() } catch (ex_) { ex = ex_ }
+    assert(ex instanceof TypeError)
+    assert(ex.message, "G is not a constructor")
+}
+
 function test_prototype()
 {
     var f = function f() { };
@@ -660,6 +669,7 @@ test_cvt();
 test_eq();
 test_inc_dec();
 test_op2();
+test_constructor();
 test_delete();
 test_prototype();
 test_arguments();
