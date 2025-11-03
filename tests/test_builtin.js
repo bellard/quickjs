@@ -511,6 +511,14 @@ function test_typed_array()
     assert(a.toString(), "1,2,3,4");
     a.set([10, 11], 2);
     assert(a.toString(), "1,2,10,11");
+
+    // https://github.com/quickjs-ng/quickjs/issues/1208
+    buffer = new ArrayBuffer(16);
+    a = new Uint8Array(buffer);
+    a.fill(42);
+    assert(a[0], 42);
+    buffer.transfer();
+    assert(a[0], undefined);
 }
 
 /* return [s, line_num, col_num] where line_num and col_num are the
