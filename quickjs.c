@@ -166,6 +166,7 @@ enum {
     JS_CLASS_STRING_ITERATOR,   /* u.array_iterator_data */
     JS_CLASS_REGEXP_STRING_ITERATOR,   /* u.regexp_string_iterator_data */
     JS_CLASS_GENERATOR,         /* u.generator_data */
+    JS_CLASS_GLOBAL_OBJECT,     /* u.global_object */
     JS_CLASS_PROXY,             /* u.proxy_data */
     JS_CLASS_PROMISE,           /* u.promise_data */
     JS_CLASS_PROMISE_RESOLVE_FUNCTION,  /* u.promise_function_data */
@@ -378,6 +379,8 @@ typedef struct JSVarRef {
             int __gc_ref_count; /* corresponds to header.ref_count */
             uint8_t __gc_mark; /* corresponds to header.mark/gc_obj_type */
             uint8_t is_detached;
+            uint8_t is_lexical; /* only used with global variables */
+            uint8_t is_const; /* only used with global variables */
         };
     };
     JSValue *pvalue; /* pointer to the value, either on the stack or
@@ -542,11 +545,23 @@ typedef struct JSStringRope {
     JSValue right; /* might be the empty string */
 } JSStringRope;
 
+typedef enum {
+    JS_CLOSURE_LOCAL, /* 'var_idx' is the index of a local variable in the parent function */
+    JS_CLOSURE_ARG, /* 'var_idx' is the index of a argument variable in the parent function */
+    JS_CLOSURE_REF, /* 'var_idx' is the index of a closure variable in the parent function */
+    JS_CLOSURE_GLOBAL_REF, /* 'var_idx' in the index of a closure
+                              variable in the parent function
+                              referencing a global variable */
+    JS_CLOSURE_GLOBAL_DECL, /* global variable declaration (eval code only) */
+    JS_CLOSURE_GLOBAL, /* global variable (eval code only) */
+    JS_CLOSURE_MODULE_DECL, /* definition of a module variable (eval code only) */
+    JS_CLOSURE_MODULE_IMPORT, /* definition of a module import (eval code only) */ 
+} JSClosureTypeEnum;
+
 typedef struct JSClosureVar {
-    uint8_t is_local : 1;
-    uint8_t is_arg : 1;
-    uint8_t is_const : 1;
-    uint8_t is_lexical : 1;
+    JSClosureTypeEnum closure_type : 3;
+    uint8_t is_lexical : 1; /* lexical variable */
+    uint8_t is_const : 1; /* const variable (is_lexical = 1 if is_const = 1 */
     uint8_t var_kind : 4; /* see JSVarKindEnum */
     /* 8 bits available */
     uint16_t var_idx; /* is_local = TRUE: index to a normal variable of the
@@ -576,6 +591,7 @@ typedef enum {
     JS_VAR_PRIVATE_GETTER,
     JS_VAR_PRIVATE_SETTER, /* must come after JS_VAR_PRIVATE_GETTER */
     JS_VAR_PRIVATE_GETTER_SETTER, /* must come after JS_VAR_PRIVATE_SETTER */
+    JS_VAR_GLOBAL_FUNCTION_DECL, /* global function definition, only in JSVarDef */
 } JSVarKindEnum;
 
 /* XXX: could use a different structure in bytecode functions to save
@@ -714,6 +730,10 @@ typedef struct JSTypedArray {
     uint32_t length; /* byte length in the array buffer */
     BOOL track_rab; /* auto-track length of backing array buffer */
 } JSTypedArray;
+
+typedef struct JSGlobalObject {
+    JSValue uninitialized_vars; /* hidden object containing the list of uninitialized variables */
+} JSGlobalObject;
 
 typedef struct JSAsyncFunctionState {
     JSGCObjectHeader header;
@@ -1004,6 +1024,7 @@ struct JSObject {
         } array;    /* 12/20 bytes */
         JSRegExp regexp;    /* JS_CLASS_REGEXP: 8/16 bytes */
         JSValue object_data;    /* for JS_SetObjectData(): 8/16/16 bytes */
+        JSGlobalObject global_object;
     } u;
 };
 
@@ -1106,6 +1127,7 @@ static __maybe_unused void JS_DumpString(JSRuntime *rt, const JSString *p);
 static __maybe_unused void JS_DumpObjectHeader(JSRuntime *rt);
 static __maybe_unused void JS_DumpObject(JSRuntime *rt, JSObject *p);
 static __maybe_unused void JS_DumpGCObject(JSRuntime *rt, JSGCObjectHeader *p);
+static __maybe_unused void JS_DumpAtom(JSContext *ctx, const char *str, JSAtom atom);
 static __maybe_unused void JS_DumpValueRT(JSRuntime *rt, const char *str, JSValueConst val);
 static __maybe_unused void JS_DumpValue(JSContext *ctx, const char *str, JSValueConst val);
 static __maybe_unused void JS_DumpShapes(JSRuntime *rt);
@@ -1156,6 +1178,9 @@ static void js_regexp_string_iterator_mark(JSRuntime *rt, JSValueConst val,
 static void js_generator_finalizer(JSRuntime *rt, JSValue obj);
 static void js_generator_mark(JSRuntime *rt, JSValueConst val,
                                 JS_MarkFunc *mark_func);
+static void js_global_object_finalizer(JSRuntime *rt, JSValue obj);
+static void js_global_object_mark(JSRuntime *rt, JSValueConst val,
+                                  JS_MarkFunc *mark_func);
 static void js_promise_finalizer(JSRuntime *rt, JSValue val);
 static void js_promise_mark(JSRuntime *rt, JSValueConst val,
                                 JS_MarkFunc *mark_func);
@@ -1230,6 +1255,7 @@ static BOOL typed_array_is_oob(JSObject *p);
 static int js_typed_array_get_length_unsafe(JSContext *ctx, JSValueConst obj);
 static JSValue JS_ThrowTypeErrorDetachedArrayBuffer(JSContext *ctx);
 static JSValue JS_ThrowTypeErrorArrayBufferOOB(JSContext *ctx);
+static JSVarRef *js_create_var_ref(JSContext *ctx, BOOL is_lexical);
 static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf, int var_idx,
                              BOOL is_arg);
 static void __async_func_free(JSRuntime *rt, JSAsyncFunctionState *s);
@@ -1321,6 +1347,8 @@ static JSValue get_date_string(JSContext *ctx, JSValueConst this_val,
                                int argc, JSValueConst *argv, int magic);
 static JSValue js_error_toString(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv);
+static JSVarRef *js_global_object_find_uninitialized_var(JSContext *ctx, JSObject *p,
+                                                         JSAtom atom, BOOL is_lexical);
 
 static const JSClassExoticMethods js_arguments_exotic_methods;
 static const JSClassExoticMethods js_string_exotic_methods;
@@ -1572,6 +1600,7 @@ static JSClassShortDef const js_std_class_def[] = {
     { JS_ATOM_String_Iterator, js_array_iterator_finalizer, js_array_iterator_mark }, /* JS_CLASS_STRING_ITERATOR */
     { JS_ATOM_RegExp_String_Iterator, js_regexp_string_iterator_finalizer, js_regexp_string_iterator_mark }, /* JS_CLASS_REGEXP_STRING_ITERATOR */
     { JS_ATOM_Generator, js_generator_finalizer, js_generator_mark }, /* JS_CLASS_GENERATOR */
+    { JS_ATOM_Object, js_global_object_finalizer, js_global_object_mark }, /* JS_CLASS_GLOBAL_OBJECT */
 };
 
 static int init_class_range(JSRuntime *rt, JSClassShortDef const *tab,
@@ -5239,6 +5268,9 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
         p->u.regexp.pattern = NULL;
         p->u.regexp.bytecode = NULL;
         break;
+    case JS_CLASS_GLOBAL_OBJECT:
+        p->u.global_object.uninitialized_vars = JS_UNDEFINED;
+        break;
     default:
     set_exotic:
         if (ctx->rt->class_array[class_id].exotic) {
@@ -7680,6 +7712,16 @@ static int JS_AutoInitProperty(JSContext *ctx, JSObject *p, JSAtom prop,
         prs->flags |= JS_PROP_VARREF;
         pr->u.var_ref = JS_VALUE_GET_PTR(val);
         pr->u.var_ref->header.ref_count++;
+    } else if (p->class_id == JS_CLASS_GLOBAL_OBJECT) {
+        JSVarRef *var_ref;
+        /* in the global object we use references */
+        var_ref = js_create_var_ref(ctx, FALSE);
+        if (!var_ref)
+            return -1;
+        prs->flags |= JS_PROP_VARREF;
+        pr->u.var_ref = var_ref;
+        var_ref->value = val; 
+        var_ref->is_const = !(prs->flags & JS_PROP_WRITABLE);
     } else {
         pr->u.value = val;
     }
@@ -8742,6 +8784,29 @@ static no_inline __exception int convert_fast_array_to_array(JSContext *ctx,
     return 0;
 }
 
+static int remove_global_object_property(JSContext *ctx, JSObject *p,
+                                         JSShapeProperty *prs, JSProperty *pr)
+{
+    JSVarRef *var_ref;
+    JSObject *p1;
+    JSProperty *pr1;
+    
+    var_ref = pr->u.var_ref;
+    if (var_ref->header.ref_count == 1)
+        return 0;
+    p1 = JS_VALUE_GET_OBJ(p->u.global_object.uninitialized_vars);
+    pr1 = add_property(ctx, p1, prs->atom, JS_PROP_C_W_E | JS_PROP_VARREF);
+    if (!pr1)
+        return -1;
+    pr1->u.var_ref = var_ref;
+    var_ref->header.ref_count++;
+    JS_FreeValue(ctx, var_ref->value);
+    var_ref->is_lexical = FALSE;
+    var_ref->is_const = FALSE;
+    var_ref->value = JS_UNINITIALIZED;
+    return 0;
+}
+
 static int delete_property(JSContext *ctx, JSObject *p, JSAtom atom)
 {
     JSShape *sh;
@@ -8779,6 +8844,11 @@ static int delete_property(JSContext *ctx, JSObject *p, JSAtom atom)
             sh->deleted_prop_count++;
             /* free the entry */
             pr1 = &p->prop[h - 1];
+            if (unlikely(p->class_id == JS_CLASS_GLOBAL_OBJECT)) {
+                if ((pr->flags & JS_PROP_TMASK) == JS_PROP_VARREF)
+                    if (remove_global_object_property(ctx, p, pr, pr1))
+                        return -1;
+            }
             free_property(ctx->rt, pr1, pr->flags);
             JS_FreeAtom(ctx, pr->atom);
             /* put default values */
@@ -9137,10 +9207,9 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
         } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
             return call_setter(ctx, pr->u.getset.setter, this_obj, val, flags);
         } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
-            /* JS_PROP_WRITABLE is always true for variable
-               references, but they are write protected in module name
-               spaces. */
-            if (p->class_id == JS_CLASS_MODULE_NS)
+            /* XXX: already use var_ref->is_const. Cannot simplify use the
+               writable flag for JS_CLASS_MODULE_NS. */
+            if (p->class_id == JS_CLASS_MODULE_NS || pr->u.var_ref->is_const)
                 goto read_only_prop;
             set_value(ctx, pr->u.var_ref->pvalue, val);
             return TRUE;
@@ -9299,6 +9368,8 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                 goto generic_create_prop;
             }
         } else {
+            if (unlikely(p->class_id == JS_CLASS_GLOBAL_OBJECT))
+                goto generic_create_prop;
             pr = add_property(ctx, p, prop, JS_PROP_C_W_E);
             if (unlikely(!pr)) {
                 JS_FreeValue(ctx, val);
@@ -9533,7 +9604,9 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
 {
     JSProperty *pr;
     int ret, prop_flags;
-
+    JSVarRef *var_ref;
+    JSObject *delete_obj;
+    
     /* add a new property or modify an existing exotic one */
     if (p->is_exotic) {
         if (p->class_id == JS_CLASS_ARRAY) {
@@ -9608,15 +9681,37 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
         return JS_ThrowTypeErrorOrFalse(ctx, flags, "object is not extensible");
     }
 
+    var_ref = NULL;
+    delete_obj = NULL;
     if (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
         prop_flags = (flags & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) |
             JS_PROP_GETSET;
     } else {
         prop_flags = flags & JS_PROP_C_W_E;
+        if (p->class_id == JS_CLASS_GLOBAL_OBJECT) {
+            JSObject *p1 = JS_VALUE_GET_OBJ(p->u.global_object.uninitialized_vars);
+            JSShapeProperty *prs1;
+            JSProperty *pr1;
+            prs1 = find_own_property(&pr1, p1, prop);
+            if (prs1) {
+                delete_obj = p1;
+                var_ref = pr1->u.var_ref;
+                var_ref->header.ref_count++;
+            } else {
+                var_ref = js_create_var_ref(ctx, FALSE);
+                if (!var_ref)
+                    return -1;
+            }
+            var_ref->is_const = !(prop_flags & JS_PROP_WRITABLE);
+            prop_flags |= JS_PROP_VARREF;
+        }
     }
     pr = add_property(ctx, p, prop, prop_flags);
-    if (unlikely(!pr))
+    if (unlikely(!pr)) {
+        if (var_ref)
+            free_var_ref(ctx->rt, var_ref);
         return -1;
+    }
     if (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
         pr->u.getset.getter = NULL;
         if ((flags & JS_PROP_HAS_GET) && JS_IsFunction(ctx, getter)) {
@@ -9627,6 +9722,15 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
         if ((flags & JS_PROP_HAS_SET) && JS_IsFunction(ctx, setter)) {
             pr->u.getset.setter =
                 JS_VALUE_GET_OBJ(JS_DupValue(ctx, setter));
+        }
+    } else if (p->class_id == JS_CLASS_GLOBAL_OBJECT) {
+        if (delete_obj)
+            delete_property(ctx, delete_obj, prop);
+        pr->u.var_ref = var_ref;
+        if (flags & JS_PROP_HAS_VALUE) {
+            *var_ref->pvalue = JS_DupValue(ctx, val);
+        } else {
+            *var_ref->pvalue = JS_UNDEFINED;
         }
     } else {
         if (flags & JS_PROP_HAS_VALUE) {
@@ -9782,6 +9886,10 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
                         return -1;
                     /* convert to getset */
                     if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
+                        if (unlikely(p->class_id == JS_CLASS_GLOBAL_OBJECT)) {
+                            if (remove_global_object_property(ctx, p, prs, pr))
+                                return -1;
+                        }
                         free_var_ref(ctx->rt, pr->u.var_ref);
                     } else {
                         JS_FreeValue(ctx, pr->u.value);
@@ -9820,14 +9928,31 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
             } else {
                 if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
                     /* convert to data descriptor */
-                    if (js_shape_prepare_update(ctx, p, &prs))
+                    JSVarRef *var_ref;
+                    if (unlikely(p->class_id == JS_CLASS_GLOBAL_OBJECT)) {
+                        var_ref = js_global_object_find_uninitialized_var(ctx, p, prop, FALSE);
+                        if (!var_ref)
+                            return -1;
+                    } else {
+                        var_ref = NULL;
+                    }
+                    if (js_shape_prepare_update(ctx, p, &prs)) {
+                        if (var_ref)
+                            free_var_ref(ctx->rt, var_ref);
                         return -1;
+                    }
                     if (pr->u.getset.getter)
                         JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter));
                     if (pr->u.getset.setter)
                         JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.setter));
-                    prs->flags &= ~(JS_PROP_TMASK | JS_PROP_WRITABLE);
-                    pr->u.value = JS_UNDEFINED;
+                    if (var_ref) {
+                        prs->flags = (prs->flags & ~JS_PROP_TMASK) |
+                            JS_PROP_VARREF | JS_PROP_WRITABLE;
+                        pr->u.var_ref = var_ref;
+                    } else {
+                        prs->flags &= ~(JS_PROP_TMASK | JS_PROP_WRITABLE);
+                        pr->u.value = JS_UNDEFINED;
+                    }
                 } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
                     /* Note: JS_PROP_VARREF is always writable */
                 } else {
@@ -9854,8 +9979,6 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
                                       JS_DupValue(ctx, val));
                         }
                     }
-                    /* if writable is set to false, no longer a
-                       reference (for mapped arguments) */
                     if ((flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE)) == JS_PROP_HAS_WRITABLE) {
                         JSValue val1;
                         if (p->class_id == JS_CLASS_MODULE_NS) {
@@ -9863,10 +9986,17 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
                         }
                         if (js_shape_prepare_update(ctx, p, &prs))
                             return -1;
-                        val1 = JS_DupValue(ctx, *pr->u.var_ref->pvalue);
-                        free_var_ref(ctx->rt, pr->u.var_ref);
-                        pr->u.value = val1;
-                        prs->flags &= ~(JS_PROP_TMASK | JS_PROP_WRITABLE);
+                        if (p->class_id == JS_CLASS_GLOBAL_OBJECT) {
+                            pr->u.var_ref->is_const = TRUE; /* mark as read-only */
+                            prs->flags &= ~JS_PROP_WRITABLE;
+                        } else {
+                            /* if writable is set to false, no longer a
+                               reference (for mapped arguments) */
+                            val1 = JS_DupValue(ctx, *pr->u.var_ref->pvalue);
+                            free_var_ref(ctx->rt, pr->u.var_ref);
+                            pr->u.value = val1;
+                            prs->flags &= ~(JS_PROP_TMASK | JS_PROP_WRITABLE);
+                        }
                     }
                 } else if (prs->flags & JS_PROP_LENGTH) {
                     if (flags & JS_PROP_HAS_VALUE) {
@@ -10199,91 +10329,6 @@ static int JS_CheckDefineGlobalVar(JSContext *ctx, JSAtom prop, int flags)
     return 0;
 }
 
-/* def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
-   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE */
-/* XXX: could support exotic global object. */
-static int JS_DefineGlobalVar(JSContext *ctx, JSAtom prop, int def_flags)
-{
-    JSObject *p;
-    JSShapeProperty *prs;
-    JSProperty *pr;
-    JSValue val;
-    int flags;
-
-    if (def_flags & DEFINE_GLOBAL_LEX_VAR) {
-        p = JS_VALUE_GET_OBJ(ctx->global_var_obj);
-        flags = JS_PROP_ENUMERABLE | (def_flags & JS_PROP_WRITABLE) |
-            JS_PROP_CONFIGURABLE;
-        val = JS_UNINITIALIZED;
-    } else {
-        p = JS_VALUE_GET_OBJ(ctx->global_obj);
-        flags = JS_PROP_ENUMERABLE | JS_PROP_WRITABLE |
-            (def_flags & JS_PROP_CONFIGURABLE);
-        val = JS_UNDEFINED;
-    }
-    prs = find_own_property1(p, prop);
-    if (prs)
-        return 0;
-    if (!p->extensible)
-        return 0;
-    pr = add_property(ctx, p, prop, flags);
-    if (unlikely(!pr))
-        return -1;
-    pr->u.value = val;
-    return 0;
-}
-
-/* 'def_flags' is 0 or JS_PROP_CONFIGURABLE. */
-/* XXX: could support exotic global object. */
-static int JS_DefineGlobalFunction(JSContext *ctx, JSAtom prop,
-                                   JSValueConst func, int def_flags)
-{
-
-    JSObject *p;
-    JSShapeProperty *prs;
-    int flags;
-
-    p = JS_VALUE_GET_OBJ(ctx->global_obj);
-    prs = find_own_property1(p, prop);
-    flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
-    if (!prs || (prs->flags & JS_PROP_CONFIGURABLE)) {
-        flags |= JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | def_flags |
-            JS_PROP_HAS_CONFIGURABLE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_ENUMERABLE;
-    }
-    if (JS_DefineProperty(ctx, ctx->global_obj, prop, func,
-                          JS_UNDEFINED, JS_UNDEFINED, flags) < 0)
-        return -1;
-    return 0;
-}
-
-static inline JSValue JS_GetGlobalVar(JSContext *ctx, JSAtom prop,
-                                      BOOL throw_ref_error)
-{
-    JSObject *p;
-    JSShapeProperty *prs;
-    JSProperty *pr;
-
-    /* no exotic behavior is possible in global_var_obj */
-    p = JS_VALUE_GET_OBJ(ctx->global_var_obj);
-    prs = find_own_property(&pr, p, prop);
-    if (prs) {
-        /* XXX: should handle JS_PROP_TMASK properties */
-        if (unlikely(JS_IsUninitialized(pr->u.value)))
-            return JS_ThrowReferenceErrorUninitialized(ctx, prs->atom);
-        return JS_DupValue(ctx, pr->u.value);
-    }
-
-    /* fast path */
-    p = JS_VALUE_GET_OBJ(ctx->global_obj);
-    prs = find_own_property(&pr, p, prop);
-    if (prs) {
-        if (likely((prs->flags & JS_PROP_TMASK) == 0))
-            return JS_DupValue(ctx, pr->u.value);
-    }
-    return JS_GetPropertyInternal(ctx, ctx->global_obj, prop,
-                                 ctx->global_obj, throw_ref_error);
-}
-
 /* construct a reference to a global variable */
 static int JS_GetGlobalVarRef(JSContext *ctx, JSAtom prop, JSValue *sp)
 {
@@ -10295,10 +10340,9 @@ static int JS_GetGlobalVarRef(JSContext *ctx, JSAtom prop, JSValue *sp)
     p = JS_VALUE_GET_OBJ(ctx->global_var_obj);
     prs = find_own_property(&pr, p, prop);
     if (prs) {
-        /* XXX: should handle JS_PROP_AUTOINIT properties? */
         /* XXX: conformance: do these tests in
            OP_put_var_ref/OP_get_var_ref ? */
-        if (unlikely(JS_IsUninitialized(pr->u.value))) {
+        if (unlikely(JS_IsUninitialized(*pr->u.var_ref->pvalue))) {
             JS_ThrowReferenceErrorUninitialized(ctx, prs->atom);
             return -1;
         }
@@ -10319,62 +10363,6 @@ static int JS_GetGlobalVarRef(JSContext *ctx, JSAtom prop, JSValue *sp)
     }
     sp[1] = JS_AtomToValue(ctx, prop);
     return 0;
-}
-
-/* flag = 0: normal variable write
-   flag = 1: initialize lexical variable
-*/
-static inline int JS_SetGlobalVar(JSContext *ctx, JSAtom prop, JSValue val,
-                                  int flag)
-{
-    JSObject *p;
-    JSShapeProperty *prs;
-    JSProperty *pr;
-    int ret;
-
-    /* no exotic behavior is possible in global_var_obj */
-    p = JS_VALUE_GET_OBJ(ctx->global_var_obj);
-    prs = find_own_property(&pr, p, prop);
-    if (prs) {
-        /* XXX: should handle JS_PROP_AUTOINIT properties? */
-        if (flag != 1) {
-            if (unlikely(JS_IsUninitialized(pr->u.value))) {
-                JS_FreeValue(ctx, val);
-                JS_ThrowReferenceErrorUninitialized(ctx, prs->atom);
-                return -1;
-            }
-            if (unlikely(!(prs->flags & JS_PROP_WRITABLE))) {
-                JS_FreeValue(ctx, val);
-                return JS_ThrowTypeErrorReadOnly(ctx, JS_PROP_THROW, prop);
-            }
-        }
-        set_value(ctx, &pr->u.value, val);
-        return 0;
-    }
-    
-    p = JS_VALUE_GET_OBJ(ctx->global_obj);
-    prs = find_own_property(&pr, p, prop);
-    if (prs) {
-        if (likely((prs->flags & (JS_PROP_TMASK | JS_PROP_WRITABLE |
-                                  JS_PROP_LENGTH)) == JS_PROP_WRITABLE)) {
-            /* fast path */
-            set_value(ctx, &pr->u.value, val);
-            return 0;
-        }
-    }
-    /* slow path */
-    ret = JS_HasProperty(ctx, ctx->global_obj, prop);
-    if (ret < 0) {
-        JS_FreeValue(ctx, val);
-        return -1;
-    }
-    if (ret == 0 && is_strict_mode(ctx)) {
-        JS_FreeValue(ctx, val);
-        JS_ThrowReferenceErrorNotDefined(ctx, prop);
-        return -1;
-    }
-    return JS_SetPropertyInternal(ctx, ctx->global_obj, prop, val, ctx->global_obj,
-                                  JS_PROP_THROW_STRICT);
 }
 
 /* return -1, FALSE or TRUE */
@@ -13956,6 +13944,13 @@ static __maybe_unused void print_atom(JSContext *ctx, JSAtom atom)
     js_print_atom(s, atom);
 }
 
+static __maybe_unused void JS_DumpAtom(JSContext *ctx, const char *str, JSAtom atom)
+{
+    printf("%s=", str);
+    print_atom(ctx, atom);
+    printf("\n");
+}
+
 static __maybe_unused void JS_DumpValue(JSContext *ctx, const char *str, JSValueConst val)
 {
     printf("%s=", str);
@@ -16483,6 +16478,25 @@ static JSValueConst JS_GetActiveFunction(JSContext *ctx)
     return ctx->rt->current_stack_frame->cur_func;
 }
 
+static JSVarRef *js_create_var_ref(JSContext *ctx, BOOL is_lexical)
+{
+    JSVarRef *var_ref;
+    var_ref = js_malloc(ctx, sizeof(JSVarRef));
+    if (!var_ref)
+        return NULL;
+    var_ref->header.ref_count = 1;
+    if (is_lexical)
+        var_ref->value = JS_UNINITIALIZED;
+    else
+        var_ref->value = JS_UNDEFINED;
+    var_ref->pvalue = &var_ref->value;
+    var_ref->is_detached = TRUE;
+    var_ref->is_lexical = FALSE;
+    var_ref->is_const = FALSE;
+    add_gc_object(ctx->rt, &var_ref->header, JS_GC_OBJ_TYPE_VAR_REF);
+    return var_ref;
+}
+
 static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf,
                              int var_idx, BOOL is_arg)
 {
@@ -16509,6 +16523,8 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf,
     var_ref->header.ref_count = 1;
     add_gc_object(ctx->rt, &var_ref->header, JS_GC_OBJ_TYPE_VAR_REF);
     var_ref->is_detached = FALSE;
+    var_ref->is_lexical = FALSE;
+    var_ref->is_const = FALSE;
     list_add_tail(&var_ref->var_ref_link, &sf->var_ref_list);
     if (sf->js_mode & JS_MODE_ASYNC) {
         /* The stack frame is detached and may be destroyed at any
@@ -16528,10 +16544,212 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf,
     return var_ref;
 }
 
+static void js_global_object_finalizer(JSRuntime *rt, JSValue obj)
+{
+    JSObject *p = JS_VALUE_GET_OBJ(obj);
+    JS_FreeValueRT(rt, p->u.global_object.uninitialized_vars);
+}
+
+static void js_global_object_mark(JSRuntime *rt, JSValueConst val,
+                                  JS_MarkFunc *mark_func)
+{
+    JSObject *p = JS_VALUE_GET_OBJ(val);
+    JS_MarkValue(rt, p->u.global_object.uninitialized_vars, mark_func);
+}
+
+static JSVarRef *js_global_object_get_uninitialized_var(JSContext *ctx, JSObject *p1, 
+                                                        JSAtom atom)
+{
+    JSObject *p = JS_VALUE_GET_OBJ(p1->u.global_object.uninitialized_vars);
+    JSShapeProperty *prs;
+    JSProperty *pr;
+    JSVarRef *var_ref;
+    
+    prs = find_own_property(&pr, p, atom);
+    if (prs) {
+        assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
+        var_ref = pr->u.var_ref;
+        var_ref->header.ref_count++;
+        return var_ref;
+    }
+
+    var_ref = js_create_var_ref(ctx, TRUE);
+    if (!var_ref)
+        return NULL;
+    pr = add_property(ctx, p, atom, JS_PROP_C_W_E | JS_PROP_VARREF);
+    if (unlikely(!pr)) {
+        free_var_ref(ctx->rt, var_ref);
+        return NULL;
+    }
+    pr->u.var_ref = var_ref;
+    var_ref->header.ref_count++;
+    return var_ref;
+}
+
+/* return a new variable reference. Get it from the uninitialized
+   variables if it is present. Return NULL in case of memory error. */
+static JSVarRef *js_global_object_find_uninitialized_var(JSContext *ctx, JSObject *p,
+                                                         JSAtom atom, BOOL is_lexical)
+{
+    JSObject *p1;
+    JSShapeProperty *prs;
+    JSProperty *pr;
+    JSVarRef *var_ref;
+    
+    p1 = JS_VALUE_GET_OBJ(p->u.global_object.uninitialized_vars);
+    prs = find_own_property(&pr, p1, atom);
+    if (prs) {
+        assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
+        var_ref = pr->u.var_ref;
+        var_ref->header.ref_count++;
+        delete_property(ctx, p1, atom);
+        if (!is_lexical)
+            var_ref->value = JS_UNDEFINED;
+    } else {
+        var_ref = js_create_var_ref(ctx, is_lexical);
+        if (!var_ref)
+            return NULL;
+    }
+    return var_ref;
+}
+
+static JSVarRef *js_closure_define_global_var(JSContext *ctx, JSClosureVar *cv,
+                                              BOOL is_direct_or_indirect_eval)
+{
+    JSObject *p, *p1;
+    JSShapeProperty *prs;
+    int flags;
+    JSProperty *pr;
+    JSVarRef *var_ref;
+    
+    if (cv->is_lexical) {
+        p = JS_VALUE_GET_OBJ(ctx->global_var_obj);
+        flags = JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE;
+        if (!cv->is_const)
+            flags |= JS_PROP_WRITABLE;
+
+        prs = find_own_property(&pr, p, cv->var_name);
+        if (prs) {
+            assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
+            var_ref = pr->u.var_ref;
+            var_ref->header.ref_count++;
+            return var_ref;
+        }
+
+        /* if there is a corresponding global variable, reuse its
+           reference and create a new one for the global variable */
+        p1 = JS_VALUE_GET_OBJ(ctx->global_obj);
+        prs = find_own_property(&pr, p1, cv->var_name);
+        if (prs && (prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
+            JSVarRef *var_ref1;
+            var_ref1 = js_create_var_ref(ctx, FALSE);
+            if (!var_ref1)
+                return NULL;
+            var_ref = pr->u.var_ref;
+            var_ref1->value = var_ref->value;
+            var_ref->value = JS_UNINITIALIZED;
+            pr->u.var_ref = var_ref1;
+            goto add_var_ref;
+        }
+    } else {
+        p = JS_VALUE_GET_OBJ(ctx->global_obj);
+        flags = JS_PROP_ENUMERABLE | JS_PROP_WRITABLE;
+        if (is_direct_or_indirect_eval)
+            flags |= JS_PROP_CONFIGURABLE;
+
+        prs = find_own_property(&pr, p, cv->var_name);
+        if (prs) {
+            if ((prs->flags & JS_PROP_TMASK) != JS_PROP_VARREF) {
+                var_ref = js_global_object_get_uninitialized_var(ctx, p, cv->var_name);
+                if (!var_ref)
+                    return NULL;
+            } else {
+                var_ref = pr->u.var_ref;
+                var_ref->header.ref_count++;
+            }
+            if (cv->var_kind == JS_VAR_GLOBAL_FUNCTION_DECL &&
+                (prs->flags & JS_PROP_CONFIGURABLE)) {
+                /* update the property flags if possible when
+                   declaring a global function */
+                if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
+                    free_property(ctx->rt, pr, prs->flags);
+                    prs->flags = flags | JS_PROP_VARREF;
+                    pr->u.var_ref = var_ref;
+                    var_ref->header.ref_count++;
+                } else {
+                    assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
+                    prs->flags = (prs->flags & ~JS_PROP_C_W_E) | flags;
+                }
+                var_ref->is_const = FALSE;
+            }
+            return var_ref;
+        }
+        
+        if (!p->extensible) {
+            return js_global_object_get_uninitialized_var(ctx, p, cv->var_name);
+        }
+    }
+    
+    /* if there is a corresponding uninitialized variable, use it */
+    p1 = JS_VALUE_GET_OBJ(ctx->global_obj);
+    var_ref = js_global_object_find_uninitialized_var(ctx, p1, cv->var_name, cv->is_lexical);
+    if (!var_ref)
+        return NULL;
+ add_var_ref:
+    if (cv->is_lexical) {
+        var_ref->is_lexical = TRUE;
+        var_ref->is_const = cv->is_const;
+    }
+
+    pr = add_property(ctx, p, cv->var_name, flags | JS_PROP_VARREF);
+    if (unlikely(!pr)) {
+        free_var_ref(ctx->rt, var_ref);
+        return NULL;
+    }
+    pr->u.var_ref = var_ref;
+    var_ref->header.ref_count++;
+    return var_ref;
+}
+
+static JSVarRef *js_closure_global_var(JSContext *ctx, JSClosureVar *cv)
+{
+    JSObject *p;
+    JSShapeProperty *prs;
+    JSProperty *pr;
+    JSVarRef *var_ref;
+    
+    p = JS_VALUE_GET_OBJ(ctx->global_var_obj);
+    prs = find_own_property(&pr, p, cv->var_name);
+    if (prs) {
+        assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
+        var_ref = pr->u.var_ref;
+        var_ref->header.ref_count++;
+        return var_ref;
+    }
+    p = JS_VALUE_GET_OBJ(ctx->global_obj);
+ redo:
+    prs = find_own_property(&pr, p, cv->var_name);
+    if (prs) {
+        if (unlikely((prs->flags & JS_PROP_TMASK) == JS_PROP_AUTOINIT)) {
+            /* Instantiate property and retry */
+            if (JS_AutoInitProperty(ctx, p, cv->var_name, pr, prs))
+                return NULL;
+            goto redo;
+        }
+        if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
+            var_ref = pr->u.var_ref;
+            var_ref->header.ref_count++;
+            return var_ref;
+        }
+    }
+    return js_global_object_get_uninitialized_var(ctx, p, cv->var_name);
+}
+
 static JSValue js_closure2(JSContext *ctx, JSValue func_obj,
                            JSFunctionBytecode *b,
                            JSVarRef **cur_var_refs,
-                           JSStackFrame *sf)
+                           JSStackFrame *sf,
+                           BOOL is_eval, JSModuleDef *m)
 {
     JSObject *p;
     JSVarRef **var_refs;
@@ -16546,18 +16764,56 @@ static JSValue js_closure2(JSContext *ctx, JSValue func_obj,
         if (!var_refs)
             goto fail;
         p->u.func.var_refs = var_refs;
+        if (is_eval) {
+            /* first pass to check the global variable definitions */
+            for(i = 0; i < b->closure_var_count; i++) {
+                JSClosureVar *cv = &b->closure_var[i];
+                if (cv->closure_type == JS_CLOSURE_GLOBAL_DECL) {
+                    int flags;
+                    flags = 0;
+                    if (cv->is_lexical)
+                        flags |= DEFINE_GLOBAL_LEX_VAR;
+                    if (cv->var_kind == JS_VAR_GLOBAL_FUNCTION_DECL)
+                        flags |= DEFINE_GLOBAL_FUNC_VAR;
+                    if (JS_CheckDefineGlobalVar(ctx, cv->var_name, flags))
+                        goto fail;
+                }
+            }
+        }
         for(i = 0; i < b->closure_var_count; i++) {
             JSClosureVar *cv = &b->closure_var[i];
             JSVarRef *var_ref;
-            if (cv->is_local) {
+            switch(cv->closure_type) {
+            case JS_CLOSURE_MODULE_IMPORT:
+                /* imported from other modules */
+                continue;
+            case JS_CLOSURE_MODULE_DECL:
+                var_ref = js_create_var_ref(ctx, cv->is_lexical);
+                break;
+            case JS_CLOSURE_GLOBAL_DECL:
+                var_ref = js_closure_define_global_var(ctx, cv, b->is_direct_or_indirect_eval);
+                break;
+            case JS_CLOSURE_GLOBAL:
+                var_ref = js_closure_global_var(ctx, cv);
+                break;
+            case JS_CLOSURE_LOCAL:
                 /* reuse the existing variable reference if it already exists */
-                var_ref = get_var_ref(ctx, sf, cv->var_idx, cv->is_arg);
-                if (!var_ref)
-                    goto fail;
-            } else {
+                var_ref = get_var_ref(ctx, sf, cv->var_idx, FALSE);
+                break;
+            case JS_CLOSURE_ARG:
+                /* reuse the existing variable reference if it already exists */
+                var_ref = get_var_ref(ctx, sf, cv->var_idx, TRUE);
+                break;
+            case JS_CLOSURE_REF:
+            case JS_CLOSURE_GLOBAL_REF:
                 var_ref = cur_var_refs[cv->var_idx];
                 var_ref->header.ref_count++;
+                break;
+            default:
+                abort();
             }
+            if (!var_ref)
+                goto fail;
             var_refs[i] = var_ref;
         }
     }
@@ -16598,7 +16854,7 @@ static const uint16_t func_kind_to_class_id[] = {
 
 static JSValue js_closure(JSContext *ctx, JSValue bfunc,
                           JSVarRef **cur_var_refs,
-                          JSStackFrame *sf)
+                          JSStackFrame *sf, BOOL is_eval)
 {
     JSFunctionBytecode *b;
     JSValue func_obj;
@@ -16610,7 +16866,7 @@ static JSValue js_closure(JSContext *ctx, JSValue bfunc,
         JS_FreeValue(ctx, bfunc);
         return JS_EXCEPTION;
     }
-    func_obj = js_closure2(ctx, func_obj, b, cur_var_refs, sf);
+    func_obj = js_closure2(ctx, func_obj, b, cur_var_refs, sf, is_eval, NULL);
     if (JS_IsException(func_obj)) {
         /* bfunc has been freed */
         goto fail;
@@ -16697,7 +16953,7 @@ static int js_op_define_class(JSContext *ctx, JSValue *sp,
                                   JS_CLASS_BYTECODE_FUNCTION);
     if (JS_IsException(ctor))
         goto fail;
-    ctor = js_closure2(ctx, ctor, b, cur_var_refs, sf);
+    ctor = js_closure2(ctx, ctor, b, cur_var_refs, sf, FALSE, NULL);
     bfunc = JS_UNDEFINED;
     if (JS_IsException(ctor))
         goto fail;
@@ -17130,7 +17386,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             *sp++ = JS_DupValue(ctx, b->cpool[*pc++]);
             BREAK;
         CASE(OP_fclosure8):
-            *sp++ = js_closure(ctx, JS_DupValue(ctx, b->cpool[*pc++]), var_refs, sf);
+            *sp++ = js_closure(ctx, JS_DupValue(ctx, b->cpool[*pc++]), var_refs, sf, FALSE);
             if (unlikely(JS_IsException(sp[-1])))
                 goto exception;
             BREAK;
@@ -17384,7 +17640,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             {
                 JSValue bfunc = JS_DupValue(ctx, b->cpool[get_u32(pc)]);
                 pc += 4;
-                *sp++ = js_closure(ctx, bfunc, var_refs, sf);
+                *sp++ = js_closure(ctx, bfunc, var_refs, sf, FALSE);
                 if (unlikely(JS_IsException(sp[-1])))
                     goto exception;
             }
@@ -17683,74 +17939,72 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         CASE(OP_get_var_undef):
         CASE(OP_get_var):
             {
+                int idx;
                 JSValue val;
-                JSAtom atom;
-                atom = get_u32(pc);
-                pc += 4;
-                sf->cur_pc = pc;
-
-                val = JS_GetGlobalVar(ctx, atom, opcode - OP_get_var_undef);
-                if (unlikely(JS_IsException(val)))
-                    goto exception;
-                *sp++ = val;
+                idx = get_u16(pc);
+                pc += 2;
+                val = *var_refs[idx]->pvalue;
+                if (unlikely(JS_IsUninitialized(val))) {
+                    JSClosureVar *cv = &b->closure_var[idx];
+                    if (cv->is_lexical) {
+                        JS_ThrowReferenceErrorUninitialized(ctx, cv->var_name);
+                        goto exception;
+                    } else {
+                        sf->cur_pc = pc;
+                        sp[0] = JS_GetPropertyInternal(ctx, ctx->global_obj,
+                                                       cv->var_name,
+                                                       ctx->global_obj,
+                                                       opcode - OP_get_var_undef);
+                        if (JS_IsException(sp[0]))
+                            goto exception;
+                    }
+                } else {
+                    sp[0] = JS_DupValue(ctx, val);
+                }
+                sp++;
             }
             BREAK;
 
         CASE(OP_put_var):
         CASE(OP_put_var_init):
             {
-                int ret;
-                JSAtom atom;
-                atom = get_u32(pc);
-                pc += 4;
-                sf->cur_pc = pc;
-
-                ret = JS_SetGlobalVar(ctx, atom, sp[-1], opcode - OP_put_var);
-                sp--;
-                if (unlikely(ret < 0))
-                    goto exception;
-            }
-            BREAK;
-
-        CASE(OP_check_define_var):
-            {
-                JSAtom atom;
-                int flags;
-                atom = get_u32(pc);
-                flags = pc[4];
-                pc += 5;
-                sf->cur_pc = pc;
-                if (JS_CheckDefineGlobalVar(ctx, atom, flags))
-                    goto exception;
-            }
-            BREAK;
-        CASE(OP_define_var):
-            {
-                JSAtom atom;
-                int flags;
-                atom = get_u32(pc);
-                flags = pc[4];
-                pc += 5;
-                sf->cur_pc = pc;
-                if (JS_DefineGlobalVar(ctx, atom, flags))
-                    goto exception;
-            }
-            BREAK;
-        CASE(OP_define_func):
-            {
-                JSAtom atom;
-                int flags;
-                atom = get_u32(pc);
-                flags = pc[4];
-                pc += 5;
-                sf->cur_pc = pc;
-                if (JS_DefineGlobalFunction(ctx, atom, sp[-1], flags))
-                    goto exception;
-                JS_FreeValue(ctx, sp[-1]);
+                int idx, ret;
+                JSVarRef *var_ref;
+                idx = get_u16(pc);
+                pc += 2;
+                var_ref = var_refs[idx];
+                if (unlikely(JS_IsUninitialized(*var_ref->pvalue) ||
+                             var_ref->is_const)) {
+                    JSClosureVar *cv = &b->closure_var[idx];
+                    if (var_ref->is_lexical) {
+                        if (opcode == OP_put_var_init)
+                            goto put_var_ok;
+                        if (JS_IsUninitialized(*var_ref->pvalue))
+                            JS_ThrowReferenceErrorUninitialized(ctx, cv->var_name);
+                        else
+                            JS_ThrowTypeErrorReadOnly(ctx, JS_PROP_THROW, cv->var_name);
+                        goto exception;
+                    } else {
+                        sf->cur_pc = pc;
+                        ret = JS_HasProperty(ctx, ctx->global_obj, cv->var_name);
+                        if (ret < 0)
+                            goto exception;
+                        if (ret == 0 && is_strict_mode(ctx)) {
+                            JS_ThrowReferenceErrorNotDefined(ctx, cv->var_name);
+                            goto exception;
+                        }
+                        ret = JS_SetPropertyInternal(ctx, ctx->global_obj, cv->var_name, sp[-1],
+                                                     ctx->global_obj, JS_PROP_THROW_STRICT);
+                        if (ret < 0)
+                            goto exception;
+                    }
+                } else {
+                put_var_ok:
+                   set_value(ctx, var_ref->pvalue, sp[-1]);
+                }
                 sp--;
             }
             BREAK;
-
         CASE(OP_get_loc):
             {
                 int idx;
@@ -29486,31 +29740,11 @@ static int js_resolve_module(JSContext *ctx, JSModuleDef *m)
     return 0;
 }
 
-static JSVarRef *js_create_module_var(JSContext *ctx, BOOL is_lexical)
-{
-    JSVarRef *var_ref;
-    var_ref = js_malloc(ctx, sizeof(JSVarRef));
-    if (!var_ref)
-        return NULL;
-    var_ref->header.ref_count = 1;
-    if (is_lexical)
-        var_ref->value = JS_UNINITIALIZED;
-    else
-        var_ref->value = JS_UNDEFINED;
-    var_ref->pvalue = &var_ref->value;
-    var_ref->is_detached = TRUE;
-    add_gc_object(ctx->rt, &var_ref->header, JS_GC_OBJ_TYPE_VAR_REF);
-    return var_ref;
-}
-
 /* Create the <eval> function associated with the module */
 static int js_create_module_bytecode_function(JSContext *ctx, JSModuleDef *m)
 {
     JSFunctionBytecode *b;
-    int i;
-    JSVarRef **var_refs;
     JSValue func_obj, bfunc;
-    JSObject *p;
 
     bfunc = m->func_obj;
     func_obj = JS_NewObjectProtoClass(ctx, ctx->function_proto,
@@ -29519,40 +29753,14 @@ static int js_create_module_bytecode_function(JSContext *ctx, JSModuleDef *m)
     if (JS_IsException(func_obj))
         return -1;
     b = JS_VALUE_GET_PTR(bfunc);
-
-    p = JS_VALUE_GET_OBJ(func_obj);
-    p->u.func.function_bytecode = b;
-    b->header.ref_count++;
-    p->u.func.home_object = NULL;
-    p->u.func.var_refs = NULL;
-    if (b->closure_var_count) {
-        var_refs = js_mallocz(ctx, sizeof(var_refs[0]) * b->closure_var_count);
-        if (!var_refs)
-            goto fail;
-        p->u.func.var_refs = var_refs;
-
-        /* create the global variables. The other variables are
-           imported from other modules */
-        for(i = 0; i < b->closure_var_count; i++) {
-            JSClosureVar *cv = &b->closure_var[i];
-            JSVarRef *var_ref;
-            if (cv->is_local) {
-                var_ref = js_create_module_var(ctx, cv->is_lexical);
-                if (!var_ref)
-                    goto fail;
-#ifdef DUMP_MODULE_RESOLVE
-                printf("local %d: %p\n", i, var_ref);
-#endif
-                var_refs[i] = var_ref;
-            }
-        }
+    func_obj = js_closure2(ctx, func_obj, b, NULL, NULL, TRUE, m);
+    if (JS_IsException(func_obj)) {
+        m->func_obj = JS_UNDEFINED; /* XXX: keep it ? */
+        JS_FreeValue(ctx, func_obj);
+        return -1;
     }
     m->func_obj = func_obj;
-    JS_FreeValue(ctx, bfunc);
     return 0;
- fail:
-    JS_FreeValue(ctx, func_obj);
-    return -1;
 }
 
 /* must be done before js_link_module() because of cyclic references */
@@ -29572,7 +29780,7 @@ static int js_create_module_function(JSContext *ctx, JSModuleDef *m)
         for(i = 0; i < m->export_entries_count; i++) {
             JSExportEntry *me = &m->export_entries[i];
             if (me->export_type == JS_EXPORT_TYPE_LOCAL) {
-                var_ref = js_create_module_var(ctx, FALSE);
+                var_ref = js_create_var_ref(ctx, FALSE);
                 if (!var_ref)
                     return -1;
                 me->u.local.var_ref = var_ref;
@@ -29731,7 +29939,7 @@ static int js_inner_module_linking(JSContext *ctx, JSModuleDef *m,
                     val = JS_GetModuleNamespace(ctx, m2);
                     if (JS_IsException(val))
                         goto fail;
-                    var_ref = js_create_module_var(ctx, TRUE);
+                    var_ref = js_create_var_ref(ctx, TRUE);
                     if (!var_ref) {
                         JS_FreeValue(ctx, val);
                         goto fail;
@@ -30835,7 +31043,7 @@ static __exception int js_parse_export(JSParseState *s)
 }
 
 static int add_closure_var(JSContext *ctx, JSFunctionDef *s,
-                           BOOL is_local, BOOL is_arg,
+                           JSClosureTypeEnum closure_type,
                            int var_idx, JSAtom var_name,
                            BOOL is_const, BOOL is_lexical,
                            JSVarKindEnum var_kind);
@@ -30857,9 +31065,10 @@ static int add_import(JSParseState *s, JSModuleDef *m,
         }
     }
 
-    var_idx = add_closure_var(ctx, s->cur_func, is_star, FALSE,
+    var_idx = add_closure_var(ctx, s->cur_func,
+                              is_star ? JS_CLOSURE_MODULE_DECL : JS_CLOSURE_MODULE_IMPORT,
                               m->import_entries_count,
-                              local_name, TRUE, TRUE, FALSE);
+                              local_name, TRUE, TRUE, JS_VAR_NORMAL);
     if (var_idx < 0)
         return -1;
     if (js_resize_array(ctx, (void **)&m->import_entries,
@@ -31609,12 +31818,39 @@ static __maybe_unused void js_dump_function_bytecode(JSContext *ctx, JSFunctionB
         printf("  closure vars:\n");
         for(i = 0; i < b->closure_var_count; i++) {
             JSClosureVar *cv = &b->closure_var[i];
-            printf("%5d: %s %s:%s%d %s\n", i,
-                   JS_AtomGetStr(ctx, atom_buf, sizeof(atom_buf), cv->var_name),
-                   cv->is_local ? "local" : "parent",
-                   cv->is_arg ? "arg" : "loc", cv->var_idx,
+            printf("%5d: %s %s", i,
                    cv->is_const ? "const" :
-                   cv->is_lexical ? "let" : "var");
+                   cv->is_lexical ? "let" : "var",
+                   JS_AtomGetStr(ctx, atom_buf, sizeof(atom_buf), cv->var_name));
+            switch(cv->closure_type) {
+            case JS_CLOSURE_LOCAL:
+                printf(" [loc%d]\n", cv->var_idx);
+                break;
+            case JS_CLOSURE_ARG:
+                printf(" [arg%d]\n", cv->var_idx);
+                break;
+            case JS_CLOSURE_REF:
+                printf(" [ref%d]\n", cv->var_idx);
+                break;
+            case JS_CLOSURE_GLOBAL_REF:
+                printf(" [global_ref%d]\n", cv->var_idx);
+                break;
+            case JS_CLOSURE_GLOBAL_DECL:
+                printf(" [global_decl]\n");
+                break;
+            case JS_CLOSURE_GLOBAL:
+                printf(" [global]\n");
+                break;
+            case JS_CLOSURE_MODULE_DECL:
+                printf(" [module_decl]\n");
+                break;
+            case JS_CLOSURE_MODULE_IMPORT:
+                printf(" [module_import]\n");
+                break;
+            default:
+                printf(" [?]\n");
+                break;
+            }
         }
     }
     printf("  stack_size: %d\n", b->stack_size);
@@ -31635,7 +31871,7 @@ static __maybe_unused void js_dump_function_bytecode(JSContext *ctx, JSFunctionB
 #endif
 
 static int add_closure_var(JSContext *ctx, JSFunctionDef *s,
-                           BOOL is_local, BOOL is_arg,
+                           JSClosureTypeEnum closure_type,
                            int var_idx, JSAtom var_name,
                            BOOL is_const, BOOL is_lexical,
                            JSVarKindEnum var_kind)
@@ -31653,8 +31889,7 @@ static int add_closure_var(JSContext *ctx, JSFunctionDef *s,
                         &s->closure_var_size, s->closure_var_count + 1))
         return -1;
     cv = &s->closure_var[s->closure_var_count++];
-    cv->is_local = is_local;
-    cv->is_arg = is_arg;
+    cv->closure_type = closure_type;
     cv->is_const = is_const;
     cv->is_lexical = is_lexical;
     cv->var_kind = var_kind;
@@ -31675,44 +31910,32 @@ static int find_closure_var(JSContext *ctx, JSFunctionDef *s,
     return -1;
 }
 
-/* 'fd' must be a parent of 's'. Create in 's' a closure referencing a
-   local variable (is_local = TRUE) or a closure (is_local = FALSE) in
-   'fd' */
-static int get_closure_var2(JSContext *ctx, JSFunctionDef *s,
-                            JSFunctionDef *fd, BOOL is_local,
-                            BOOL is_arg, int var_idx, JSAtom var_name,
-                            BOOL is_const, BOOL is_lexical,
-                            JSVarKindEnum var_kind)
-{
-    int i;
-
-    if (fd != s->parent) {
-        var_idx = get_closure_var2(ctx, s->parent, fd, is_local,
-                                   is_arg, var_idx, var_name,
-                                   is_const, is_lexical, var_kind);
-        if (var_idx < 0)
-            return -1;
-        is_local = FALSE;
-    }
-    for(i = 0; i < s->closure_var_count; i++) {
-        JSClosureVar *cv = &s->closure_var[i];
-        if (cv->var_idx == var_idx && cv->is_arg == is_arg &&
-            cv->is_local == is_local)
-            return i;
-    }
-    return add_closure_var(ctx, s, is_local, is_arg, var_idx, var_name,
-                           is_const, is_lexical, var_kind);
-}
-
+/* 'fd' must be a parent of 's'. Create in 's' a closure referencing
+   another one in 'fd' */
 static int get_closure_var(JSContext *ctx, JSFunctionDef *s,
-                           JSFunctionDef *fd, BOOL is_arg,
+                           JSFunctionDef *fd, JSClosureTypeEnum closure_type,
                            int var_idx, JSAtom var_name,
                            BOOL is_const, BOOL is_lexical,
                            JSVarKindEnum var_kind)
 {
-    return get_closure_var2(ctx, s, fd, TRUE, is_arg,
-                            var_idx, var_name, is_const, is_lexical,
-                            var_kind);
+    int i;
+
+    if (fd != s->parent) {
+        var_idx = get_closure_var(ctx, s->parent, fd, closure_type,
+                                  var_idx, var_name,
+                                  is_const, is_lexical, var_kind);
+        if (var_idx < 0)
+            return -1;
+        if (closure_type != JS_CLOSURE_GLOBAL_REF)
+            closure_type = JS_CLOSURE_REF;
+    }
+    for(i = 0; i < s->closure_var_count; i++) {
+        JSClosureVar *cv = &s->closure_var[i];
+        if (cv->var_idx == var_idx && cv->closure_type == closure_type)
+            return i;
+    }
+    return add_closure_var(ctx, s, closure_type, var_idx, var_name,
+                           is_const, is_lexical, var_kind);
 }
 
 static int get_with_scope_opcode(int op)
@@ -31781,41 +32004,6 @@ static int optimize_scope_make_ref(JSContext *ctx, JSFunctionDef *s,
     bc_buf[pos] = get_op + 1;
     put_u16(bc_buf + pos + 1, var_idx);
     pos += 3;
-    /* pad with OP_nop */
-    while (pos < end_pos)
-        bc_buf[pos++] = OP_nop;
-    return pos_next;
-}
-
-static int optimize_scope_make_global_ref(JSContext *ctx, JSFunctionDef *s,
-                                          DynBuf *bc, uint8_t *bc_buf,
-                                          LabelSlot *ls, int pos_next,
-                                          JSAtom var_name)
-{
-    int label_pos, end_pos, pos, op;
-
-    /* replace the reference get/put with normal variable
-       accesses */
-    /* XXX: need 2 extra OP_true if destructuring an array */
-    if (bc_buf[pos_next] == OP_get_ref_value) {
-        dbuf_putc(bc, OP_get_var);
-        dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-        pos_next++;
-    }
-    /* remove the OP_label to make room for replacement */
-    /* label should have a refcount of 0 anyway */
-    /* XXX: should have emitted several OP_nop to avoid this kludge */
-    label_pos = ls->pos;
-    pos = label_pos - 5;
-    assert(bc_buf[pos] == OP_label);
-    end_pos = label_pos + 2;
-    op = bc_buf[label_pos];
-    if (op == OP_insert3)
-        bc_buf[pos++] = OP_dup;
-    bc_buf[pos] = OP_put_var;
-    /* XXX: need 2 extra OP_drop if destructuring an array */
-    put_u32(bc_buf + pos + 1, JS_DupAtom(ctx, var_name));
-    pos += 5;
     /* pad with OP_nop */
     while (pos < end_pos)
         bc_buf[pos++] = OP_nop;
@@ -31895,7 +32083,7 @@ static void var_object_test(JSContext *ctx, JSFunctionDef *s,
     s->jump_size++;
 }
 
-/* return the position of the next opcode */
+/* return the position of the next opcode or -1 if error */
 static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
                              JSAtom var_name, int scope_level, int op,
                              DynBuf *bc, uint8_t *bc_buf,
@@ -32094,7 +32282,7 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
                 break;
             } else if (vd->var_name == JS_ATOM__with_ && !is_pseudo_var) {
                 vd->is_captured = 1;
-                idx = get_closure_var(ctx, s, fd, FALSE, idx, vd->var_name, FALSE, FALSE, JS_VAR_NORMAL);
+                idx = get_closure_var(ctx, s, fd, JS_CLOSURE_LOCAL, idx, vd->var_name, FALSE, FALSE, JS_VAR_NORMAL);
                 if (idx >= 0) {
                     dbuf_putc(bc, OP_get_var_ref);
                     dbuf_put_u16(bc, idx);
@@ -32131,7 +32319,7 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
         if (!is_arg_scope && fd->var_object_idx >= 0 && !is_pseudo_var) {
             vd = &fd->vars[fd->var_object_idx];
             vd->is_captured = 1;
-            idx = get_closure_var(ctx, s, fd, FALSE,
+            idx = get_closure_var(ctx, s, fd, JS_CLOSURE_LOCAL,
                                   fd->var_object_idx, vd->var_name,
                                   FALSE, FALSE, JS_VAR_NORMAL);
             dbuf_putc(bc, OP_get_var_ref);
@@ -32143,7 +32331,7 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
         if (fd->arg_var_object_idx >= 0 && !is_pseudo_var) {
             vd = &fd->vars[fd->arg_var_object_idx];
             vd->is_captured = 1;
-            idx = get_closure_var(ctx, s, fd, FALSE,
+            idx = get_closure_var(ctx, s, fd, JS_CLOSURE_LOCAL,
                                   fd->arg_var_object_idx, vd->var_name,
                                   FALSE, FALSE, JS_VAR_NORMAL);
             dbuf_putc(bc, OP_get_var_ref);
@@ -32165,25 +32353,37 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
             JSClosureVar *cv = &fd->closure_var[idx1];
             if (var_name == cv->var_name) {
                 if (fd != s) {
-                    idx = get_closure_var2(ctx, s, fd,
-                                           FALSE,
-                                           cv->is_arg, idx1,
-                                           cv->var_name, cv->is_const,
-                                           cv->is_lexical, cv->var_kind);
+                    JSClosureTypeEnum closure_type;
+                    if (cv->closure_type == JS_CLOSURE_GLOBAL ||
+                        cv->closure_type == JS_CLOSURE_GLOBAL_DECL ||
+                        cv->closure_type == JS_CLOSURE_GLOBAL_REF)
+                        closure_type = JS_CLOSURE_GLOBAL_REF;
+                    else
+                        closure_type = JS_CLOSURE_REF;
+                    idx = get_closure_var(ctx, s, fd,
+                                          closure_type,
+                                          idx1,
+                                          cv->var_name, cv->is_const,
+                                          cv->is_lexical, cv->var_kind);
                 } else {
                     idx = idx1;
                 }
-                goto has_idx;
+                if (cv->closure_type == JS_CLOSURE_GLOBAL ||
+                    cv->closure_type == JS_CLOSURE_GLOBAL_DECL ||
+                    cv->closure_type == JS_CLOSURE_GLOBAL_REF)
+                    goto has_global_idx;
+                else
+                    goto has_idx;
             } else if ((cv->var_name == JS_ATOM__var_ ||
                         cv->var_name == JS_ATOM__arg_var_ ||
                         cv->var_name == JS_ATOM__with_) && !is_pseudo_var) {
                 int is_with = (cv->var_name == JS_ATOM__with_);
                 if (fd != s) {
-                    idx = get_closure_var2(ctx, s, fd,
-                                           FALSE,
-                                           cv->is_arg, idx1,
-                                           cv->var_name, FALSE, FALSE,
-                                           JS_VAR_NORMAL);
+                    idx = get_closure_var(ctx, s, fd,
+                                          JS_CLOSURE_REF,
+                                          idx1,
+                                          cv->var_name, FALSE, FALSE,
+                                          JS_VAR_NORMAL);
                 } else {
                     idx = idx1;
                 }
@@ -32192,19 +32392,67 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
                 var_object_test(ctx, s, var_name, op, bc, &label_done, is_with);
             }
         }
-    }
 
-    if (var_idx >= 0) {
+        /* not found: add a closure for a global variable access */
+        idx1 = add_closure_var(ctx, fd, JS_CLOSURE_GLOBAL, 0, var_name,
+                              FALSE, FALSE, JS_VAR_NORMAL);
+        if (idx1 < 0)
+            return -1;
+        if (fd != s) {
+            idx = get_closure_var(ctx, s, fd,
+                                  JS_CLOSURE_GLOBAL_REF,
+                                  idx1,
+                                  var_name, FALSE, FALSE, 
+                                  JS_VAR_NORMAL);
+        } else {
+            idx = idx1;
+        }
+    has_global_idx:
+        /* global variable access */
+        switch (op) {
+        case OP_scope_make_ref:
+            if (label_done == -1 && can_opt_put_global_ref_value(bc_buf, ls->pos)) {
+                pos_next = optimize_scope_make_ref(ctx, s, bc, bc_buf, ls,
+                                                   pos_next,
+                                                   OP_get_var, idx);
+            } else {
+                dbuf_putc(bc, OP_make_var_ref);
+                dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
+            }
+            break;
+        case OP_scope_get_ref:
+            /* XXX: should create a dummy object with a named slot that is
+               a reference to the global variable */
+            dbuf_putc(bc, OP_undefined);
+            dbuf_putc(bc, OP_get_var);
+            dbuf_put_u16(bc, idx);
+            break;
+        case OP_scope_get_var_undef:
+        case OP_scope_get_var:
+        case OP_scope_put_var:
+            dbuf_putc(bc, OP_get_var_undef + (op - OP_scope_get_var_undef));
+            dbuf_put_u16(bc, idx);
+            break;
+        case OP_scope_put_var_init:
+            dbuf_putc(bc, OP_put_var_init);
+            dbuf_put_u16(bc, idx);
+            break;
+        case OP_scope_delete_var:
+            dbuf_putc(bc, OP_delete_var);
+            dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
+            break;
+        }
+    } else {
         /* find the corresponding closure variable */
         if (var_idx & ARGUMENT_VAR_OFFSET) {
             fd->args[var_idx - ARGUMENT_VAR_OFFSET].is_captured = 1;
             idx = get_closure_var(ctx, s, fd,
-                                  TRUE, var_idx - ARGUMENT_VAR_OFFSET,
+                                  JS_CLOSURE_ARG, var_idx - ARGUMENT_VAR_OFFSET,
                                   var_name, FALSE, FALSE, JS_VAR_NORMAL);
         } else {
             fd->vars[var_idx].is_captured = 1;
             idx = get_closure_var(ctx, s, fd,
-                                  FALSE, var_idx,
+                                  JS_CLOSURE_LOCAL, var_idx,
                                   var_name,
                                   fd->vars[var_idx].is_const,
                                   fd->vars[var_idx].is_lexical,
@@ -32291,40 +32539,6 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
         }
     }
 
-    /* global variable access */
-
-    switch (op) {
-    case OP_scope_make_ref:
-        if (label_done == -1 && can_opt_put_global_ref_value(bc_buf, ls->pos)) {
-            pos_next = optimize_scope_make_global_ref(ctx, s, bc, bc_buf, ls,
-                                                      pos_next, var_name);
-        } else {
-            dbuf_putc(bc, OP_make_var_ref);
-            dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-        }
-        break;
-    case OP_scope_get_ref:
-        /* XXX: should create a dummy object with a named slot that is
-           a reference to the global variable */
-        dbuf_putc(bc, OP_undefined);
-        dbuf_putc(bc, OP_get_var);
-        dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-        break;
-    case OP_scope_get_var_undef:
-    case OP_scope_get_var:
-    case OP_scope_put_var:
-        dbuf_putc(bc, OP_get_var_undef + (op - OP_scope_get_var_undef));
-        dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-        break;
-    case OP_scope_put_var_init:
-        dbuf_putc(bc, OP_put_var_init);
-        dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-        break;
-    case OP_scope_delete_var:
-        dbuf_putc(bc, OP_delete_var);
-        dbuf_put_u32(bc, JS_DupAtom(ctx, var_name));
-        break;
-    }
 done:
     if (label_done >= 0) {
         dbuf_putc(bc, OP_label);
@@ -32376,7 +32590,7 @@ static int resolve_scope_private_field1(JSContext *ctx,
         if (idx >= 0) {
             var_kind = fd->vars[idx].var_kind;
             if (is_ref) {
-                idx = get_closure_var(ctx, s, fd, FALSE, idx, var_name,
+                idx = get_closure_var(ctx, s, fd, JS_CLOSURE_LOCAL, idx, var_name,
                                       TRUE, TRUE, JS_VAR_NORMAL);
                 if (idx < 0)
                     return -1;
@@ -32393,12 +32607,12 @@ static int resolve_scope_private_field1(JSContext *ctx,
                         var_kind = cv->var_kind;
                         is_ref = TRUE;
                         if (fd != s) {
-                            idx = get_closure_var2(ctx, s, fd,
-                                                   FALSE,
-                                                   cv->is_arg, idx,
-                                                   cv->var_name, cv->is_const,
-                                                   cv->is_lexical,
-                                                   cv->var_kind);
+                            idx = get_closure_var(ctx, s, fd,
+                                                  JS_CLOSURE_REF,
+                                                  idx,
+                                                  cv->var_name, cv->is_const,
+                                                  cv->is_lexical,
+                                                  cv->var_kind);
                             if (idx < 0)
                                 return -1;
                         }
@@ -32627,7 +32841,7 @@ static void add_eval_variables(JSContext *ctx, JSFunctionDef *s)
         while (scope_idx >= 0) {
             vd = &fd->vars[scope_idx];
             vd->is_captured = 1;
-            get_closure_var(ctx, s, fd, FALSE, scope_idx,
+            get_closure_var(ctx, s, fd, JS_CLOSURE_LOCAL, scope_idx,
                             vd->var_name, vd->is_const, vd->is_lexical, vd->var_kind);
             scope_idx = vd->scope_next;
         }
@@ -32639,7 +32853,7 @@ static void add_eval_variables(JSContext *ctx, JSFunctionDef *s)
                 vd = &fd->args[i];
                 if (vd->var_name != JS_ATOM_NULL) {
                     get_closure_var(ctx, s, fd,
-                                    TRUE, i, vd->var_name, FALSE,
+                                    JS_CLOSURE_ARG, i, vd->var_name, FALSE,
                                     vd->is_lexical, JS_VAR_NORMAL);
                 }
             }
@@ -32650,7 +32864,7 @@ static void add_eval_variables(JSContext *ctx, JSFunctionDef *s)
                     vd->var_name != JS_ATOM__ret_ &&
                     vd->var_name != JS_ATOM_NULL) {
                     get_closure_var(ctx, s, fd,
-                                    FALSE, i, vd->var_name, FALSE,
+                                    JS_CLOSURE_LOCAL, i, vd->var_name, FALSE,
                                     vd->is_lexical, JS_VAR_NORMAL);
                 }
             }
@@ -32660,7 +32874,7 @@ static void add_eval_variables(JSContext *ctx, JSFunctionDef *s)
                 /* do not close top level last result */
                 if (vd->scope_level == 0 && is_var_in_arg_scope(vd)) {
                     get_closure_var(ctx, s, fd,
-                                    FALSE, i, vd->var_name, FALSE,
+                                    JS_CLOSURE_LOCAL, i, vd->var_name, FALSE,
                                     vd->is_lexical, JS_VAR_NORMAL);
                 }
             }
@@ -32668,13 +32882,19 @@ static void add_eval_variables(JSContext *ctx, JSFunctionDef *s)
         if (fd->is_eval) {
             int idx;
             /* add direct eval variables (we are necessarily at the
-               top level) */
+               top level). */
             for (idx = 0; idx < fd->closure_var_count; idx++) {
                 JSClosureVar *cv = &fd->closure_var[idx];
-                get_closure_var2(ctx, s, fd,
-                                 FALSE, cv->is_arg,
-                                 idx, cv->var_name, cv->is_const,
-                                 cv->is_lexical, cv->var_kind);
+                /* Global variables are removed but module
+                   definitions are kept. */
+                if (cv->closure_type != JS_CLOSURE_GLOBAL_REF &&
+                    cv->closure_type != JS_CLOSURE_GLOBAL_DECL &&
+                    cv->closure_type != JS_CLOSURE_GLOBAL) {
+                    get_closure_var(ctx, s, fd,
+                                    JS_CLOSURE_REF,
+                                    idx, cv->var_name, cv->is_const,
+                                    cv->is_lexical, cv->var_kind);
+                }
             }
         }
     }
@@ -32683,8 +32903,7 @@ static void add_eval_variables(JSContext *ctx, JSFunctionDef *s)
 static void set_closure_from_var(JSContext *ctx, JSClosureVar *cv,
                                  JSVarDef *vd, int var_idx)
 {
-    cv->is_local = TRUE;
-    cv->is_arg = FALSE;
+    cv->closure_type = JS_CLOSURE_LOCAL;
     cv->is_const = vd->is_const;
     cv->is_lexical = vd->is_lexical;
     cv->var_kind = vd->var_kind;
@@ -32725,8 +32944,7 @@ static __exception int add_closure_variables(JSContext *ctx, JSFunctionDef *s,
         for(i = 0; i < b->arg_count; i++) {
             JSClosureVar *cv = &s->closure_var[s->closure_var_count++];
             vd = &b->vardefs[i];
-            cv->is_local = TRUE;
-            cv->is_arg = TRUE;
+            cv->closure_type = JS_CLOSURE_ARG;
             cv->is_const = FALSE;
             cv->is_lexical = FALSE;
             cv->var_kind = JS_VAR_NORMAL;
@@ -32753,9 +32971,24 @@ static __exception int add_closure_variables(JSContext *ctx, JSFunctionDef *s,
     }
     for(i = 0; i < b->closure_var_count; i++) {
         JSClosureVar *cv0 = &b->closure_var[i];
-        JSClosureVar *cv = &s->closure_var[s->closure_var_count++];
-        cv->is_local = FALSE;
-        cv->is_arg = cv0->is_arg;
+        JSClosureVar *cv;
+
+        switch(cv0->closure_type) {
+        case JS_CLOSURE_LOCAL:
+        case JS_CLOSURE_ARG:
+        case JS_CLOSURE_REF:
+        case JS_CLOSURE_MODULE_DECL:
+        case JS_CLOSURE_MODULE_IMPORT:
+            break;
+        case JS_CLOSURE_GLOBAL_REF:
+        case JS_CLOSURE_GLOBAL_DECL:
+        case JS_CLOSURE_GLOBAL:
+            continue; /* not necessary to add global variables */
+        default:
+            abort();
+        }
+        cv = &s->closure_var[s->closure_var_count++];
+        cv->closure_type = JS_CLOSURE_REF;
         cv->is_const = cv0->is_const;
         cv->is_lexical = cv0->is_lexical;
         cv->var_kind = cv0->var_kind;
@@ -32948,9 +33181,10 @@ static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, Dy
 
     /* add the global variables (only happens if s->is_global_var is
        true) */
+    /* XXX: inefficient, add a closure index in JSGlobalVar */
     for(i = 0; i < s->global_var_count; i++) {
         JSGlobalVar *hf = &s->global_vars[i];
-        int has_closure = 0;
+        BOOL has_var_obj = FALSE;
         BOOL force_init = hf->force_init;
         /* we are in an eval, so the closure contains all the
            enclosing variables */
@@ -32959,46 +33193,20 @@ static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, Dy
         for(idx = 0; idx < s->closure_var_count; idx++) {
             JSClosureVar *cv = &s->closure_var[idx];
             if (cv->var_name == hf->var_name) {
-                has_closure = 2;
                 force_init = FALSE;
-                break;
+                goto closure_found;
             }
             if (cv->var_name == JS_ATOM__var_ ||
                 cv->var_name == JS_ATOM__arg_var_) {
                 dbuf_putc(bc, OP_get_var_ref);
                 dbuf_put_u16(bc, idx);
-                has_closure = 1;
+                has_var_obj = TRUE;
                 force_init = TRUE;
-                break;
+                goto closure_found;
             }
         }
-        if (!has_closure) {
-            int flags;
-
-            flags = 0;
-            if (s->eval_type != JS_EVAL_TYPE_GLOBAL)
-                flags |= JS_PROP_CONFIGURABLE;
-            if (hf->cpool_idx >= 0 && !hf->is_lexical) {
-                /* global function definitions need a specific handling */
-                dbuf_putc(bc, OP_fclosure);
-                dbuf_put_u32(bc, hf->cpool_idx);
-
-                dbuf_putc(bc, OP_define_func);
-                dbuf_put_u32(bc, JS_DupAtom(ctx, hf->var_name));
-                dbuf_putc(bc, flags);
-
-                goto done_global_var;
-            } else {
-                if (hf->is_lexical) {
-                    flags |= DEFINE_GLOBAL_LEX_VAR;
-                    if (!hf->is_const)
-                        flags |= JS_PROP_WRITABLE;
-                }
-                dbuf_putc(bc, OP_define_var);
-                dbuf_put_u32(bc, JS_DupAtom(ctx, hf->var_name));
-                dbuf_putc(bc, flags);
-            }
-        }
+        abort();
+    closure_found:
         if (hf->cpool_idx >= 0 || force_init) {
             if (hf->cpool_idx >= 0) {
                 dbuf_putc(bc, OP_fclosure);
@@ -33011,20 +33219,15 @@ static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, Dy
             } else {
                 dbuf_putc(bc, OP_undefined);
             }
-            if (has_closure == 2) {
+            if (!has_var_obj) {
                 dbuf_putc(bc, OP_put_var_ref);
                 dbuf_put_u16(bc, idx);
-            } else if (has_closure == 1) {
+            } else {
                 dbuf_putc(bc, OP_define_field);
                 dbuf_put_u32(bc, JS_DupAtom(ctx, hf->var_name));
                 dbuf_putc(bc, OP_drop);
-            } else {
-                /* XXX: Check if variable is writable and enumerable */
-                dbuf_putc(bc, OP_put_var);
-                dbuf_put_u32(bc, JS_DupAtom(ctx, hf->var_name));
             }
         }
-    done_global_var:
         JS_FreeAtom(ctx, hf->var_name);
     }
 
@@ -33119,7 +33322,7 @@ static int get_label_pos(JSFunctionDef *s, int label)
    variables when necessary */
 static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
 {
-    int pos, pos_next, bc_len, op, len, i, idx, line_num;
+    int pos, pos_next, bc_len, op, len, line_num, i, idx;
     uint8_t *bc_buf;
     JSAtom var_name;
     DynBuf bc_out;
@@ -33132,13 +33335,19 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
 
     /* first pass for runtime checks (must be done before the
        variables are created) */
+    /* XXX: inefficient */
     for(i = 0; i < s->global_var_count; i++) {
         JSGlobalVar *hf = &s->global_vars[i];
-        int flags;
 
         /* check if global variable (XXX: simplify) */
         for(idx = 0; idx < s->closure_var_count; idx++) {
             JSClosureVar *cv = &s->closure_var[idx];
+            if (cv->closure_type == JS_CLOSURE_GLOBAL_REF ||
+                cv->closure_type == JS_CLOSURE_GLOBAL_DECL ||
+                cv->closure_type == JS_CLOSURE_GLOBAL ||
+                cv->closure_type == JS_CLOSURE_MODULE_DECL ||
+                cv->closure_type == JS_CLOSURE_MODULE_IMPORT)
+                goto next; /* don't look at global variables (they are at the end) */
             if (cv->var_name == hf->var_name) {
                 if (s->eval_type == JS_EVAL_TYPE_DIRECT &&
                     cv->is_lexical) {
@@ -33157,15 +33366,6 @@ static __exception int resolve_variables(JSContext *ctx, JSFunctionDef *s)
                 cv->var_name == JS_ATOM__arg_var_)
                 goto next;
         }
-
-        dbuf_putc(&bc_out, OP_check_define_var);
-        dbuf_put_u32(&bc_out, JS_DupAtom(ctx, hf->var_name));
-        flags = 0;
-        if (hf->is_lexical)
-            flags |= DEFINE_GLOBAL_LEX_VAR;
-        if (hf->cpool_idx >= 0)
-            flags |= DEFINE_GLOBAL_FUNC_VAR;
-        dbuf_putc(&bc_out, flags);
     next: ;
     }
 
@@ -34881,35 +35081,68 @@ static __exception int compute_stack_size(JSContext *ctx,
     return -1;
 }
 
-static int add_module_variables(JSContext *ctx, JSFunctionDef *fd)
+static int add_global_variables(JSContext *ctx, JSFunctionDef *fd)
 {
     int i, idx;
     JSModuleDef *m = fd->module;
     JSExportEntry *me;
     JSGlobalVar *hf;
+    BOOL need_global_closures;
+    
+    /* Script: add the defined global variables. In the non strict
+       direct eval not in global scope, the global variables are
+       created in the enclosing scope so they are not created as
+       variable references.
 
-    /* The imported global variables were added as closure variables
-       in js_parse_import(). We add here the module global
-       variables. */
-
-    for(i = 0; i < fd->global_var_count; i++) {
-        hf = &fd->global_vars[i];
-        if (add_closure_var(ctx, fd, TRUE, FALSE, i, hf->var_name, hf->is_const,
-                            hf->is_lexical, FALSE) < 0)
-            return -1;
+       In modules, the imported global variables were added as closure
+       global variables in js_parse_import().
+    */
+    need_global_closures = TRUE;
+    if (fd->eval_type == JS_EVAL_TYPE_DIRECT && !(fd->js_mode & JS_MODE_STRICT)) {
+        /* XXX: add a flag ? */
+        for(idx = 0; idx < fd->closure_var_count; idx++) {
+            JSClosureVar *cv = &fd->closure_var[idx];
+            if (cv->var_name == JS_ATOM__var_ ||
+                cv->var_name == JS_ATOM__arg_var_) {
+                need_global_closures = FALSE;
+                break;
+            }
+        }
     }
 
-    /* resolve the variable names of the local exports */
-    for(i = 0; i < m->export_entries_count; i++) {
-        me = &m->export_entries[i];
-        if (me->export_type == JS_EXPORT_TYPE_LOCAL) {
-            idx = find_closure_var(ctx, fd, me->local_name);
-            if (idx < 0) {
-                JS_ThrowSyntaxErrorAtom(ctx, "exported variable '%s' does not exist",
-                                        me->local_name);
-                return -1;
+    if (need_global_closures) {
+        JSClosureTypeEnum closure_type;
+        if (fd->module)
+            closure_type = JS_CLOSURE_MODULE_DECL;
+        else
+            closure_type = JS_CLOSURE_GLOBAL_DECL;
+        for(i = 0; i < fd->global_var_count; i++) {
+            JSVarKindEnum var_kind;
+            hf = &fd->global_vars[i];
+            if (hf->cpool_idx >= 0 && !hf->is_lexical) {
+                var_kind = JS_VAR_GLOBAL_FUNCTION_DECL;
+            } else {
+                var_kind = JS_VAR_NORMAL;
             }
-            me->u.local.var_idx = idx;
+            if (add_closure_var(ctx, fd, closure_type, i, hf->var_name, hf->is_const,
+                                hf->is_lexical, var_kind) < 0)
+                return -1;
+        }
+    }
+
+    if (fd->module) {
+        /* resolve the variable names of the local exports */
+        for(i = 0; i < m->export_entries_count; i++) {
+            me = &m->export_entries[i];
+            if (me->export_type == JS_EXPORT_TYPE_LOCAL) {
+                idx = find_closure_var(ctx, fd, me->local_name);
+                if (idx < 0) {
+                    JS_ThrowSyntaxErrorAtom(ctx, "exported variable '%s' does not exist",
+                                            me->local_name);
+                    return -1;
+                }
+                me->u.local.var_idx = idx;
+            }
         }
     }
     return 0;
@@ -34961,10 +35194,10 @@ static JSValue js_create_function(JSContext *ctx, JSFunctionDef *fd)
         add_eval_variables(ctx, fd);
 
     /* add the module global variables in the closure */
-    if (fd->module) {
-        if (add_module_variables(ctx, fd))
+    if (fd->is_eval) {
+        if (add_global_variables(ctx, fd))
             goto fail;
-    }
+    } 
 
     /* first create all the child functions */
     list_for_each_safe(el, el1, &fd->child_list) {
@@ -36017,7 +36250,9 @@ static JSValue JS_EvalFunctionInternal(JSContext *ctx, JSValue fun_obj,
 
     tag = JS_VALUE_GET_TAG(fun_obj);
     if (tag == JS_TAG_FUNCTION_BYTECODE) {
-        fun_obj = js_closure(ctx, fun_obj, var_refs, sf);
+        fun_obj = js_closure(ctx, fun_obj, var_refs, sf, TRUE);
+        if (JS_IsException(fun_obj))
+            return JS_EXCEPTION;
         ret_val = JS_CallFree(ctx, fun_obj, this_obj, 0, NULL);
     } else if (tag == JS_TAG_MODULE) {
         JSModuleDef *m;
@@ -36741,13 +36976,12 @@ static int JS_WriteFunctionTag(BCWriterState *s, JSValueConst obj)
         bc_put_atom(s, cv->var_name);
         bc_put_leb128(s, cv->var_idx);
         flags = idx = 0;
-        bc_set_flags(&flags, &idx, cv->is_local, 1);
-        bc_set_flags(&flags, &idx, cv->is_arg, 1);
+        bc_set_flags(&flags, &idx, cv->closure_type, 3);
         bc_set_flags(&flags, &idx, cv->is_const, 1);
         bc_set_flags(&flags, &idx, cv->is_lexical, 1);
         bc_set_flags(&flags, &idx, cv->var_kind, 4);
-        assert(idx <= 8);
-        bc_put_u8(s, flags);
+        assert(idx <= 16);
+        bc_put_u16(s, flags);
     }
 
     if (JS_WriteFunctionBytecode(s, b->byte_code_buf, b->byte_code_len))
@@ -37695,14 +37929,13 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
             if (bc_get_leb128_int(s, &var_idx))
                 goto fail;
             cv->var_idx = var_idx;
-            if (bc_get_u8(s, &v8))
+            if (bc_get_u16(s, &v16))
                 goto fail;
             idx = 0;
-            cv->is_local = bc_get_flags(v8, &idx, 1);
-            cv->is_arg = bc_get_flags(v8, &idx, 1);
-            cv->is_const = bc_get_flags(v8, &idx, 1);
-            cv->is_lexical = bc_get_flags(v8, &idx, 1);
-            cv->var_kind = bc_get_flags(v8, &idx, 4);
+            cv->closure_type = bc_get_flags(v16, &idx, 3);
+            cv->is_const = bc_get_flags(v16, &idx, 1);
+            cv->is_lexical = bc_get_flags(v16, &idx, 1);
+            cv->var_kind = bc_get_flags(v16, &idx, 4);
 #ifdef DUMP_READ_OBJECT
             bc_read_trace(s, "name: "); print_atom(s->ctx, cv->var_name); printf("\n");
 #endif
@@ -54479,9 +54712,15 @@ static int JS_AddIntrinsicBasicObjects(JSContext *ctx)
     ctx->class_proto[JS_CLASS_BYTECODE_FUNCTION] = JS_DupValue(ctx, ctx->function_proto);
 
     ctx->global_obj = JS_NewObjectProtoClassAlloc(ctx, ctx->class_proto[JS_CLASS_OBJECT],
-                                                  JS_CLASS_OBJECT, 64);
+                                                  JS_CLASS_GLOBAL_OBJECT, 64);
     if (JS_IsException(ctx->global_obj))
         return -1;
+    {
+        JSObject *p;
+        obj = JS_NewObjectProtoClassAlloc(ctx, JS_NULL, JS_CLASS_OBJECT, 4);
+        p = JS_VALUE_GET_OBJ(ctx->global_obj);
+        p->u.global_object.uninitialized_vars = obj;
+    }
     ctx->global_var_obj = JS_NewObjectProtoClassAlloc(ctx, JS_NULL,
                                                       JS_CLASS_OBJECT, 16);
     if (JS_IsException(ctx->global_var_obj))
