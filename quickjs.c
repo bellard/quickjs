@@ -55360,7 +55360,12 @@ static void js_array_buffer_update_typed_arrays(JSArrayBuffer *abuf)
         ta = list_entry(el, JSTypedArray, link);
         p = ta->obj;
         if (p->class_id == JS_CLASS_DATAVIEW) {
-            continue;
+            if (ta->track_rab) {
+                if (ta->offset < len)
+                    ta->length = len - ta->offset;
+                else
+                    ta->length = 0;
+            }
         } else {
             p->u.array.count = 0;
             p->u.array.u.ptr = NULL;
