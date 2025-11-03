@@ -5,6 +5,19 @@ test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-
 test262/test/annexB/language/expressions/assignmenttargettype/callexpression-in-prefix-update.js:27: SyntaxError: invalid increment/decrement operand
 test262/test/annexB/language/expressions/assignmenttargettype/callexpression.js:33: SyntaxError: invalid assignment left-hand side
 test262/test/annexB/language/expressions/assignmenttargettype/cover-callexpression-and-asyncarrowhead.js:20: SyntaxError: invalid assignment left-hand side
+test262/test/language/expressions/assignment/S11.13.1_A6_T1.js:23: Test262Error: #1: innerX === undefined. Actual: 1
+test262/test/language/expressions/assignment/S11.13.1_A6_T2.js:23: Test262Error: #1: innerX === 2. Actual: 1
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.1_T1.js:24: Test262Error: #1: innerX === 2. Actual: 12
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.2_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.3_T1.js:24: Test262Error: #1: innerX === 2. Actual: 3
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.4_T1.js:24: Test262Error: #1: innerX === 2. Actual: 4
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.5_T1.js:24: Test262Error: #1: innerX === 2. Actual: 4
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.6_T1.js:24: Test262Error: #1: innerX === 2. Actual: 8
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.7_T1.js:24: Test262Error: #1: innerX === 2. Actual: 4
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.8_T1.js:24: Test262Error: #1: innerX === 2. Actual: 4
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.9_T1.js:24: Test262Error: #1: innerX === 2. Actual: 1
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.10_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
+test262/test/language/expressions/compound-assignment/S11.13.2_A6.11_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
 test262/test/language/identifier-resolution/assign-to-global-undefined.js:20: strict mode: expected error
 test262/test/staging/sm/Function/arguments-parameter-shadowing.js:14: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Function/constructor-binding.js:11: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
@@ -35,9 +48,6 @@ test262/test/staging/sm/class/boundFunctionSubclassing.js:9: strict mode: Test26
 test262/test/staging/sm/class/strictExecution.js:13: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/staging/sm/class/superPropOrdering.js:17: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/staging/sm/class/superPropOrdering.js:17: strict mode: Test262Error: Expected a TypeError to be thrown but no exception was thrown at all
-test262/test/staging/sm/expressions/short-circuit-compound-assignment-const.js:96: TypeError: 'a' is read-only
-test262/test/staging/sm/expressions/short-circuit-compound-assignment-tdz.js:18: Test262Error: Expected a ReferenceError but got a TypeError
-test262/test/staging/sm/expressions/short-circuit-compound-assignment-tdz.js:18: strict mode: Test262Error: Expected a ReferenceError but got a TypeError
 test262/test/staging/sm/generators/syntax.js:50: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js:13: Test262Error: Expected SameValue(«"object"», «"function"») to be true
 test262/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js:11: Test262Error: Expected SameValue(«"outer-gouter-geval-gtruefalseq"», «"outer-geval-gwith-gtruefalseq"») to be true
