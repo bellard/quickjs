@@ -75,7 +75,7 @@ static int eval_buf(JSContext *ctx, const void *buf, int buf_len,
     return ret;
 }
 
-static int eval_file(JSContext *ctx, const char *filename, int module)
+static int eval_file(JSContext *ctx, const char *filename, int module, int strict)
 {
     uint8_t *buf;
     int ret, eval_flags;
@@ -91,10 +91,13 @@ static int eval_file(JSContext *ctx, const char *filename, int module)
         module = (has_suffix(filename, ".mjs") ||
                   JS_DetectModule((const char *)buf, buf_len));
     }
-    if (module)
+    if (module) {
         eval_flags = JS_EVAL_TYPE_MODULE;
-    else
+    } else {
         eval_flags = JS_EVAL_TYPE_GLOBAL;
+        if (strict)
+            eval_flags |= JS_EVAL_FLAG_STRICT;
+    }
     ret = eval_buf(ctx, buf, buf_len, filename, eval_flags);
     js_free(ctx, buf);
     return ret;
@@ -294,6 +297,7 @@ void help(void)
            "-i  --interactive  go to interactive mode\n"
            "-m  --module       load as ES6 module (default=autodetect)\n"
            "    --script       load as ES6 script (default=autodetect)\n"
+           "    --strict       force strict mode\n"
            "-I  --include file include an additional file\n"
            "    --std          make 'std' and 'os' available to the loaded script\n"
            "-T  --trace        trace memory allocation\n"
@@ -319,6 +323,7 @@ int main(int argc, char **argv)
     int trace_memory = 0;
     int empty_run = 0;
     int module = -1;
+    int strict = 0;
     int load_std = 0;
     int dump_unhandled_promise_rejection = 1;
     size_t memory_limit = 0;
@@ -386,6 +391,10 @@ int main(int argc, char **argv)
             }
             if (!strcmp(longopt, "script")) {
                 module = 0;
+                continue;
+            }
+            if (!strcmp(longopt, "strict")) {
+                strict = 1;
                 continue;
             }
             if (opt == 'd' || !strcmp(longopt, "dump")) {
@@ -485,12 +494,20 @@ int main(int argc, char **argv)
         }
 
         for(i = 0; i < include_count; i++) {
-            if (eval_file(ctx, include_list[i], module))
+            if (eval_file(ctx, include_list[i], 0, strict))
                 goto fail;
         }
 
         if (expr) {
-            if (eval_buf(ctx, expr, strlen(expr), "<cmdline>", 0))
+            int eval_flags;
+            if (module > 0) {
+                eval_flags = JS_EVAL_TYPE_MODULE;
+            } else {
+                eval_flags = JS_EVAL_TYPE_GLOBAL;
+                if (strict)
+                    eval_flags |= JS_EVAL_FLAG_STRICT;
+            }
+            if (eval_buf(ctx, expr, strlen(expr), "<cmdline>", eval_flags))
                 goto fail;
         } else
         if (optind >= argc) {
@@ -499,7 +516,7 @@ int main(int argc, char **argv)
         } else {
             const char *filename;
             filename = argv[optind];
-            if (eval_file(ctx, filename, module))
+            if (eval_file(ctx, filename, module, strict))
                 goto fail;
         }
         if (interactive) {
