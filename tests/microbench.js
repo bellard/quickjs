@@ -1206,17 +1206,6 @@ sort_bench.verbose = false;
 
 function int_to_string(n)
 {
-    var s, j;
-    for(j = 0; j < n; j++) {
-        s = (j % 1000).toString();
-        s = (1234000 + j % 1000).toString();
-    }
-    global_res = s;
-    return n * 2;
-}
-
-function int_to_string(n)
-{
     var s, r, j;
     r = 0;
     for(j = 0; j < n; j++) {
