@@ -29728,7 +29728,9 @@ static JSValue js_build_module_ns(JSContext *ctx, JSModuleDef *m)
             if (JS_DefineAutoInitProperty(ctx, obj,
                                           en->export_name,
                                           JS_AUTOINIT_ID_MODULE_NS,
-                                          m, JS_PROP_ENUMERABLE | JS_PROP_WRITABLE) < 0)
+                                          m, JS_PROP_ENUMERABLE | JS_PROP_WRITABLE) < 0) {
+                goto fail;
+            }
             break;
         default:
             break;
