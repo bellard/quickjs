@@ -16673,9 +16673,14 @@ static JSVarRef *js_closure_define_global_var(JSContext *ctx, JSClosureVar *cv,
         if (is_direct_or_indirect_eval)
             flags |= JS_PROP_CONFIGURABLE;
 
+    retry:
         prs = find_own_property(&pr, p, cv->var_name);
         if (prs) {
-            if ((prs->flags & JS_PROP_TMASK) != JS_PROP_VARREF) {
+            if (unlikely((prs->flags & JS_PROP_TMASK) == JS_PROP_AUTOINIT)) {
+                if (JS_AutoInitProperty(ctx, p, cv->var_name, pr, prs))
+                    return NULL;
+                goto retry;
+            } else if ((prs->flags & JS_PROP_TMASK) != JS_PROP_VARREF) {
                 var_ref = js_global_object_get_uninitialized_var(ctx, p, cv->var_name);
                 if (!var_ref)
                     return NULL;
