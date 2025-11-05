@@ -18011,14 +18011,15 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         }
                         ret = JS_SetPropertyInternal(ctx, ctx->global_obj, cv->var_name, sp[-1],
                                                      ctx->global_obj, JS_PROP_THROW_STRICT);
+                        sp--;
                         if (ret < 0)
                             goto exception;
                     }
                 } else {
                 put_var_ok:
                    set_value(ctx, var_ref->pvalue, sp[-1]);
+                   sp--;
                 }
-                sp--;
             }
             BREAK;
         CASE(OP_get_loc):
