@@ -184,7 +184,18 @@ function bjson_test_all()
     var obj;
 
     bjson_test({x:1, y:2, if:3});
+
     bjson_test([1, 2, 3]);
+
+    /* array with holes */
+    bjson_test([1, , 2, , 3]); 
+
+    /* fast array with hole */
+    obj = new Array(5);
+    obj[0] = 1;
+    obj[1] = 2;
+    bjson_test(obj);
+
     bjson_test([1.0, "aa", true, false, undefined, null, NaN, -Infinity, -0.0]);
     if (typeof BigInt !== "undefined") {
         bjson_test([BigInt("1"), -BigInt("0x123456789"),
