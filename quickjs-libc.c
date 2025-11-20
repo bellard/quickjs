@@ -4116,6 +4116,11 @@ void js_std_free_handlers(JSRuntime *rt)
     JSThreadState *ts = JS_GetRuntimeOpaque(rt);
     struct list_head *el, *el1;
 
+    /* Run GC before freeing the JSThreadState. The JSThreadState        */
+    /*  contains the worker port_list and JS_FreeRuntime migth reference */
+    /*  it when it does worker defered finalization in JS_FreeRuntime    */
+    JS_RunGC(rt);
+
     list_for_each_safe(el, el1, &ts->os_rw_handlers) {
         JSOSRWHandler *rh = list_entry(el, JSOSRWHandler, link);
         free_rw_handler(rt, rh);
