@@ -39,12 +39,13 @@ DEF(goto, 5)
 DEF(split_goto_first, 5)
 DEF(split_next_first, 5)
 DEF(match, 1)
+DEF(lookahead_match, 1)
+DEF(negative_lookahead_match, 1) /* must come after */
 DEF(save_start, 2) /* save start position */
 DEF(save_end, 2) /* save end position, must come after saved_start */
 DEF(save_reset, 3) /* reset save positions */
-DEF(loop, 5) /* decrement the top the stack and goto if != 0 */
-DEF(push_i32, 5) /* push integer on the stack */
-DEF(drop, 1)
+DEF(loop, 6) /* decrement the top the stack and goto if != 0 */
+DEF(push_i32, 6) /* push integer on the stack */
 DEF(word_boundary, 1)
 DEF(word_boundary_i, 1)
 DEF(not_word_boundary, 1)
@@ -58,10 +59,9 @@ DEF(range_i, 3) /* variable length */
 DEF(range32, 3) /* variable length */
 DEF(range32_i, 3) /* variable length */
 DEF(lookahead, 5)
-DEF(negative_lookahead, 5)
-DEF(push_char_pos, 1) /* push the character position on the stack */
-DEF(check_advance, 1) /* pop one stack element and check that it is different from the character position */
+DEF(negative_lookahead, 5) /* must come after */
+DEF(push_char_pos, 2) /* push the character position on the stack */
+DEF(check_advance, 2) /* pop one stack element and check that it is different from the character position */
 DEF(prev, 1) /* go to the previous char */
-DEF(simple_greedy_quant, 17)
 
 #endif /* DEF */
