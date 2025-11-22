@@ -1,4 +1,4 @@
-- micro optimizations (15% faster on bench-v8)
+- micro optimizations (30% faster on bench-v8)
 - added resizable array buffers
 - added ArrayBuffer.prototype.transfer
 - added the Iterator object and methods
