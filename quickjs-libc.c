@@ -3543,7 +3543,8 @@ static void js_free_port(JSRuntime *rt, JSWorkerMessageHandler *port)
     if (port) {
         js_free_message_pipe(port->recv_pipe);
         JS_FreeValueRT(rt, port->on_message_func);
-        list_del(&port->link);
+        if (port->link.prev)
+            list_del(&port->link);
         js_free_rt(rt, port);
     }
 }
@@ -3559,9 +3560,22 @@ static void js_worker_finalizer(JSRuntime *rt, JSValue val)
     }
 }
 
+static void js_worker_mark(JSRuntime *rt, JSValueConst val,
+                           JS_MarkFunc *mark_func)
+{
+    JSWorkerData *worker = JS_GetOpaque(val, js_worker_class_id);
+    if (worker) {
+        JSWorkerMessageHandler *port = worker->msg_handler;
+        if (port) {
+            JS_MarkValue(rt, port->on_message_func, mark_func);
+        }
+    }
+}
+
 static JSClassDef js_worker_class = {
     "Worker",
     .finalizer = js_worker_finalizer,
+    .gc_mark = js_worker_mark,
 };
 
 static void *worker_func(void *opaque)
@@ -4139,9 +4153,15 @@ void js_std_free_handlers(JSRuntime *rt)
     }
 
 #ifdef USE_WORKER
-    /* XXX: free port_list ? */
     js_free_message_pipe(ts->recv_pipe);
     js_free_message_pipe(ts->send_pipe);
+
+    list_for_each_safe(el, el1, &ts->port_list) {
+        JSWorkerMessageHandler *port = list_entry(el, JSWorkerMessageHandler, link);
+        /* unlink the message ports. They are freed by the Worker object */
+        port->link.prev = NULL;
+        port->link.next = NULL;
+    }
 #endif
 
     free(ts);
