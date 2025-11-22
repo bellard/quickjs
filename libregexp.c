@@ -2737,7 +2737,7 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                     if (idx2 >= 0)
                         capture[idx2] = sp[-1].ptr;
                     else
-                        aux_stack[-idx2 + 1] = sp[-1].ptr;
+                        aux_stack[-idx2 - 1] = sp[-1].ptr;
                     sp -= 2;
                 }
                 
@@ -2794,7 +2794,7 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                     if (idx2 >= 0)
                         capture[idx2] = sp[-1].ptr;
                     else
-                        aux_stack[-idx2 + 1] = sp[-1].ptr;
+                        aux_stack[-idx2 - 1] = sp[-1].ptr;
                     sp -= 2;
                 }
                 pc = sp[-3].ptr;

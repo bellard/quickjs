@@ -18022,7 +18022,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             {
                 sp[-2] = JS_NewRegexp(ctx, sp[-2], sp[-1]);
                 sp--;
-                if (JS_IsException(sp[-2]))
+                if (JS_IsException(sp[-1]))
                     goto exception;
             }
             BREAK;
