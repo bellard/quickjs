@@ -2764,6 +2764,8 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                 if (type != RE_EXEC_STATE_LOOKAHEAD)
                     break;
             }
+            if (lre_poll_timeout(s))
+                return LRE_RET_TIMEOUT;
             break;
         case REOP_lookahead_match:
             /* pop all the saved states until reaching the start of
@@ -2866,19 +2868,6 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
         case REOP_negative_lookahead:
             val = get_u32(pc);
             pc += 4;
-            if (opcode == REOP_lookahead && bp != s->stack_buf && 0) {
-                int i;
-                /* save all the capture state so that they can be
-                   restored in case of failure after the lookahead
-                   matches */
-                idx = 4 * s->capture_count;
-                CHECK_STACK_SPACE(idx);
-                for(i = 0; i < 2 * s->capture_count; i++) {
-                    sp[0].val = i;
-                    sp[1].ptr = capture[i];
-                    sp += 2;
-                }
-            }
             CHECK_STACK_SPACE(3);
             sp[0].ptr = (uint8_t *)(pc + (int)val);
             sp[1].ptr = (uint8_t *)cptr;
