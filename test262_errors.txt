@@ -19,6 +19,10 @@ test262/test/language/expressions/compound-assignment/S11.13.2_A6.9_T1.js:24: Te
 test262/test/language/expressions/compound-assignment/S11.13.2_A6.10_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
 test262/test/language/expressions/compound-assignment/S11.13.2_A6.11_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
 test262/test/language/identifier-resolution/assign-to-global-undefined.js:20: strict mode: expected error
+test262/test/language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js:75: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js' is ambiguous
+test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js:74: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js' is ambiguous
+test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js:75: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js' is ambiguous
+test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js:74: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js' is ambiguous
 test262/test/staging/sm/Function/arguments-parameter-shadowing.js:14: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Function/constructor-binding.js:11: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
 test262/test/staging/sm/Function/constructor-binding.js:11: strict mode: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
@@ -33,6 +37,8 @@ test262/test/staging/sm/RegExp/regress-613820-2.js:12: Test262Error: Actual [foo
 test262/test/staging/sm/RegExp/regress-613820-2.js:12: strict mode: Test262Error: Actual [foobar, f, o, o, b, a, r] and expected [foobar, undefined, undefined, undefined, b, a, r] should have the same contents. 
 test262/test/staging/sm/RegExp/regress-613820-3.js:12: Test262Error: Actual [aab, a, undefined, ab] and expected [aa, undefined, a, undefined] should have the same contents. 
 test262/test/staging/sm/RegExp/regress-613820-3.js:12: strict mode: Test262Error: Actual [aab, a, undefined, ab] and expected [aa, undefined, a, undefined] should have the same contents. 
+test262/test/staging/sm/String/string-upper-lower-mapping.js:16: Test262Error: Expected SameValue(«"꟏"», «"꟎"») to be true
+test262/test/staging/sm/String/string-upper-lower-mapping.js:16: strict mode: Test262Error: Expected SameValue(«"꟏"», «"꟎"») to be true
 test262/test/staging/sm/TypedArray/constructor-buffer-sequence.js:29: Test262Error: Expected a ExpectedError but got a Error
 test262/test/staging/sm/TypedArray/constructor-buffer-sequence.js:29: strict mode: Test262Error: Expected a ExpectedError but got a Error
 test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: Test262Error: Expected SameValue(«2», «6») to be true
