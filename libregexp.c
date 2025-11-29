@@ -532,6 +532,19 @@ static __maybe_unused void lre_dump_bytecode(const uint8_t *buf,
             val += (pos + 6);
             printf(" %u, %u", val2, val);
             break;
+        case REOP_loop_split_goto_first:
+        case REOP_loop_split_next_first:
+        case REOP_loop_check_adv_split_goto_first:
+        case REOP_loop_check_adv_split_next_first:
+            {
+                uint32_t limit;
+                val2 = buf[pos + 1];
+                limit = get_u32(buf + pos + 2);
+                val = get_u32(buf + pos + 6);
+                val += (pos + 10);
+                printf(" %u, %u, %u", val2, limit, val);
+            }
+            break;
         case REOP_save_start:
         case REOP_save_end:
         case REOP_back_reference:
@@ -615,6 +628,17 @@ static int re_emit_goto_u8(REParseState *s, int op, uint32_t arg, uint32_t val)
     int pos;
     dbuf_putc(&s->byte_code, op);
     dbuf_putc(&s->byte_code, arg);
+    pos = s->byte_code.size;
+    dbuf_put_u32(&s->byte_code, val - (pos + 4));
+    return pos;
+}
+
+static int re_emit_goto_u8_u32(REParseState *s, int op, uint32_t arg0, uint32_t arg1, uint32_t val)
+{
+    int pos;
+    dbuf_putc(&s->byte_code, op);
+    dbuf_putc(&s->byte_code, arg0);
+    dbuf_put_u32(&s->byte_code, arg1);
     pos = s->byte_code.size;
     dbuf_put_u32(&s->byte_code, val - (pos + 4));
     return pos;
@@ -2183,62 +2207,46 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                         if (dbuf_insert(&s->byte_code, last_atom_start, 11 + add_zero_advance_check * 2))
                             goto out_of_memory;
                         pos = last_atom_start;
+                        s->byte_code.buf[pos++] = REOP_split_goto_first + greedy;
+                        put_u32(s->byte_code.buf + pos, 6 + add_zero_advance_check * 2 + len + 10);
+                        pos += 4;
+
                         s->byte_code.buf[pos++] = REOP_push_i32;
                         s->byte_code.buf[pos++] = 0;
                         put_u32(s->byte_code.buf + pos, quant_max);
                         pos += 4;
-
-                        s->byte_code.buf[pos++] = REOP_split_goto_first + greedy;
-                        put_u32(s->byte_code.buf + pos, len + 6 + add_zero_advance_check * 2 * 2);
-                        pos += 4;
+                        last_atom_start = pos;
                         if (add_zero_advance_check) {
                             s->byte_code.buf[pos++] = REOP_push_char_pos;
                             s->byte_code.buf[pos++] = 0;
-                            re_emit_op_u8(s, REOP_check_advance, 0);
                         }
-                        re_emit_goto_u8(s, REOP_loop, 0, last_atom_start + 6);
+                        re_emit_goto_u8_u32(s, (add_zero_advance_check ? REOP_loop_check_adv_split_next_first : REOP_loop_split_next_first) - greedy, 0, quant_max, last_atom_start);
                     }
                 } else if (quant_min == 1 && quant_max == INT32_MAX &&
                            !add_zero_advance_check) {
                     re_emit_goto(s, REOP_split_next_first - greedy,
                                  last_atom_start);
                 } else {
-                    if (quant_min == 1) {
-                        /* nothing to add */
-                    } else {
-                        if (dbuf_insert(&s->byte_code, last_atom_start, 6))
-                            goto out_of_memory;
-                        s->byte_code.buf[last_atom_start++] = REOP_push_i32;
-                        s->byte_code.buf[last_atom_start++] = 0;
-                        put_u32(s->byte_code.buf + last_atom_start, quant_min);
-                        last_atom_start += 4;
-                        re_emit_goto_u8(s, REOP_loop, 0, last_atom_start);
+                    if (quant_min == quant_max)
+                        add_zero_advance_check = FALSE;
+                    if (dbuf_insert(&s->byte_code, last_atom_start, 6 + add_zero_advance_check * 2))
+                        goto out_of_memory;
+                    /* Note: we assume the string length is < INT32_MAX */
+                    pos = last_atom_start;
+                    s->byte_code.buf[pos++] = REOP_push_i32;
+                    s->byte_code.buf[pos++] = 0;
+                    put_u32(s->byte_code.buf + pos, quant_max);
+                    pos += 4;
+                    last_atom_start = pos;
+                    if (add_zero_advance_check) {
+                        s->byte_code.buf[pos++] = REOP_push_char_pos;
+                        s->byte_code.buf[pos++] = 0;
                     }
-                    if (quant_max == INT32_MAX) {
-                        pos = s->byte_code.size;
-                        re_emit_op_u32(s, REOP_split_goto_first + greedy,
-                                       len + 5 + add_zero_advance_check * 2 * 2);
-                        if (add_zero_advance_check)
-                            re_emit_op_u8(s, REOP_push_char_pos, 0);
-                        /* copy the atom */
-                        dbuf_put_self(&s->byte_code, last_atom_start, len);
-                        if (add_zero_advance_check)
-                            re_emit_op_u8(s, REOP_check_advance, 0);
-                        re_emit_goto(s, REOP_goto, pos);
-                    } else if (quant_max > quant_min) {
-                        re_emit_op_u8(s, REOP_push_i32, 0);
-                        dbuf_put_u32(&s->byte_code, quant_max - quant_min);
-                        
-                        pos = s->byte_code.size;
-                        re_emit_op_u32(s, REOP_split_goto_first + greedy,
-                                       len + 6 + add_zero_advance_check * 2 * 2);
-                        if (add_zero_advance_check)
-                            re_emit_op_u8(s, REOP_push_char_pos, 0);
-                        /* copy the atom */
-                        dbuf_put_self(&s->byte_code, last_atom_start, len);
-                        if (add_zero_advance_check)
-                            re_emit_op_u8(s, REOP_check_advance, 0);
-                        re_emit_goto_u8(s, REOP_loop, 0, pos);
+                    if (quant_min == quant_max) {
+                        /* a simple loop is enough */
+                        re_emit_goto_u8(s, REOP_loop, 0, last_atom_start);
+                    } else {
+                        re_emit_goto_u8_u32(s, (add_zero_advance_check ? REOP_loop_check_adv_split_next_first : REOP_loop_split_next_first) - greedy, 0, quant_max - quant_min, last_atom_start);
                     }
                 }
                 last_atom_start = -1;
@@ -2352,8 +2360,16 @@ static int compute_stack_size(uint8_t *bc_buf, int bc_buf_len)
             break;
         case REOP_check_advance:
         case REOP_loop:
+        case REOP_loop_split_goto_first:
+        case REOP_loop_split_next_first:
             assert(stack_size > 0);
             stack_size--;
+            bc_buf[pos + 1] = stack_size;
+            break;
+        case REOP_loop_check_adv_split_goto_first:
+        case REOP_loop_check_adv_split_next_first:
+            assert(stack_size >= 2);
+            stack_size -= 2;
             bc_buf[pos + 1] = stack_size;
             break;
         case REOP_range:
@@ -2953,6 +2969,56 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
                     pc += (int)val;
                     if (lre_poll_timeout(s))
                         return LRE_RET_TIMEOUT;
+                }
+            }
+            break;
+        case REOP_loop_split_goto_first:
+        case REOP_loop_split_next_first:
+        case REOP_loop_check_adv_split_goto_first:
+        case REOP_loop_check_adv_split_next_first:
+            {
+                const uint8_t *pc1;
+                uint32_t val2, limit;
+                idx = pc[0];
+                limit = get_u32(pc + 1);
+                val = get_u32(pc + 5);
+                pc += 9;
+
+                /* decrement the counter */
+                val2 = (uintptr_t)aux_stack[idx] - 1;
+                SAVE_AUX_STACK(idx, (void *)(uintptr_t)val2);
+
+                if (val2 > limit) {
+                    /* normal loop if counter > limit */
+                    pc += (int)val;
+                    if (lre_poll_timeout(s))
+                        return LRE_RET_TIMEOUT;
+                } else {
+                    /* check advance */
+                    if ((opcode == REOP_loop_check_adv_split_goto_first ||
+                         opcode == REOP_loop_check_adv_split_next_first) &&
+                        aux_stack[idx + 1] == cptr &&
+                        val2 != limit) {
+                        goto no_match;
+                    }
+                    
+                    /* otherwise conditional split */
+                    if (val2 != 0) {
+                        if (opcode == REOP_loop_split_next_first ||
+                            opcode == REOP_loop_check_adv_split_next_first) {
+                            pc1 = pc + (int)val;
+                        } else {
+                            pc1 = pc;
+                            pc = pc + (int)val;
+                        }
+                        CHECK_STACK_SPACE(3);
+                        sp[0].ptr = (uint8_t *)pc1;
+                        sp[1].ptr = (uint8_t *)cptr;
+                        sp[2].bp.val = bp - s->stack_buf;
+                        sp[2].bp.type = RE_EXEC_STATE_SPLIT;
+                        sp += 3;
+                        bp = sp;
+                    }
                 }
             }
             break;

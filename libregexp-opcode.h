@@ -45,6 +45,10 @@ DEF(save_start, 2) /* save start position */
 DEF(save_end, 2) /* save end position, must come after saved_start */
 DEF(save_reset, 3) /* reset save positions */
 DEF(loop, 6) /* decrement the top the stack and goto if != 0 */
+DEF(loop_split_goto_first, 10)
+DEF(loop_split_next_first, 10)
+DEF(loop_check_adv_split_goto_first, 10)
+DEF(loop_check_adv_split_next_first, 10)
 DEF(push_i32, 6) /* push integer on the stack */
 DEF(word_boundary, 1)
 DEF(word_boundary_i, 1)
