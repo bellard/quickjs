@@ -451,13 +451,6 @@ struct JSContext {
 
     uint16_t binary_object_count;
     int binary_object_size;
-    /* TRUE if the array prototype is "normal":
-      - no small index properties which are get/set or non writable
-      - its prototype is Object.prototype
-      - Object.prototype has no small index properties which are get/set or non writable
-      - the prototype of Object.prototype is null (always true as it is immutable)
-    */
-    uint8_t std_array_prototype;
     
     JSShape *array_shape;   /* initial shape for Array objects */
     JSShape *arguments_shape;  /* shape for arguments objects */
@@ -936,7 +929,13 @@ struct JSObject {
         struct {
             int __gc_ref_count; /* corresponds to header.ref_count */
             uint8_t __gc_mark : 7; /* corresponds to header.mark/gc_obj_type */
-            uint8_t is_prototype : 1; /* object may be used as prototype */
+            /* TRUE if the array prototype is "normal":
+               - no small index properties which are get/set or non writable
+               - its prototype is Object.prototype
+               - Object.prototype has no small index properties which are get/set or non writable
+               - the prototype of Object.prototype is null (always true as it is immutable)
+            */
+            uint8_t is_std_array_prototype : 1;
 
             uint8_t extensible : 1;
             uint8_t free_mark : 1; /* only used when freeing objects with cycles */
@@ -5206,7 +5205,7 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
     if (unlikely(!p))
         goto fail;
     p->class_id = class_id;
-    p->is_prototype = 0;
+    p->is_std_array_prototype = 0;
     p->extensible = TRUE;
     p->free_mark = 0;
     p->is_exotic = 0;
@@ -7566,14 +7565,7 @@ static int JS_SetPrototypeInternal(JSContext *ctx, JSValueConst obj,
     if (sh->proto)
         JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, sh->proto));
     sh->proto = proto;
-    if (proto)
-        proto->is_prototype = TRUE;
-    if (p->is_prototype) {
-        /* track modification of Array.prototype */
-        if (unlikely(p == JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]))) {
-            ctx->std_array_prototype = FALSE;
-        }
-    }
+    p->is_std_array_prototype = FALSE; 
     return TRUE;
 }
 
@@ -8773,12 +8765,25 @@ static JSProperty *add_property(JSContext *ctx,
 {
     JSShape *sh, *new_sh;
 
-    if (unlikely(p->is_prototype)) {
-        /* track addition of small integer properties to Array.prototype and Object.prototype */
-        if (unlikely((p == JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]) ||
-                      p == JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_OBJECT])) &&
-                     __JS_AtomIsTaggedInt(prop))) {
-            ctx->std_array_prototype = FALSE;
+    if (unlikely(__JS_AtomIsTaggedInt(prop))) {
+        /* update is_std_array_prototype */
+        if (unlikely(p->is_std_array_prototype)) {
+            p->is_std_array_prototype = FALSE;
+        } else if (unlikely(p->has_immutable_prototype)) {
+            struct list_head *el;
+            
+            /* modifying Object.prototype : reset the corresponding is_std_array_prototype */
+            list_for_each(el, &ctx->rt->context_list) {
+                JSContext *ctx1 = list_entry(el, JSContext, link);
+                if (JS_IsObject(ctx1->class_proto[JS_CLASS_OBJECT]) && 
+                    JS_VALUE_GET_OBJ(ctx1->class_proto[JS_CLASS_OBJECT]) == p) {
+                    if (JS_IsObject(ctx1->class_proto[JS_CLASS_ARRAY])) {
+                        JSObject *p1 = JS_VALUE_GET_OBJ(ctx1->class_proto[JS_CLASS_ARRAY]);
+                        p1->is_std_array_prototype = FALSE;
+                    }
+                    break;
+                }
+            }
         }
     }
     sh = p->shape;
@@ -8860,11 +8865,7 @@ static no_inline __exception int convert_fast_array_to_array(JSContext *ctx,
     p->u.array.u.values = NULL; /* fail safe */
     p->u.array.u1.size = 0;
     p->fast_array = 0;
-
-    /* track modification of Array.prototype */
-    if (unlikely(p == JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]))) {
-        ctx->std_array_prototype = FALSE;
-    }
+    p->is_std_array_prototype = FALSE;
     return 0;
 }
 
@@ -9509,6 +9510,18 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
     }
 }
 
+/* return true if an element can be added to a fast array without further tests */
+static force_inline BOOL can_extend_fast_array(JSObject *p)
+{
+    JSObject *proto;
+    if (!p->extensible)
+        return FALSE;
+    proto = p->shape->proto;
+    if (!proto)
+        return TRUE;
+    return proto->is_std_array_prototype;
+}
+
 /* flags can be JS_PROP_THROW or JS_PROP_THROW_STRICT */
 static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
                                JSValue prop, JSValue val, int flags)
@@ -9529,9 +9542,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
                 /* fast path to add an element to the array */
                 if (unlikely(idx != (uint32_t)p->u.array.count ||
                              !p->fast_array ||
-                             !p->extensible ||
-                             p->shape->proto != JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]) ||
-                             !ctx->std_array_prototype)) {
+                             !can_extend_fast_array(p))) {
                     goto slow_path;
                 }
                 /* add element */
@@ -19142,9 +19153,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         uint32_t new_len, array_len;
                         if (unlikely(idx != (uint32_t)p->u.array.count ||
                                      !p->fast_array ||
-                                     !p->extensible ||
-                                     p->shape->proto != JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]) ||
-                                     !ctx->std_array_prototype)) {
+                                     !can_extend_fast_array(p))) {
                             goto put_array_el_slow_path;
                         }
                         if (likely(JS_VALUE_GET_TAG(p->prop[0].u.value) != JS_TAG_INT))
@@ -42117,9 +42126,7 @@ static JSValue js_array_push(JSContext *ctx, JSValueConst this_val,
     if (likely(JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT && !unshift)) {
         JSObject *p = JS_VALUE_GET_OBJ(this_val);
         if (likely(p->class_id == JS_CLASS_ARRAY && p->fast_array &&
-                   p->extensible &&
-                   p->shape->proto == JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]) &&
-                   ctx->std_array_prototype &&
+                   can_extend_fast_array(p) &&
                    JS_VALUE_GET_TAG(p->prop[0].u.value) == JS_TAG_INT &&
                    JS_VALUE_GET_INT(p->prop[0].u.value) == p->u.array.count &&
                    (get_shape_prop(p->shape)->flags & JS_PROP_WRITABLE) != 0)) {
@@ -55408,6 +55415,11 @@ static int JS_AddIntrinsicBasicObjects(JSContext *ctx)
         return -1;
     ctx->array_ctor = obj;
 
+    {
+        JSObject *p = JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_ARRAY]);
+        p->is_std_array_prototype = TRUE;
+    }
+    
     ctx->array_shape = js_new_shape2(ctx, get_proto_obj(ctx->class_proto[JS_CLASS_ARRAY]),
                                      JS_PROP_INITIAL_HASH_SIZE, 1);
     if (!ctx->array_shape)
@@ -55415,7 +55427,6 @@ static int JS_AddIntrinsicBasicObjects(JSContext *ctx)
     if (add_shape_property(ctx, &ctx->array_shape, NULL,
                            JS_ATOM_length, JS_PROP_WRITABLE | JS_PROP_LENGTH))
         return -1;
-    ctx->std_array_prototype = TRUE;
 
     ctx->arguments_shape = js_new_shape2(ctx, get_proto_obj(ctx->class_proto[JS_CLASS_OBJECT]),
                                          JS_PROP_INITIAL_HASH_SIZE, 3);
