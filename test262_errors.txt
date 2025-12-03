@@ -31,12 +31,6 @@ test262/test/staging/sm/Function/function-name-for.js:13: Test262Error: Expected
 test262/test/staging/sm/Function/implicit-this-in-parameter-expression.js:12: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: strict mode: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/staging/sm/RegExp/regress-613820-1.js:12: Test262Error: Actual [aaa, aa, a] and expected [aa, a, a] should have the same contents. 
-test262/test/staging/sm/RegExp/regress-613820-1.js:12: strict mode: Test262Error: Actual [aaa, aa, a] and expected [aa, a, a] should have the same contents. 
-test262/test/staging/sm/RegExp/regress-613820-2.js:12: Test262Error: Actual [foobar, f, o, o, b, a, r] and expected [foobar, undefined, undefined, undefined, b, a, r] should have the same contents. 
-test262/test/staging/sm/RegExp/regress-613820-2.js:12: strict mode: Test262Error: Actual [foobar, f, o, o, b, a, r] and expected [foobar, undefined, undefined, undefined, b, a, r] should have the same contents. 
-test262/test/staging/sm/RegExp/regress-613820-3.js:12: Test262Error: Actual [aab, a, undefined, ab] and expected [aa, undefined, a, undefined] should have the same contents. 
-test262/test/staging/sm/RegExp/regress-613820-3.js:12: strict mode: Test262Error: Actual [aab, a, undefined, ab] and expected [aa, undefined, a, undefined] should have the same contents. 
 test262/test/staging/sm/String/string-upper-lower-mapping.js:16: Test262Error: Expected SameValue(«"꟏"», «"꟎"») to be true
 test262/test/staging/sm/String/string-upper-lower-mapping.js:16: strict mode: Test262Error: Expected SameValue(«"꟏"», «"꟎"») to be true
 test262/test/staging/sm/TypedArray/constructor-buffer-sequence.js:29: Test262Error: Expected a ExpectedError but got a Error

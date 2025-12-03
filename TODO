@@ -63,4 +63,4 @@ Test262o:   0/11262 errors, 463 excluded
 Test262o commit: 7da91bceb9ce7613f87db47ddd1292a2dda58b42 (es5-tests branch)
 
 Test262:
-Result: 72/83257 errors, 2590 excluded, 5786 skipped
+Result: 66/83295 errors, 2590 excluded, 5767 skipped

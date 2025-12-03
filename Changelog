@@ -6,6 +6,7 @@
 - added Atomics.pause
 - added added Map and WeakMap upsert methods
 - added Math.sumPrecise()
+- added regexp duplicate named groups
 - misc bug fixes
 
 2025-09-13:

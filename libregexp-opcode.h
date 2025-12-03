@@ -54,7 +54,7 @@ DEF(word_boundary, 1)
 DEF(word_boundary_i, 1)
 DEF(not_word_boundary, 1)
 DEF(not_word_boundary_i, 1)
-DEF(back_reference, 2)
+DEF(back_reference, 2) /* variable length */
 DEF(back_reference_i, 2) /* must come after */
 DEF(backward_back_reference, 2) /* must come after */
 DEF(backward_back_reference_i, 2) /* must come after */
