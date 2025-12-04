@@ -426,10 +426,13 @@ void help(void)
     exit(1);
 }
 
-#if defined(CONFIG_CC) && !defined(_WIN32)
+#if defined(CONFIG_CC)
 
 int exec_cmd(char **argv)
 {
+#ifdef _WIN32
+    return _spawnvp(_P_WAIT, argv[0], (const char * const *)argv);
+#else
     int pid, status, ret;
 
     pid = fork();
@@ -444,6 +447,7 @@ int exec_cmd(char **argv)
             break;
     }
     return WEXITSTATUS(status);
+#endif
 }
 
 static int output_executable(const char *out_filename, const char *cfilename,
@@ -731,7 +735,11 @@ int main(int argc, char **argv)
 
     if (!out_filename) {
         if (output_type == OUTPUT_EXECUTABLE) {
+#ifdef _WIN32
+            out_filename = "a.exe";
+#else
             out_filename = "a.out";
+#endif
         } else {
             out_filename = "out.c";
         }
