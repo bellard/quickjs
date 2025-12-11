@@ -1161,6 +1161,9 @@ void JS_PrintValueRT(JSRuntime *rt, JSPrintValueWrite *write_func, void *write_o
 void JS_PrintValue(JSContext *ctx, JSPrintValueWrite *write_func, void *write_opaque,
                    JSValueConst val, const JSPrintValueOptions *options);
 
+JSValue JS_ConcatString(JSContext *ctx, JSValue op1, JSValue op2);
+JS_BOOL JS_NumberIsNegativeOrMinusZero(JSContext *ctx, JSValueConst val);
+
 #undef js_unlikely
 #undef js_force_inline
 
