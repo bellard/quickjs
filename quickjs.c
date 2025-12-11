@@ -45142,7 +45142,7 @@ static JSValue js_string_match(JSContext *ctx, JSValueConst this_val,
     if (JS_IsUndefined(O) || JS_IsNull(O))
         return JS_ThrowTypeError(ctx, "cannot convert to object");
 
-    if (!JS_IsUndefined(regexp) && !JS_IsNull(regexp)) {
+    if (JS_IsObject(regexp)) {
         matcher = JS_GetProperty(ctx, regexp, atom);
         if (JS_IsException(matcher))
             return JS_EXCEPTION;
@@ -45322,7 +45322,7 @@ static JSValue js_string_replace(JSContext *ctx, JSValueConst this_val,
     replaceValue_str = JS_UNDEFINED;
     repl_str = JS_UNDEFINED;
 
-    if (!JS_IsUndefined(searchValue) && !JS_IsNull(searchValue)) {
+    if (JS_IsObject(searchValue)) {
         JSValue replacer;
         if (is_replaceAll) {
             if (check_regexp_g_flag(ctx, searchValue) < 0)
@@ -45433,7 +45433,7 @@ static JSValue js_string_split(JSContext *ctx, JSValueConst this_val,
     A = JS_UNDEFINED;
     R = JS_UNDEFINED;
 
-    if (!JS_IsUndefined(separator) && !JS_IsNull(separator)) {
+    if (JS_IsObject(separator)) {
         JSValue splitter;
         splitter = JS_GetProperty(ctx, separator, JS_ATOM_Symbol_split);
         if (JS_IsException(splitter))
