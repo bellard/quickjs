@@ -29957,6 +29957,7 @@ static int js_create_module_bytecode_function(JSContext *ctx, JSModuleDef *m)
 
     if (JS_IsException(func_obj))
         return -1;
+    m->func_obj = func_obj;
     b = JS_VALUE_GET_PTR(bfunc);
     func_obj = js_closure2(ctx, func_obj, b, NULL, NULL, TRUE, m);
     if (JS_IsException(func_obj)) {
@@ -29964,7 +29965,6 @@ static int js_create_module_bytecode_function(JSContext *ctx, JSModuleDef *m)
         JS_FreeValue(ctx, func_obj);
         return -1;
     }
-    m->func_obj = func_obj;
     return 0;
 }
 
