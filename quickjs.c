@@ -23364,8 +23364,10 @@ static int cpool_add(JSParseState *s, JSValue val)
     JSFunctionDef *fd = s->cur_func;
 
     if (js_resize_array(s->ctx, (void *)&fd->cpool, sizeof(fd->cpool[0]),
-                        &fd->cpool_size, fd->cpool_count + 1))
+                        &fd->cpool_size, fd->cpool_count + 1)) {
+        JS_FreeValue(s->ctx, val);
         return -1;
+    }
     fd->cpool[fd->cpool_count++] = val;
     return fd->cpool_count - 1;
 }
