@@ -1,8 +1,7 @@
 #!/bin/sh
 set -e
 
-version="16.0.0"
-emoji_version="16.0"
+version="17.0.0"
 url="ftp://ftp.unicode.org/Public"
 
 files="CaseFolding.txt DerivedNormalizationProps.txt PropList.txt \
@@ -19,5 +18,5 @@ done
 
 wget "${url}/${version}/ucd/emoji/emoji-data.txt" -O unicode/emoji-data.txt
 
-wget "${url}/emoji/${emoji_version}/emoji-sequences.txt" -O unicode/emoji-sequences.txt
-wget "${url}/emoji/${emoji_version}/emoji-zwj-sequences.txt" -O unicode/emoji-zwj-sequences.txt
+wget "${url}/${version}/emoji/emoji-sequences.txt" -O unicode/emoji-sequences.txt
+wget "${url}/${version}/emoji/emoji-zwj-sequences.txt" -O unicode/emoji-zwj-sequences.txt

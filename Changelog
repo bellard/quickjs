@@ -1,4 +1,4 @@
-- micro optimizations (15% faster on bench-v8)
+- micro optimizations (30% faster on bench-v8)
 - added resizable array buffers
 - added ArrayBuffer.prototype.transfer
 - added the Iterator object and methods
@@ -6,6 +6,7 @@
 - added Atomics.pause
 - added added Map and WeakMap upsert methods
 - added Math.sumPrecise()
+- added regexp duplicate named groups
 - misc bug fixes
 
 2025-09-13:

@@ -547,6 +547,43 @@ function typed_array_write(n)
     return len * n;
 }
 
+function arguments_test()
+{
+    return arguments[0] + arguments[1] + arguments[2];
+}
+
+function arguments_read(n)
+{
+    sum = 0;
+    for(j = 0; j < n; j++) {
+        sum += arguments_test(j, j, j);
+        sum += arguments_test(j, j, j);
+        sum += arguments_test(j, j, j);
+        sum += arguments_test(j, j, j);
+    }
+    global_res = sum;
+    return n * 4;
+}
+
+function arguments_strict_test()
+{
+    "use strict";
+    return arguments[0] + arguments[1] + arguments[2];
+}
+
+function arguments_strict_read(n)
+{
+    sum = 0;
+    for(j = 0; j < n; j++) {
+        sum += arguments_strict_test(j, j, j);
+        sum += arguments_strict_test(j, j, j);
+        sum += arguments_strict_test(j, j, j);
+        sum += arguments_strict_test(j, j, j);
+    }
+    global_res = sum;
+    return n * 4;
+}
+
 var global_var0;
 
 function global_read(n)
@@ -939,6 +976,18 @@ function regexp_utf16(n)
     for(j = 0; j < n; j++) {
         for(i = 0; i < 1000; i++)
             r = /the quick brown ᶠᵒˣ/.exec(s)
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_replace(n)
+{
+    var i, j, r, s;
+    s = "the quick abc brown fox jumped abc over the lazy dog"
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = s.replace(/abc /g, "-");
         global_res = r;
     }
     return n * 1000;
@@ -1408,6 +1457,8 @@ function main(argc, argv, g)
         array_pop,
         typed_array_read,
         typed_array_write,
+        arguments_read,
+        arguments_strict_read,
         global_read,
         global_write,
         global_write_strict,
@@ -1431,6 +1482,7 @@ function main(argc, argv, g)
         math_min,
         regexp_ascii,
         regexp_utf16,
+        regexp_replace,
         string_length,
         string_build1,
         string_build1x,
