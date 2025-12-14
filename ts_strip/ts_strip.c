@@ -532,15 +532,35 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
             ctx->has_unsupported = true;
             return VISITED_JS;
         }
-        
-        TSNode clause = get_child_by_field(n, "import_clause");
-        if (!ts_node_is_null(clause) && !ts_node_is_null(find_child_type(clause, "type"))) {
+
+        // Check for "import type ..." - type keyword is direct child of import_statement
+        if (!ts_node_is_null(find_child_type(n, "type"))) {
             blank_stmt(ctx, n);
             return VISIT_BLANKED;
         }
+        // Visit children to handle inline type specifiers
+        visit_children(ctx, n);
         return VISITED_JS;
     }
-    
+
+    // Import specifier - blank inline type keyword
+    if (strcmp(type, "import_specifier") == 0) {
+        TSNode type_keyword = find_child_type(n, "type");
+        if (!ts_node_is_null(type_keyword)) {
+            blank_node(ctx, type_keyword);
+        }
+        return VISITED_JS;
+    }
+
+    // Export specifier - blank inline type keyword
+    if (strcmp(type, "export_specifier") == 0) {
+        TSNode type_keyword = find_child_type(n, "type");
+        if (!ts_node_is_null(type_keyword)) {
+            blank_node(ctx, type_keyword);
+        }
+        return VISITED_JS;
+    }
+
     // Import alias
     if (strcmp(type, "import_alias") == 0) {
         return VISITED_JS;

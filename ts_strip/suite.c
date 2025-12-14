@@ -654,13 +654,143 @@ void test_non_null_assertion(ts_strip_ctx_t* ctx) {
     test_end();
 }
 
+void test_inline_type_import_specifier(ts_strip_ctx_t* ctx) {
+    test_start("inline type import specifier removal");
+
+    const char* input =
+        "import {\n"
+        "    defineGenerator,\n"
+        "    type GeneratorArtifact,\n"
+        "    type GeneratorContext,\n"
+        "} from \"@bebop/sdk/ge\";\n";
+
+    const char* expected =
+        "import {\n"
+        "    defineGenerator,\n"
+        "         GeneratorArtifact,\n"
+        "         GeneratorContext,\n"
+        "} from \"@bebop/sdk/ge\";\n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle inline type import specifiers");
+    assert_equal_str(output, expected, "Type keyword before import specifiers should be blanked");
+
+    free(output);
+    test_end();
+}
+
+void test_inline_type_export_specifier(ts_strip_ctx_t* ctx) {
+    test_start("inline type export specifier removal");
+
+    const char* input = "export { type Foo, bar, type Baz } from \"./module\";\n";
+    const char* expected = "export {      Foo, bar,      Baz } from \"./module\";\n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle inline type export specifiers");
+    assert_equal_str(output, expected, "Type keyword before export specifiers should be blanked");
+
+    free(output);
+    test_end();
+}
+
+void test_import_type_named(ts_strip_ctx_t* ctx) {
+    test_start("import type { Foo } blanked entirely");
+
+    const char* input = "import type { Foo } from \"./module\";\n";
+    const char* expected = "                                    \n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle import type named");
+    assert_equal_str(output, expected, "Full type import should be blanked entirely");
+
+    free(output);
+    test_end();
+}
+
+void test_import_type_default(ts_strip_ctx_t* ctx) {
+    test_start("import type Bar blanked entirely");
+
+    const char* input = "import type Bar from \"./module\";\n";
+    const char* expected = "                                \n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle import type default");
+    assert_equal_str(output, expected, "Default type import should be blanked entirely");
+
+    free(output);
+    test_end();
+}
+
+void test_export_type_named(ts_strip_ctx_t* ctx) {
+    test_start("export type { Foo } blanked entirely");
+
+    const char* input = "export type { Foo };\n";
+    const char* expected = "                    \n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle export type named");
+    assert_equal_str(output, expected, "Full type export should be blanked entirely");
+
+    free(output);
+    test_end();
+}
+
+void test_mixed_import_with_inline_types(ts_strip_ctx_t* ctx) {
+    test_start("mixed import with inline type specifiers");
+
+    const char* input = "import { createCatName, type Cat, type Dog } from \"./animal\";\n";
+    const char* expected = "import { createCatName,      Cat,      Dog } from \"./animal\";\n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle mixed import with inline types");
+    assert_equal_str(output, expected, "Inline type keywords should be blanked, values preserved");
+
+    free(output);
+    test_end();
+}
+
+void test_import_type_with_alias(ts_strip_ctx_t* ctx) {
+    test_start("import type with alias blanked entirely");
+
+    const char* input = "import type { UserId as IdType } from './types';\n";
+    const char* expected = "                                                \n";
+
+    char* output;
+    size_t output_len;
+    bool success = test_strip_success(ctx, input, &output, &output_len);
+
+    assert_true(success, "Should successfully handle import type with alias");
+    assert_equal_str(output, expected, "Import type with alias should be blanked entirely");
+
+    free(output);
+    test_end();
+}
+
 // ============================================================================
 // PURE JAVASCRIPT TESTS - Should pass through unchanged
 // ============================================================================
 
 void test_pure_js_variables(ts_strip_ctx_t* ctx) {
     test_start("pure JS: variable declarations");
-    
+
     const char* input = "let x = 1;\nconst y = 2;\nvar z = 3;\n";
     char* output;
     size_t output_len;
@@ -858,6 +988,13 @@ int main() {
     test_as_expression(ctx);
     test_satisfies_expression(ctx);
     test_non_null_assertion(ctx);
+    test_inline_type_import_specifier(ctx);
+    test_inline_type_export_specifier(ctx);
+    test_import_type_named(ctx);
+    test_import_type_default(ctx);
+    test_export_type_named(ctx);
+    test_mixed_import_with_inline_types(ctx);
+    test_import_type_with_alias(ctx);
 
     // Pure JavaScript tests
     test_pure_js_variables(ctx);
