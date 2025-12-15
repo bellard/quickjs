@@ -79,6 +79,29 @@ typedef enum {
   HAKO_TYPE_FUNCTION = 7
 } HAKOTypeOf;
 
+//! Property descriptor flags for HAKO_DefineProp
+typedef enum HAKO_PropFlags {
+  HAKO_PROP_CONFIGURABLE = 1 << 0,
+  HAKO_PROP_ENUMERABLE = 1 << 1,
+  HAKO_PROP_WRITABLE = 1 << 2,
+  HAKO_PROP_HAS_VALUE = 1 << 3,
+  HAKO_PROP_HAS_WRITABLE = 1 << 4,
+  HAKO_PROP_HAS_GET = 1 << 5,
+  HAKO_PROP_HAS_SET = 1 << 6,
+} HAKO_PropFlags;
+
+//! Property descriptor for HAKO_DefineProp
+typedef struct HAKO_PropDescriptor {
+  union {
+    JSValueConst* value; // data descriptor
+    struct {
+      JSValueConst* get; // accessor descriptor
+      JSValueConst* set;
+    } accessor;
+  };
+  uint8_t flags;
+} HAKO_PropDescriptor;
+
 //! Creates a new runtime
 //! @return New runtime or NULL on failure. Caller owns, free with HAKO_FreeRuntime.
 HAKO_EXPORT("HAKO_NewRuntime") extern JSRuntime* HAKO_NewRuntime(void);
@@ -326,16 +349,9 @@ HAKO_EXPORT("HAKO_SetProp") extern JS_BOOL HAKO_SetProp(JSContext* ctx, JSValueC
 //! @param ctx Context to use
 //! @param this_val Object to define property on
 //! @param prop_name Property name value
-//! @param prop_val Property value (if has_value is true)
-//! @param getter Getter function or undefined
-//! @param setter Setter function or undefined
-//! @param configurable Property is configurable
-//! @param enumerable Property is enumerable
-//! @param has_value Descriptor includes value
-//! @param has_writable Descriptor includes writable
-//! @param writable Property is writable (if has_writable)
+//! @param desc Property descriptor with value/accessors and flags
 //! @return 1 on success, 0 on failure, -1 on exception
-HAKO_EXPORT("HAKO_DefineProp") extern JS_BOOL HAKO_DefineProp(JSContext* ctx, JSValueConst* this_val, JSValueConst* prop_name, JSValueConst* prop_val, JSValueConst* getter, JSValueConst* setter, JS_BOOL configurable, JS_BOOL enumerable, JS_BOOL has_value, JS_BOOL has_writable, JS_BOOL writable);
+HAKO_EXPORT("HAKO_DefineProp") extern JS_BOOL HAKO_DefineProp(JSContext* ctx, JSValueConst* this_val, JSValueConst* prop_name, HAKO_PropDescriptor* desc);
 
 //! Gets own property names from object
 //! @param ctx Context to use

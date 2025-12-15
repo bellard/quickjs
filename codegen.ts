@@ -336,6 +336,7 @@ const CSharpGenerator = {
 			return "JSValuePointer";
 		if (cType === "JSModuleDef*") return "JSModuleDefPointer";
 		if (cType === "JSClassID") return "JSClassID";
+		if (cType === "HAKO_PropDescriptor*") return "PropDescriptorPointer";
 
 		if (cType === "void*") {
 			if (

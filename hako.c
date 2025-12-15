@@ -1055,54 +1055,62 @@ JS_BOOL HAKO_SetProp(JSContext *ctx, JSValueConst *this_val,
 }
 
 JS_BOOL HAKO_DefineProp(JSContext *ctx, JSValueConst *this_val,
-                        JSValueConst *prop_name, JSValueConst *prop_value,
-                        JSValueConst *get, JSValueConst *set,
-                        JS_BOOL configurable, JS_BOOL enumerable,
-                        JS_BOOL has_value, JS_BOOL has_writable,
-                        JS_BOOL writable) {
+                        JSValueConst *prop_name, HAKO_PropDescriptor *desc) {
   JSAtom prop_atom;
-  int32_t flags = 0;
-  int32_t has_get, has_set, is_accessor;
+  int32_t js_flags = 0;
+  int32_t is_accessor;
   int32_t result;
+  JSValue prop_value = JS_UNDEFINED;
+  JSValue getter = JS_UNDEFINED;
+  JSValue setter = JS_UNDEFINED;
 
   prop_atom = JS_ValueToAtom(ctx, *prop_name);
   if (prop_atom == JS_ATOM_NULL)
     return -1;
 
-  has_get = !JS_IsUndefined(*get);
-  has_set = !JS_IsUndefined(*set);
-  is_accessor = (has_get || has_set);
+  is_accessor = (desc->flags & HAKO_PROP_HAS_GET) ||
+                (desc->flags & HAKO_PROP_HAS_SET);
 
-  if (is_accessor && (has_value || has_writable)) {
+  if (is_accessor && ((desc->flags & HAKO_PROP_HAS_VALUE) ||
+                      (desc->flags & HAKO_PROP_HAS_WRITABLE))) {
     JS_FreeAtom(ctx, prop_atom);
     JS_ThrowTypeError(ctx, "accessor descriptor cannot include value/writable");
     return -1;
   }
 
-  flags |= JS_PROP_HAS_CONFIGURABLE;
-  if (configurable) {
-    flags |= JS_PROP_CONFIGURABLE;
+  js_flags |= JS_PROP_HAS_CONFIGURABLE;
+  if (desc->flags & HAKO_PROP_CONFIGURABLE) {
+    js_flags |= JS_PROP_CONFIGURABLE;
   }
-  flags |= JS_PROP_HAS_ENUMERABLE;
-  if (enumerable) {
-    flags |= JS_PROP_ENUMERABLE;
+  js_flags |= JS_PROP_HAS_ENUMERABLE;
+  if (desc->flags & HAKO_PROP_ENUMERABLE) {
+    js_flags |= JS_PROP_ENUMERABLE;
   }
-  if (has_get)
-    flags |= JS_PROP_HAS_GET;
-  if (has_set)
-    flags |= JS_PROP_HAS_SET;
-  if (has_value) {
-    flags |= JS_PROP_HAS_VALUE;
-  }
-  if (!is_accessor && has_writable) {
-    flags |= JS_PROP_HAS_WRITABLE;
-    if (writable) {
-      flags |= JS_PROP_WRITABLE;
+
+  if (is_accessor) {
+    if (desc->flags & HAKO_PROP_HAS_GET) {
+      js_flags |= JS_PROP_HAS_GET;
+      getter = desc->accessor.get ? *desc->accessor.get : JS_UNDEFINED;
+    }
+    if (desc->flags & HAKO_PROP_HAS_SET) {
+      js_flags |= JS_PROP_HAS_SET;
+      setter = desc->accessor.set ? *desc->accessor.set : JS_UNDEFINED;
+    }
+  } else {
+    if (desc->flags & HAKO_PROP_HAS_VALUE) {
+      js_flags |= JS_PROP_HAS_VALUE;
+      prop_value = desc->value ? *desc->value : JS_UNDEFINED;
+    }
+    if (desc->flags & HAKO_PROP_HAS_WRITABLE) {
+      js_flags |= JS_PROP_HAS_WRITABLE;
+      if (desc->flags & HAKO_PROP_WRITABLE) {
+        js_flags |= JS_PROP_WRITABLE;
+      }
     }
   }
 
-  result = JS_DefineProperty(ctx, *this_val, prop_atom, *prop_value, *get, *set,
-                             flags);
+  result = JS_DefineProperty(ctx, *this_val, prop_atom, prop_value, getter,
+                             setter, js_flags);
   JS_FreeAtom(ctx, prop_atom);
   return result;
 }
