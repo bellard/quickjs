@@ -17,7 +17,8 @@ enum visit_result {
 
 enum range_flag {
     FLAG_BLANK = 0,
-    FLAG_REPLACE_WITH_SEMI = 3,
+    FLAG_REPLACE_START_WITH_SEMI = 1,  // Semicolon at start of range (for class field replacement)
+    FLAG_REPLACE_END_WITH_SEMI = 3,    // Semicolon at end of range (for ASI safety)
 };
 
 typedef struct {
@@ -177,8 +178,14 @@ static inline bool blank_range(parse_ctx_t* ctx, uint32_t start, uint32_t end) {
     return range_array_push(&ctx->ranges, ctx->allocator, FLAG_BLANK, start, end);
 }
 
-static inline bool blank_semi(parse_ctx_t* ctx, uint32_t start, uint32_t end) {
-    return range_array_push(&ctx->ranges, ctx->allocator, FLAG_REPLACE_WITH_SEMI, start, end);
+// Blank with semicolon at START (for class field replacement)
+static inline bool blank_semi_start(parse_ctx_t* ctx, uint32_t start, uint32_t end) {
+    return range_array_push(&ctx->ranges, ctx->allocator, FLAG_REPLACE_START_WITH_SEMI, start, end);
+}
+
+// Blank with semicolon at END (for ASI safety)
+static inline bool blank_semi_end(parse_ctx_t* ctx, uint32_t start, uint32_t end) {
+    return range_array_push(&ctx->ranges, ctx->allocator, FLAG_REPLACE_END_WITH_SEMI, start, end);
 }
 
 static inline bool blank_node(parse_ctx_t* ctx, TSNode n) {
@@ -188,9 +195,10 @@ static inline bool blank_node(parse_ctx_t* ctx, TSNode n) {
 static bool blank_stmt(parse_ctx_t* ctx, TSNode n) {
     uint32_t start = ts_node_start_byte(n);
     uint32_t end = ts_node_end_byte(n);
-    
+
+    // Check if ASI semicolon is needed when seen_js is true
     if (ctx->seen_js && ctx->in_function_body == 0) {
-        return blank_semi(ctx, start, end);
+        return blank_semi_start(ctx, start, end);
     }
     return blank_range(ctx, start, end);
 }
@@ -257,9 +265,29 @@ static bool has_runtime_values(parse_ctx_t* ctx, TSNode n) {
         }
         
         // Runtime statements
-        if (strcmp(type, "expression_statement") == 0 ||
-            strcmp(type, "statement_block") == 0) {
+        if (strcmp(type, "expression_statement") == 0) {
             return true;
+        }
+
+        // Statement block inside a namespace body is the namespace's body
+        // When we see it, we need to check its children
+        // But a statement_block INSIDE another statement_block is a block statement (runtime)
+        if (strcmp(type, "statement_block") == 0) {
+            // Check the children of this statement_block
+            uint32_t block_count = ts_node_child_count(child);
+            for (uint32_t j = 0; j < block_count; j++) {
+                TSNode block_child = ts_node_child(child, j);
+                const char* block_child_type = ts_node_type(block_child);
+                // Nested statement_block is a block statement (runtime code)
+                if (strcmp(block_child_type, "statement_block") == 0) {
+                    return true;
+                }
+            }
+            // Recursively check the statement_block contents
+            if (has_runtime_values(ctx, child)) {
+                return true;
+            }
+            continue;
         }
         
         // Variable/function/class declarations
@@ -329,17 +357,52 @@ static bool has_param_props(TSNode params) {
     return false;
 }
 
+// Check if a parameter is a `this` parameter (this: Type)
+static bool is_this_parameter(TSNode param) {
+    uint32_t count = ts_node_child_count(param);
+    for (uint32_t i = 0; i < count; i++) {
+        TSNode child = ts_node_child(param, i);
+        const char* child_type = ts_node_type(child);
+        // In tree-sitter-typescript, the `this` keyword in a this parameter has type "this"
+        if (strcmp(child_type, "this") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Visit parameter list and blank type annotations
 static void visit_formal_parameters(parse_ctx_t* ctx, TSNode params) {
     uint32_t count = ts_node_child_count(params);
     for (uint32_t i = 0; i < count; i++) {
         TSNode param = ts_node_child(params, i);
+        const char* param_type = ts_node_type(param);
+
+        // Skip non-parameter children like parentheses and commas
+        if (strcmp(param_type, "(") == 0 || strcmp(param_type, ")") == 0 ||
+            strcmp(param_type, ",") == 0) {
+            continue;
+        }
+
+        // Check if this is a `this` parameter - blank it entirely
+        if (is_this_parameter(param)) {
+            uint32_t start = ts_node_start_byte(param);
+            uint32_t end = ts_node_end_byte(param);
+
+            // Also blank trailing comma if present
+            if (end < ctx->source_len && ctx->source[end] == ',') {
+                end++;
+            }
+
+            blank_range(ctx, start, end);
+            continue;
+        }
+
         uint32_t param_count = ts_node_child_count(param);
-        
         for (uint32_t j = 0; j < param_count; j++) {
             TSNode child = ts_node_child(param, j);
             const char* type = ts_node_type(child);
-            
+
             if (strcmp(type, "type_annotation") == 0 || strcmp(type, "?") == 0) {
                 blank_node(ctx, child);
             } else {
@@ -349,42 +412,74 @@ static void visit_formal_parameters(parse_ctx_t* ctx, TSNode params) {
     }
 }
 
+// Helper to blank a node including any trailing semicolon (for class members)
+static void blank_member_with_semi(parse_ctx_t* ctx, TSNode n) {
+    uint32_t start = ts_node_start_byte(n);
+    uint32_t end = ts_node_end_byte(n);
+    // Check if there's a semicolon immediately after (tree-sitter often has separate `;` nodes)
+    if (end < ctx->source_len && ctx->source[end] == ';') {
+        end++; // Include the semicolon in blanking
+    }
+    blank_range(ctx, start, end);
+}
+
 // Handle function-like nodes
 static int visit_function_like(parse_ctx_t* ctx, TSNode n) {
-    TSNode body = get_child_by_field(n, "body");
-    if (ts_node_is_null(body)) {
-        // Function signature/overload
-        blank_stmt(ctx, n);
+    // Check for abstract modifier - blank entire method
+    TSNode abstract_keyword = find_child_type(n, "abstract");
+    if (!ts_node_is_null(abstract_keyword)) {
+        blank_member_with_semi(ctx, n);
         return VISIT_BLANKED;
     }
-    
+
+    TSNode body = get_child_by_field(n, "body");
+    if (ts_node_is_null(body)) {
+        // Function signature/overload - blank including trailing semicolon
+        blank_member_with_semi(ctx, n);
+        return VISIT_BLANKED;
+    }
+
     // Check for parameter properties
     TSNode params = get_child_by_field(n, "parameters");
     if (!ts_node_is_null(params) && has_param_props(params)) {
         ctx->has_unsupported = true;
         return VISITED_JS;
     }
-    
+
+    // Check if method has computed_property_name - need ASI for accessibility_modifier
+    TSNode computed_prop = find_child_type(n, "computed_property_name");
+    bool has_computed_prop = !ts_node_is_null(computed_prop);
+
     // Enter function body context
     int prev_depth = ctx->in_function_body;
     ctx->in_function_body++;
-    
+
     // Visit children, blanking types
     uint32_t count = ts_node_child_count(n);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_child(n, i);
         const char* type = ts_node_type(child);
-        
+
         if (strcmp(type, "type_annotation") == 0 ||
-            strcmp(type, "type_parameters") == 0) {
+            strcmp(type, "type_parameters") == 0 ||
+            strcmp(type, "override_modifier") == 0 ||
+            strcmp(type, "?") == 0) {
             blank_node(ctx, child);
+        } else if (strcmp(type, "accessibility_modifier") == 0) {
+            // For computed properties, the accessibility modifier needs ASI semicolon
+            // because ["method"]() looks like array access without it
+            if (has_computed_prop && ctx->seen_js) {
+                blank_semi_start(ctx, ts_node_start_byte(child), ts_node_end_byte(child));
+            } else {
+                blank_node(ctx, child);
+            }
         } else if (strcmp(type, "formal_parameters") == 0) {
             visit_formal_parameters(ctx, child);
         } else {
             visit_node(ctx, child);
         }
     }
-    
+
     ctx->in_function_body = prev_depth;
     return VISITED_JS;
 }
@@ -410,12 +505,18 @@ static int visit_arrow_function(parse_ctx_t* ctx, TSNode n) {
 
 // Handle class declarations
 static int visit_class_declaration(parse_ctx_t* ctx, TSNode n) {
+    // Class declarations are JS, mark seen_js early so inner declarations know
+    ctx->seen_js = true;
+
     uint32_t count = ts_node_child_count(n);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_child(n, i);
         const char* type = ts_node_type(child);
-        
-        if (strcmp(type, "type_parameters") == 0) {
+
+        // Blank abstract keyword before class
+        if (strcmp(type, "abstract") == 0) {
+            blank_node(ctx, child);
+        } else if (strcmp(type, "type_parameters") == 0) {
             blank_node(ctx, child);
         } else if (strcmp(type, "class_heritage") == 0) {
             // Blank implements, keep extends
@@ -426,6 +527,30 @@ static int visit_class_declaration(parse_ctx_t* ctx, TSNode n) {
                     blank_node(ctx, heritage);
                 } else {
                     visit_node(ctx, heritage);
+                }
+            }
+        } else if (strcmp(type, "class_body") == 0) {
+            // Visit class body, handling special members
+            uint32_t body_count = ts_node_child_count(child);
+            for (uint32_t j = 0; j < body_count; j++) {
+                TSNode member = ts_node_child(child, j);
+                const char* member_type = ts_node_type(member);
+
+                // Blank index signatures entirely (including trailing semicolon)
+                if (strcmp(member_type, "index_signature") == 0) {
+                    uint32_t start = ts_node_start_byte(member);
+                    uint32_t end = ts_node_end_byte(member);
+                    // Check if next sibling is a semicolon and include it
+                    if (j + 1 < body_count) {
+                        TSNode next = ts_node_child(child, j + 1);
+                        if (is_type(next, ";")) {
+                            end = ts_node_end_byte(next);
+                            j++; // Skip the semicolon in next iteration
+                        }
+                    }
+                    blank_range(ctx, start, end);
+                } else {
+                    visit_node(ctx, member);
                 }
             }
         } else {
@@ -440,20 +565,22 @@ static int visit_binary_expression(parse_ctx_t* ctx, TSNode n) {
     TSNode left = get_child_by_field(n, "left");
     TSNode op = get_child_by_field(n, "operator");
     TSNode right = get_child_by_field(n, "right");
-    
+
     // Check if this looks like (foo<<T...) > (...) which should be foo<generic>(args)
-    if (!ts_node_is_null(op) && is_type(op, ">") && 
+    if (!ts_node_is_null(op) && is_type(op, ">") &&
         !ts_node_is_null(left) && is_type(left, "binary_expression")) {
-        
+
         TSNode inner_op = get_child_by_field(left, "operator");
+        TSNode inner_left = get_child_by_field(left, "left");
+        TSNode inner_right = get_child_by_field(left, "right");
+
         if (!ts_node_is_null(inner_op) && is_type(inner_op, "<<")) {
-            TSNode inner_left = get_child_by_field(left, "left");
             if (!ts_node_is_null(inner_left) && is_type(inner_left, "identifier")) {
                 visit_node(ctx, inner_left);
-                
+
                 // Find where the actual call arguments start
                 TSNode actual_call = right;
-                
+
                 if (is_type(actual_call, "arrow_function")) {
                     uint32_t count = ts_node_child_count(actual_call);
                     for (uint32_t i = count; i > 0; i--) {
@@ -470,18 +597,37 @@ static int visit_binary_expression(parse_ctx_t* ctx, TSNode n) {
                         }
                     }
                 }
-                
+
                 // Blank from end of identifier to start of actual call
                 uint32_t blank_start = ts_node_end_byte(inner_left);
                 uint32_t blank_end = ts_node_start_byte(actual_call);
                 blank_range(ctx, blank_start, blank_end);
-                
+
                 visit_node(ctx, actual_call);
                 return VISITED_JS;
             }
         }
+
+        // Check for pattern: (expr) < identifier > template_string
+        // This is a type instantiation used as tagged template: expr<Type>`template`
+        if (!ts_node_is_null(inner_op) && is_type(inner_op, "<") &&
+            !ts_node_is_null(inner_right) && is_type(inner_right, "identifier") &&
+            !ts_node_is_null(right) && is_type(right, "template_string")) {
+
+            // Visit the expression being instantiated
+            visit_node(ctx, inner_left);
+
+            // Blank from end of inner_left (the <identifier> part) through end of >
+            uint32_t blank_start = ts_node_end_byte(inner_left);
+            uint32_t blank_end = ts_node_end_byte(op);
+            blank_range(ctx, blank_start, blank_end);
+
+            // Visit the template string
+            visit_node(ctx, right);
+            return VISITED_JS;
+        }
     }
-    
+
     visit_children(ctx, n);
     return VISITED_JS;
 }
@@ -494,15 +640,56 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
     
     const char* type = ts_node_type(n);
     
-    // ERROR nodes indicate parse ambiguity
+    // ERROR nodes - handle various type syntax that tree-sitter parses as errors
     if (strcmp(type, "ERROR") == 0) {
-        ctx->has_unsupported = true;
-        return VISITED_JS;
+        uint32_t count = ts_node_child_count(n);
+        bool has_erasable_type = false;
+        bool has_runtime_code = false;
+
+        // Check if this is an "as X" or "satisfies X" pattern (first child is identifier "as"/"satisfies")
+        if (count >= 1) {
+            TSNode first = ts_node_child(n, 0);
+            if (is_type(first, "identifier")) {
+                uint32_t start = ts_node_start_byte(first);
+                uint32_t end = ts_node_end_byte(first);
+                size_t len = end - start;
+                if ((len == 2 && strncmp(ctx->source + start, "as", 2) == 0) ||
+                    (len == 9 && strncmp(ctx->source + start, "satisfies", 9) == 0)) {
+                    // Blank the entire ERROR node (it's type syntax)
+                    blank_node(ctx, n);
+                    has_erasable_type = true;
+                }
+            }
+        }
+
+        if (!has_erasable_type) {
+            // Check for type_arguments and visit other children
+            for (uint32_t i = 0; i < count; i++) {
+                TSNode child = ts_node_child(n, i);
+                if (is_type(child, "type_arguments")) {
+                    blank_node(ctx, child);
+                    has_erasable_type = true;
+                } else {
+                    // Visit child and track if it contains runtime code
+                    if (visit_node(ctx, child) == VISITED_JS) {
+                        has_runtime_code = true;
+                    }
+                }
+            }
+        }
+
+        // Only mark as unsupported if the ERROR doesn't contain erasable type syntax
+        if (!has_erasable_type) {
+            ctx->has_unsupported = true;
+        }
+        // Only return VISITED_JS if there was actual runtime code
+        return has_runtime_code ? VISITED_JS : VISIT_BLANKED;
     }
     
     // Ambient declarations
     if (strcmp(type, "ambient_declaration") == 0) {
         uint32_t count = ts_node_child_count(n);
+        bool is_var_decl = false;
         for (uint32_t i = 0; i < count; i++) {
             TSNode child = ts_node_child(n, i);
             if (is_type(child, "module")) {
@@ -512,10 +699,23 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
                     ctx->has_unsupported = true;
                     return VISITED_JS;
                 }
-                break;
+            }
+            // Check if this is declare let/const/var (needs semicolon)
+            if (is_type(child, "lexical_declaration") ||
+                is_type(child, "variable_declaration")) {
+                is_var_decl = true;
             }
         }
-        blank_stmt(ctx, n);
+        // declare let/const/var always needs semicolon for ASI safety
+        // Other ambient declarations (class, function, etc.) are blanked without semicolon
+        if (is_var_decl) {
+            uint32_t start = ts_node_start_byte(n);
+            uint32_t end = ts_node_end_byte(n);
+            blank_semi_start(ctx, start, end);
+        } else {
+            // Just blank without semicolon - class/function/etc don't need it
+            blank_node(ctx, n);
+        }
         return VISIT_BLANKED;
     }
     
@@ -543,20 +743,50 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
         return VISITED_JS;
     }
 
-    // Import specifier - blank inline type keyword
+    // Import specifier - blank entire specifier if it has type modifier
     if (strcmp(type, "import_specifier") == 0) {
         TSNode type_keyword = find_child_type(n, "type");
         if (!ts_node_is_null(type_keyword)) {
-            blank_node(ctx, type_keyword);
+            // Blank the entire specifier including surrounding comma
+            uint32_t start = ts_node_start_byte(n);
+            uint32_t end = ts_node_end_byte(n);
+
+            // Check for trailing comma and blank it too
+            if (end < ctx->source_len && ctx->source[end] == ',') {
+                end++;
+            }
+            // Otherwise check for leading comma
+            else if (start > 0) {
+                uint32_t check = start - 1;
+                while (check > 0 && (ctx->source[check] == ' ' || ctx->source[check] == '\t' || ctx->source[check] == '\n' || ctx->source[check] == '\r')) {
+                    check--;
+                }
+                if (ctx->source[check] == ',') {
+                    // Don't include leading comma - the element after us will need it
+                }
+            }
+
+            blank_range(ctx, start, end);
+            return VISIT_BLANKED;
         }
         return VISITED_JS;
     }
 
-    // Export specifier - blank inline type keyword
+    // Export specifier - blank entire specifier if it has type modifier
     if (strcmp(type, "export_specifier") == 0) {
         TSNode type_keyword = find_child_type(n, "type");
         if (!ts_node_is_null(type_keyword)) {
-            blank_node(ctx, type_keyword);
+            // Blank the entire specifier including surrounding comma
+            uint32_t start = ts_node_start_byte(n);
+            uint32_t end = ts_node_end_byte(n);
+
+            // Check for trailing comma and blank it too
+            if (end < ctx->source_len && ctx->source[end] == ',') {
+                end++;
+            }
+
+            blank_range(ctx, start, end);
+            return VISIT_BLANKED;
         }
         return VISITED_JS;
     }
@@ -568,17 +798,24 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
     
     // Export statement
     if (strcmp(type, "export_statement") == 0) {
+        // Check for type keyword (direct child or inside ERROR node for "export type *")
         if (!ts_node_is_null(find_child_type(n, "type"))) {
             blank_stmt(ctx, n);
             return VISIT_BLANKED;
         }
-        
+        // Tree-sitter parses "export type * from" with type inside an ERROR node
+        TSNode error_node = find_child_type(n, "ERROR");
+        if (!ts_node_is_null(error_node) && !ts_node_is_null(find_child_type(error_node, "type"))) {
+            blank_stmt(ctx, n);
+            return VISIT_BLANKED;
+        }
+
         TSNode eq = find_child_type(n, "=");
         if (!ts_node_is_null(eq)) {
             ctx->has_unsupported = true;
             return VISITED_JS;
         }
-        
+
         visit_children(ctx, n);
         return VISITED_JS;
     }
@@ -610,9 +847,13 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
     
     // Function-like declarations
     if (strcmp(type, "function_declaration") == 0 ||
+        strcmp(type, "function_expression") == 0 ||
         strcmp(type, "function_signature") == 0 ||
         strcmp(type, "method_definition") == 0 ||
-        strcmp(type, "method_signature") == 0) {
+        strcmp(type, "method_signature") == 0 ||
+        strcmp(type, "abstract_method_signature") == 0 ||
+        strcmp(type, "generator_function_declaration") == 0 ||
+        strcmp(type, "generator_function") == 0) {
         return visit_function_like(ctx, n);
     }
     
@@ -635,17 +876,66 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
     // Public field definition
     if (strcmp(type, "public_field_definition") == 0 ||
         strcmp(type, "property_signature") == 0) {
+        // Check if this is a declare field - blank entire field with semicolon replacement
+        TSNode declare_keyword = find_child_type(n, "declare");
+        if (!ts_node_is_null(declare_keyword)) {
+            // Need to blank with ASI semicolon, but tree-sitter has separate `;` node
+            // So we blank the field and look for trailing semicolon
+            uint32_t start = ts_node_start_byte(n);
+            uint32_t end = ts_node_end_byte(n);
+            // Check if there's a semicolon immediately after
+            if (end < ctx->source_len && ctx->source[end] == ';') {
+                end++; // Include the semicolon in blanking
+            }
+            if (ctx->seen_js) {
+                blank_semi_start(ctx, start, end);
+            } else {
+                blank_range(ctx, start, end);
+            }
+            return VISIT_BLANKED;
+        }
+
+        // Check if this is an abstract field - blank entire field with semicolon replacement
+        TSNode abstract_keyword = find_child_type(n, "abstract");
+        if (!ts_node_is_null(abstract_keyword)) {
+            // Need to blank with ASI semicolon, but tree-sitter has separate `;` node
+            uint32_t start = ts_node_start_byte(n);
+            uint32_t end = ts_node_end_byte(n);
+            // Check if there's a semicolon immediately after
+            if (end < ctx->source_len && ctx->source[end] == ';') {
+                end++; // Include the semicolon in blanking
+            }
+            if (ctx->seen_js) {
+                blank_semi_start(ctx, start, end);
+            } else {
+                blank_range(ctx, start, end);
+            }
+            return VISIT_BLANKED;
+        }
+
+        // Check if field has computed_property_name - need ASI for accessibility_modifier
+        TSNode computed_prop = find_child_type(n, "computed_property_name");
+        bool has_computed_prop = !ts_node_is_null(computed_prop);
+
         uint32_t count = ts_node_child_count(n);
         for (uint32_t i = 0; i < count; i++) {
             TSNode child = ts_node_child(n, i);
             const char* child_type = ts_node_type(child);
-            
+
             if (strcmp(child_type, "type_annotation") == 0 ||
                 strcmp(child_type, "!") == 0 ||
                 strcmp(child_type, "?") == 0 ||
-                strcmp(child_type, "accessibility_modifier") == 0 ||
+                strcmp(child_type, "override_modifier") == 0 ||
                 strcmp(child_type, "readonly") == 0) {
                 blank_node(ctx, child);
+            } else if (strcmp(child_type, "accessibility_modifier") == 0) {
+                // For computed properties, the accessibility modifier needs ASI semicolon
+                // because ["prop"] looks like array access without it
+                if (has_computed_prop && ctx->seen_js) {
+                    blank_semi_start(ctx, ts_node_start_byte(child), ts_node_end_byte(child));
+                } else {
+                    blank_node(ctx, child);
+                }
             } else {
                 visit_node(ctx, child);
             }
@@ -683,12 +973,54 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
             visit_node(ctx, expr);
             uint32_t expr_end = ts_node_end_byte(expr);
             uint32_t node_end = ts_node_end_byte(n);
-            
-            // Check for ASI
-            if (!ts_node_is_null(ctx->parent_statement) &&
-                node_end == ts_node_end_byte(ctx->parent_statement) &&
-                node_end < ctx->source_len && ctx->source[node_end] != ';') {
-                blank_semi(ctx, expr_end, node_end);
+
+            // Check if there's a newline within the type annotation followed by [ ( or `
+            // This handles cases like: foo satisfies string\n[0]; where tree-sitter
+            // incorrectly parses [0] as part of the type (lookup_type)
+            uint32_t blank_end = node_end;
+            for (uint32_t i = expr_end; i < node_end; i++) {
+                if (ctx->source[i] == '\n') {
+                    // Found newline, check what follows (skipping whitespace)
+                    uint32_t check_pos = i + 1;
+                    while (check_pos < node_end &&
+                           (ctx->source[check_pos] == ' ' ||
+                            ctx->source[check_pos] == '\t')) {
+                        check_pos++;
+                    }
+                    if (check_pos < node_end &&
+                        (ctx->source[check_pos] == '[' ||
+                         ctx->source[check_pos] == '(' ||
+                         ctx->source[check_pos] == '`')) {
+                        // ASI needed - only blank up to end of line before newline
+                        blank_end = i;
+                        blank_semi_end(ctx, expr_end, blank_end);
+                        return VISITED_JS;
+                    }
+                }
+            }
+
+            // Check for ASI - semicolon needed if next non-whitespace is ( or `
+            // This prevents JavaScript from interpreting the next line as a continuation
+            bool needs_asi = false;
+            if (node_end < ctx->source_len && ctx->source[node_end] != ';') {
+                uint32_t check_pos = node_end;
+                while (check_pos < ctx->source_len &&
+                       (ctx->source[check_pos] == ' ' ||
+                        ctx->source[check_pos] == '\t' ||
+                        ctx->source[check_pos] == '\n' ||
+                        ctx->source[check_pos] == '\r')) {
+                    check_pos++;
+                }
+                if (check_pos < ctx->source_len &&
+                    (ctx->source[check_pos] == '(' ||
+                     ctx->source[check_pos] == '`' ||
+                     ctx->source[check_pos] == '[')) {
+                    needs_asi = true;
+                }
+            }
+
+            if (needs_asi) {
+                blank_semi_end(ctx, expr_end, node_end);
             } else {
                 blank_range(ctx, expr_end, node_end);
             }
@@ -713,9 +1045,24 @@ static int visit_node(parse_ctx_t* ctx, TSNode n) {
         return VISITED_JS;
     }
     
-    // Call/new expression
+    // Call/new expression and instantiation expressions (Object.freeze<T>)
     if (strcmp(type, "call_expression") == 0 ||
-        strcmp(type, "new_expression") == 0) {
+        strcmp(type, "new_expression") == 0 ||
+        strcmp(type, "instantiation_expression") == 0) {
+        uint32_t count = ts_node_child_count(n);
+        for (uint32_t i = 0; i < count; i++) {
+            TSNode child = ts_node_child(n, i);
+            if (is_type(child, "type_arguments")) {
+                blank_node(ctx, child);
+            } else {
+                visit_node(ctx, child);
+            }
+        }
+        return VISITED_JS;
+    }
+
+    // Decorator - visit children and blank type arguments
+    if (strcmp(type, "decorator") == 0) {
         uint32_t count = ts_node_child_count(n);
         for (uint32_t i = 0; i < count; i++) {
             TSNode child = ts_node_child(n, i);
@@ -793,15 +1140,29 @@ static char* build_output(parse_ctx_t* ctx, size_t* out_len) {
         memcpy(out + pos, in + prev, start - prev);
         pos += start - prev;
         
-        // Handle flags
-        if (flag == FLAG_REPLACE_WITH_SEMI) {
-            out[pos++] = ';';
-            start++;
-        }
-        
-        // Blank with spaces/newlines
-        for (size_t j = start; j < end && j < in_len; j++) {
-            out[pos++] = get_space_char(in[j]);
+        // Handle different blanking modes
+        if (flag == FLAG_REPLACE_START_WITH_SEMI) {
+            // Put semicolon at the start of the blanked region (for empty statements)
+            if (start < end && start < in_len) {
+                out[pos++] = ';';
+                for (size_t j = start + 1; j < end && j < in_len; j++) {
+                    out[pos++] = get_space_char(in[j]);
+                }
+            }
+        } else if (flag == FLAG_REPLACE_END_WITH_SEMI) {
+            // Put semicolon at the end of the blanked region (for ASI safety)
+            for (size_t j = start; j < end && j < in_len; j++) {
+                if (j == end - 1) {
+                    out[pos++] = ';';
+                } else {
+                    out[pos++] = get_space_char(in[j]);
+                }
+            }
+        } else {
+            // Regular blanking
+            for (size_t j = start; j < end && j < in_len; j++) {
+                out[pos++] = get_space_char(in[j]);
+            }
         }
         
         prev = end;

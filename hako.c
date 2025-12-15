@@ -894,7 +894,7 @@ JSValue *HAKO_Eval(JSContext *ctx, const char *js_code, size_t js_code_length,
 
 done:
   if (stripped_js != NULL) {
-    js_free(ctx, stripped_js);
+     js_free_rt(JS_GetRuntime(ctx), stripped_js);
   }
   if (!JS_IsUndefined(func_obj))
     JS_FreeValue(ctx, func_obj);
