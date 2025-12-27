@@ -9154,8 +9154,13 @@ static inline int add_fast_array_element(JSContext *ctx, JSObject *p,
 }
 
 /* Allocate a new fast array. Its 'length' property is set to zero. It
-   maximum size is 2^31-1 elements. For convenience, 'len' is a 64 bit
-   integer. WARNING: the content of the array is not initialized. */
+    maximum size is 2^31-1 elements. For convenience, 'len' is a 64 bit
+    integer. WARNING: the content of the array is not initialized.
+
+    GC SAFETY: p->u.array.count is initialized to 0 so that the GC only
+    traverses initialized entries while the backing store is being filled.
+    Callers that directly write to p->u.array.u.values[] must update
+    p->u.array.count as they initialize elements. */
 static JSValue js_allocate_fast_array(JSContext *ctx, int64_t len)
 {
     JSValue arr;
@@ -9172,7 +9177,7 @@ static JSValue js_allocate_fast_array(JSContext *ctx, int64_t len)
             JS_FreeValue(ctx, arr);
             return JS_EXCEPTION;
         }
-        p->u.array.count = len;
+        p->u.array.count = 0;
     }
     return arr;
 }
@@ -41384,26 +41389,38 @@ static JSValue js_array_with(JSContext *ctx, JSValueConst this_val,
         goto exception;
 
     p = JS_VALUE_GET_OBJ(arr);
+    p->u.array.count = 0;
     i = 0;
     pval = p->u.array.u.values;
     if (js_get_fast_array(ctx, obj, &arrp, &count32) && count32 == len) {
-        for (; i < idx; i++, pval++)
+        for (; i < idx; i++, pval++) {
             *pval = JS_DupValue(ctx, arrp[i]);
+            p->u.array.count++;
+        }
         *pval = JS_DupValue(ctx, argv[1]);
-        for (i++, pval++; i < len; i++, pval++)
+        p->u.array.count++;
+        for (i++, pval++; i < len; i++, pval++) {
             *pval = JS_DupValue(ctx, arrp[i]);
+            p->u.array.count++;
+        }
     } else {
-        for (; i < idx; i++, pval++)
+        for (; i < idx; i++, pval++) {
             if (-1 == JS_TryGetPropertyInt64(ctx, obj, i, pval))
                 goto fill_and_fail;
+            p->u.array.count++;
+        }
         *pval = JS_DupValue(ctx, argv[1]);
+        p->u.array.count++;
         for (i++, pval++; i < len; i++, pval++) {
             if (-1 == JS_TryGetPropertyInt64(ctx, obj, i, pval)) {
             fill_and_fail:
-                for (; i < len; i++, pval++)
+                for (; i < len; i++, pval++) {
                     *pval = JS_UNDEFINED;
+                    p->u.array.count++;
+                }
                 goto exception;
             }
+            p->u.array.count++;
         }
     }
 
@@ -42284,21 +42301,27 @@ static JSValue js_array_toReversed(JSContext *ctx, JSValueConst this_val,
 
     if (len > 0) {
         p = JS_VALUE_GET_OBJ(arr);
+        p->u.array.count = 0;
 
         i = len - 1;
         pval = p->u.array.u.values;
         if (js_get_fast_array(ctx, obj, &arrp, &count32) && count32 == len) {
-            for (; i >= 0; i--, pval++)
+            for (; i >= 0; i--, pval++) {
                 *pval = JS_DupValue(ctx, arrp[i]);
+                p->u.array.count++;
+            }
         } else {
             // Query order is observable; test262 expects descending order.
             for (; i >= 0; i--, pval++) {
                 if (-1 == JS_TryGetPropertyInt64(ctx, obj, i, pval)) {
                     // Exception; initialize remaining elements.
-                    for (; i >= 0; i--, pval++)
+                    for (; i >= 0; i--, pval++) {
                         *pval = JS_UNDEFINED;
+                        p->u.array.count++;
+                    }
                     goto exception;
                 }
+                p->u.array.count++;
             }
         }
 
@@ -42469,25 +42492,38 @@ static JSValue js_array_toSpliced(JSContext *ctx, JSValueConst this_val,
         goto done;
 
     p = JS_VALUE_GET_OBJ(arr);
+    p->u.array.count = 0;
     pval = &p->u.array.u.values[0];
     last = &p->u.array.u.values[newlen];
 
     if (js_get_fast_array(ctx, obj, &arrp, &count32) && count32 == len) {
-        for (i = 0; i < start; i++, pval++)
+        for (i = 0; i < start; i++, pval++) {
             *pval = JS_DupValue(ctx, arrp[i]);
-        for (j = 0; j < add; j++, pval++)
+            p->u.array.count++;
+        }
+        for (j = 0; j < add; j++, pval++) {
             *pval = JS_DupValue(ctx, argv[2 + j]);
-        for (i += del; i < len; i++, pval++)
+            p->u.array.count++;
+        }
+        for (i += del; i < len; i++, pval++) {
             *pval = JS_DupValue(ctx, arrp[i]);
+            p->u.array.count++;
+        }
     } else {
-        for (i = 0; i < start; i++, pval++)
+        for (i = 0; i < start; i++, pval++) {
             if (-1 == JS_TryGetPropertyInt64(ctx, obj, i, pval))
                 goto exception;
-        for (j = 0; j < add; j++, pval++)
+            p->u.array.count++;
+        }
+        for (j = 0; j < add; j++, pval++) {
             *pval = JS_DupValue(ctx, argv[2 + j]);
-        for (i += del; i < len; i++, pval++)
+            p->u.array.count++;
+        }
+        for (i += del; i < len; i++, pval++) {
             if (-1 == JS_TryGetPropertyInt64(ctx, obj, i, pval))
                 goto exception;
+            p->u.array.count++;
+        }
     }
 
     assert(pval == last);
@@ -42500,8 +42536,13 @@ done:
     arr = JS_UNDEFINED;
 
 exception:
-    while (pval != last)
-        *pval++ = JS_UNDEFINED;
+    if (pval && last && !JS_IsUndefined(arr) && !JS_IsException(arr)) {
+        p = JS_VALUE_GET_OBJ(arr);
+        while (pval != last) {
+            *pval++ = JS_UNDEFINED;
+            p->u.array.count++;
+        }
+    }
 
     JS_FreeValue(ctx, arr);
     JS_FreeValue(ctx, obj);
@@ -42840,18 +42881,24 @@ static JSValue js_array_toSorted(JSContext *ctx, JSValueConst this_val,
 
     if (len > 0) {
         p = JS_VALUE_GET_OBJ(arr);
+        p->u.array.count = 0;
         i = 0;
         pval = p->u.array.u.values;
         if (js_get_fast_array(ctx, obj, &arrp, &count32) && count32 == len) {
-            for (; i < len; i++, pval++)
+            for (; i < len; i++, pval++) {
                 *pval = JS_DupValue(ctx, arrp[i]);
+                p->u.array.count++;
+            }
         } else {
             for (; i < len; i++, pval++) {
                 if (-1 == JS_TryGetPropertyInt64(ctx, obj, i, pval)) {
-                    for (; i < len; i++, pval++)
+                    for (; i < len; i++, pval++) {
                         *pval = JS_UNDEFINED;
+                        p->u.array.count++;
+                    }
                     goto exception;
                 }
+                p->u.array.count++;
             }
         }
 
