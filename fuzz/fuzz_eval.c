@@ -26,7 +26,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return 0;
 
     JSRuntime *rt = JS_NewRuntime();
+    if (!rt)
+        return 0;
+    
+    // Set resource limits immediately after runtime creation to prevent resource exhaustion
+    JS_SetMemoryLimit(rt, 0x4000000);  // 64 MB memory limit
+    JS_SetMaxStackSize(rt, 0x10000);   // 64 KB stack limit
+    JS_SetGCThreshold(rt, 0x400000);   // 4 MB GC threshold
+    
     JSContext *ctx = JS_NewContext(rt);
+    if (!ctx) {
+        JS_FreeRuntime(rt);
+        return 0;
+    }
+    
     test_one_input_init(rt, ctx);
 
     uint8_t *null_terminated_data = malloc(size + 1);
