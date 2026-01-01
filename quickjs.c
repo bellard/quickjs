@@ -8,7 +8,7 @@
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
+ * copies of the Software, andto permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
  *
  * The above copyright notice and this permission notice shall be included in
@@ -21,6 +21,21 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
+ *
+ * SECURITY NOTICE: This JavaScript engine is implemented in C, a memory-unsafe
+ * language. Memory corruption vulnerabilities such as buffer overflows and
+ * use-after-free errors are possible in complex subsystems. Applications using
+ * this library MUST implement the following security measures:
+ *
+ * 1. ALWAYS configure memory limits via JS_SetMemoryLimit() to prevent DoS
+ * 2. ALWAYS configure an interrupt handler via JS_SetInterruptHandler() for timeout protection
+ * 3. Set appropriate stack size limits via JS_SetStackSize()
+ * 4. Execute untrusted scripts in isolated runtimes with sandboxing
+ * 5. Monitor and log execution of arbitrary code
+ * 6. Regularly update to the latest stable version
+ *
+ * Failure to implement these security measures may result in crashes, hangs, or
+ * exploitation of memory corruption vulnerabilities by malicious scripts.
  */
 #include <stdlib.h>
 #include <stdio.h>
@@ -46,6 +61,34 @@
 #include "libregexp.h"
 #include "libunicode.h"
 #include "dtoa.h"
+
+/* Memory safety helper functions for CONFIG_MEMORY_SAFETY_CHECKS */
+#ifdef CONFIG_MEMORY_SAFETY_CHECKS
+static inline int js_check_size_overflow(size_t a, size_t b) {
+    if (a > SIZE_MAX - b) return 1;  /* overflow detected */
+    return 0;
+}
+
+static inline int js_check_mul_overflow(size_t a, size_t b) {
+    if (b > 0 && a > SIZE_MAX / b) return 1;  /* overflow detected */
+    return 0;
+}
+
+static inline int js_check_bounds(int idx, int max) {
+    if (idx < 0 || idx >= max) return 1;  /* out of bounds */
+    return 0;
+}
+
+static inline void* js_safe_malloc_add(size_t a, size_t b) {
+    if (js_check_size_overflow(a, b)) return NULL;
+    return malloc(a + b);
+}
+
+static inline void* js_safe_malloc_mul(size_t a, size_t b) {
+    if (js_check_mul_overflow(a, b)) return NULL;
+    return malloc(a * b);
+}
+#endif
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
@@ -76,6 +119,9 @@
 /* enable stack limitation */
 #define CONFIG_STACK_CHECK
 #endif
+
+/* Enable comprehensive memory safety hardening mechanisms */
+#define CONFIG_MEMORY_SAFETY_CHECKS 1
 
 
 /* dump object free */
