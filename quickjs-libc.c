@@ -62,6 +62,11 @@ typedef sig_t sighandler_t;
 #endif
 #endif /* __APPLE__ */
 
+#ifdef __sun
+typedef void (*sighandler_t)(int);
+extern char **environ;
+#endif
+
 #endif
 
 /* enable the os.Worker API. It relies on POSIX threads */

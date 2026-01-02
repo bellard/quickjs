@@ -39,6 +39,9 @@
 #elif defined(__FreeBSD__)
 #include <malloc_np.h>
 #endif
+#if defined(__sun)
+#include <alloca.h>
+#endif
 
 #include "cutils.h"
 #include "list.h"
@@ -1725,6 +1728,8 @@ static size_t js_def_malloc_usable_size(const void *ptr)
     return 0;
 #elif defined(__linux__) || defined(__GLIBC__)
     return malloc_usable_size((void *)ptr);
+#elif defined(__sun)
+    return 0;
 #else
     /* change this to `return 0;` if compilation fails */
     return malloc_usable_size((void *)ptr);
@@ -46788,7 +46793,7 @@ static int getTimezoneOffset(int64_t time)
         }
     }
     ti = time;
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__sun)
     {
         struct tm *tm;
         time_t gm_ti, loc_ti;
