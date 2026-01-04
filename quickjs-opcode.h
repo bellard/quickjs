@@ -168,6 +168,7 @@ DEF(    set_var_ref, 3, 1, 1, var_ref) /* must come after put_var_ref */
 DEF(set_loc_uninitialized, 3, 0, 0, loc)
 DEF(  get_loc_check, 3, 0, 1, loc)
 DEF(  put_loc_check, 3, 1, 0, loc) /* must come after get_loc_check */
+DEF(  set_loc_check, 3, 1, 1, loc) /* must come after put_loc_check */
 DEF(  put_loc_check_init, 3, 1, 0, loc)
 DEF(get_loc_checkthis, 3, 0, 1, loc)
 DEF(get_var_ref_check, 3, 0, 1, var_ref)

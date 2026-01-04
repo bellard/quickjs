@@ -31,6 +31,8 @@ DEF(char32, 5)
 DEF(char32_i, 5)
 DEF(dot, 1)
 DEF(any, 1) /* same as dot but match any character including line terminator */
+DEF(space, 1)
+DEF(not_space, 1) /* must come after */
 DEF(line_start, 1)
 DEF(line_start_m, 1)
 DEF(line_end, 1)

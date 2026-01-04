@@ -147,6 +147,11 @@ static inline int lre_is_id_continue_byte(uint8_t c) {
                                 UNICODE_C_DIGIT);
 }
 
+static inline int lre_is_word_byte(uint8_t c) {
+    return lre_ctype_bits[c] & (UNICODE_C_UPPER | UNICODE_C_LOWER |
+                                UNICODE_C_UNDER | UNICODE_C_DIGIT);
+}
+
 int lre_is_space_non_ascii(uint32_t c);
 
 static inline int lre_is_space(uint32_t c) {
