@@ -308,7 +308,6 @@ void help(void)
            "-s                    strip all the debug info\n"
            "    --strip-source    strip the source code\n"
            "-q  --quit         just instantiate the interpreter and quit\n");
-    exit(1);
 }
 
 int main(int argc, char **argv)
@@ -355,7 +354,7 @@ int main(int argc, char **argv)
                 arg++;
             if (opt == 'h' || opt == '?' || !strcmp(longopt, "help")) {
                 help();
-                continue;
+                exit(0);
             }
             if (opt == 'e' || !strcmp(longopt, "eval")) {
                 if (*arg) {
@@ -447,6 +446,7 @@ int main(int argc, char **argv)
                 fprintf(stderr, "qjs: unknown option '--%s'\n", longopt);
             }
             help();
+            exit(2);
         }
     }
 

@@ -2056,7 +2056,6 @@ void help(void)
            "-f file        execute single test from 'file'\n"
            "-r file        set the report file name (default=none)\n"
            "-x file        exclude tests listed in 'file'\n");
-    exit(1);
 }
 
 char *get_opt_arg(const char *option, char *arg)
@@ -2108,6 +2107,7 @@ int main(int argc, char **argv)
         optind++;
         if (str_equal(arg, "-h")) {
             help();
+            exit(0);
         } else if (str_equal(arg, "-m")) {
             dump_memory++;
         } else if (str_equal(arg, "-n")) {
@@ -2152,8 +2152,10 @@ int main(int argc, char **argv)
         }
     }
 
-    if (optind >= argc && !test_list.count)
+    if (optind >= argc && !test_list.count) {
         help();
+        exit(2);
+    }
 
     if (is_test262_harness) {
         return run_test262_harness_test(argv[optind], is_module);

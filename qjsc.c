@@ -396,6 +396,7 @@ void help(void)
            "usage: " PROG_NAME " [options] [files]\n"
            "\n"
            "options are:\n"
+           "-h          list options\n"
            "-c          only output bytecode to a C file\n"
            "-e          output main() and bytecode to a C file (default = executable output)\n"
            "-o output   set the output filename\n"
@@ -423,7 +424,6 @@ void help(void)
                "            disable selected language features (smaller code size)\n");
     }
 #endif
-    exit(1);
 }
 
 #if defined(CONFIG_CC) && !defined(_WIN32)
@@ -625,7 +625,7 @@ int main(int argc, char **argv)
                 arg++;
             if (opt == 'h' || opt == '?' || !strcmp(longopt, "help")) {
                 help();
-                continue;
+                exit(0);
             }
             if (opt == 'o') {
                 out_filename = get_short_optarg(&optind, opt, arg, argc, argv);
@@ -723,11 +723,14 @@ int main(int argc, char **argv)
                 fprintf(stderr, "qjsc: unknown option '--%s'\n", longopt);
             }
             help();
+            exit(2);
         }
     }
 
-    if (optind >= argc)
+    if (optind >= argc) {
         help();
+        exit(2);
+    }
 
     if (!out_filename) {
         if (output_type == OUTPUT_EXECUTABLE) {
