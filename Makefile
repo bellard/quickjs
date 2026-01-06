@@ -454,6 +454,8 @@ test: qjs$(EXE)
 	$(WINE) ./qjs$(EXE) tests/test_bigint.js
 	$(WINE) ./qjs$(EXE) tests/test_cyclic_import.js
 	$(WINE) ./qjs$(EXE) tests/test_worker.js
+	$(WINE) ./qjs$(EXE) tests/bug1301.js
+	$(WINE) ./qjs$(EXE) tests/bug1302.js
 ifndef CONFIG_WIN32
 	$(WINE) ./qjs$(EXE) tests/test_std.js
 endif
