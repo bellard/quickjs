@@ -58775,8 +58775,11 @@ static JSValue js_atomics_op(JSContext *ctx,
                     rep_val = v32;
                 }
         }
-        if (abuf->detached)
-            return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        /* the buffer may have been resized or detached during the
+           value conversion via valueOf(), so the pointer must be re-fetched */
+        if (js_atomics_get_ptr(ctx, &ptr, &abuf, &size_log2, &class_id,
+                               argv[0], argv[1], 0))
+            return JS_EXCEPTION;
    }
 
    switch(op | (size_log2 << 3)) {
@@ -58901,8 +58904,12 @@ static JSValue js_atomics_store(JSContext *ctx,
             JS_FreeValue(ctx, ret);
             return JS_EXCEPTION;
         }
-        if (abuf->detached)
-            return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        /* buffer may have been resized or detached during value conversion */
+        if (js_atomics_get_ptr(ctx, &ptr, &abuf, &size_log2, NULL,
+                               argv[0], argv[1], 0)) {
+            JS_FreeValue(ctx, ret);
+            return JS_EXCEPTION;
+        }
         atomic_store((_Atomic(uint64_t) *)ptr, v64);
     } else {
         uint32_t v;
@@ -58914,8 +58921,12 @@ static JSValue js_atomics_store(JSContext *ctx,
             JS_FreeValue(ctx, ret);
             return JS_EXCEPTION;
         }
-        if (abuf->detached)
-            return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        /* buffer may have been resized or detached during value conversion */
+        if (js_atomics_get_ptr(ctx, &ptr, &abuf, &size_log2, NULL,
+                               argv[0], argv[1], 0)) {
+            JS_FreeValue(ctx, ret);
+            return JS_EXCEPTION;
+        }
         switch(size_log2) {
         case 0:
             atomic_store((_Atomic(uint8_t) *)ptr, v);
