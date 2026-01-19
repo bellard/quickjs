@@ -9398,7 +9398,7 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                                 if (likely(p == p1)) {
                                     ret = JS_DefineProperty(ctx, this_obj, prop, val,
                                                             JS_UNDEFINED, JS_UNDEFINED,
-                                                            JS_PROP_HAS_VALUE);
+                                                            JS_PROP_C_W_E);
                                     JS_FreeValue(ctx, val);
                                     return ret;
                                 } else {
