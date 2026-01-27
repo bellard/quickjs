@@ -166,6 +166,22 @@ CFLAGS_DEBUG=$(CFLAGS) -O0
 CFLAGS_SMALL=$(CFLAGS) -Os
 CFLAGS_OPT=$(CFLAGS) -O2
 CFLAGS_NOLTO:=$(CFLAGS_OPT)
+# Host flags for cross-compilation (avoid target-specific flags like -mcpu)
+ifdef CFLAGS_FOR_BUILD
+HOST_CFLAGS:=$(CFLAGS_FOR_BUILD) $(DEFINES) -O2
+else ifdef CC_FOR_BUILD
+# Cross-compiling but no CFLAGS_FOR_BUILD - use minimal safe flags
+HOST_CFLAGS:=-g -Wall -O2 -fwrapv $(DEFINES)
+else
+HOST_CFLAGS:=$(CFLAGS_OPT)
+endif
+ifdef LDFLAGS_FOR_BUILD
+HOST_LDFLAGS:=$(LDFLAGS_FOR_BUILD)
+else ifdef CC_FOR_BUILD
+HOST_LDFLAGS:=-g
+else
+HOST_LDFLAGS:=$(LDFLAGS)
+endif
 ifdef CONFIG_COSMO
 LDFLAGS+=-s # better to strip by default
 else
@@ -208,10 +224,18 @@ endif
 
 PROGS=qjs$(EXE) qjsc$(EXE) run-test262$(EXE)
 
+# Cross-compilation support:
+# - CROSS_PREFIX: traditional approach (e.g., CROSS_PREFIX=arm-linux-gnueabihf-)
+# - CC_FOR_BUILD: build machine compiler when CC targets a different architecture
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
 QJSC=./host-qjsc
 PROGS+=$(QJSC)
+else ifdef CC_FOR_BUILD
+QJSC_CC=$(CC)
+QJSC=./host-qjsc
+PROGS+=$(QJSC)
+HOST_CC:=$(CC_FOR_BUILD)
 else
 QJSC_CC=$(CC)
 QJSC=./qjsc$(EXE)
@@ -221,8 +245,8 @@ ifdef CONFIG_LTO
 PROGS+=libquickjs.lto.a
 endif
 
-# examples
-ifeq ($(CROSS_PREFIX),)
+# examples (skip when cross-compiling via CROSS_PREFIX or CC_FOR_BUILD)
+ifeq ($(CROSS_PREFIX)$(CC_FOR_BUILD),)
 ifndef CONFIG_ASAN
 ifndef CONFIG_MSAN
 ifndef CONFIG_UBSAN
@@ -277,13 +301,14 @@ fuzz_regexp: $(OBJDIR)/fuzz_regexp.o $(OBJDIR)/libregexp.fuzz.o $(OBJDIR)/cutils
 
 libfuzzer: fuzz_eval fuzz_compile fuzz_regexp
 
-ifneq ($(CROSS_PREFIX),)
+# Build host-qjsc for cross-compilation (either via CROSS_PREFIX or CC_FOR_BUILD)
+ifneq ($(CROSS_PREFIX)$(CC_FOR_BUILD),)
 
 $(QJSC): $(OBJDIR)/qjsc.host.o \
     $(patsubst %.o, %.host.o, $(QJS_LIB_OBJS))
-	$(HOST_CC) $(LDFLAGS) -o $@ $^ $(HOST_LIBS)
+	$(HOST_CC) $(HOST_LDFLAGS) -o $@ $^ $(HOST_LIBS)
 
-endif #CROSS_PREFIX
+endif #CROSS_PREFIX or CC_FOR_BUILD
 
 QJSC_DEFINES:=-DCONFIG_CC=\"$(QJSC_CC)\" -DCONFIG_PREFIX=\"$(PREFIX)\"
 ifdef CONFIG_LTO
@@ -336,7 +361,7 @@ $(OBJDIR)/fuzz_%.o: fuzz/fuzz_%.c | $(OBJDIR)
 	$(CC) $(CFLAGS_OPT) -c -I. -o $@ $<
 
 $(OBJDIR)/%.host.o: %.c | $(OBJDIR)
-	$(HOST_CC) $(CFLAGS_OPT) -c -o $@ $<
+	$(HOST_CC) $(HOST_CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/%.pic.o: %.c | $(OBJDIR)
 	$(CC) $(CFLAGS_OPT) -fPIC -DJS_SHARED_LIBRARY -c -o $@ $<
