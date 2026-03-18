@@ -1641,11 +1641,16 @@ static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
     /* Detect when the runtime is being called from a different thread or
        fiber than the one that set stack_top. In M:N threading models
        (green threads, fibers, coroutines), each execution context has its
-       own stack at an unrelated address. If sp is outside the expected
-       range, re-anchor stack_top to the current stack before checking.
-       A genuine overflow has sp just below stack_limit; a context switch
-       has sp in a completely different address range. */
-    if (unlikely(sp > rt->stack_top || sp + rt->stack_size < rt->stack_limit)) {
+       own stack at an unrelated address. Re-anchor stack_top whenever sp
+       is outside [stack_limit, stack_top].
+
+       The previous check (sp + stack_size < stack_limit) missed the case
+       where the new thread's stack is between 1x and 2x stack_size below
+       the original stack_top. Checking sp < stack_limit directly closes
+       this gap. With typical embedder stack_size values (256MB+) that far
+       exceed real C thread stacks (1-8MB), re-anchoring never masks a
+       genuine overflow, the OS catches those via SIGSEGV. */
+    if (unlikely(sp > rt->stack_top || sp < rt->stack_limit)) {
         JS_UpdateStackTop(rt);
         sp = js_get_stack_pointer() - alloca_size;
     }
