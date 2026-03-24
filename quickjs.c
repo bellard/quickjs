@@ -12436,7 +12436,7 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
                 to_digit((uint8_t)p[1]) < radix)) {
         p++;
     }
-    if (!(flags & ATOD_INT_ONLY)) {
+    if (!(flags & ATOD_INT_ONLY) && radix == 10) {
         if (*p == '.' && (p > p_start || to_digit((uint8_t)p[1]) < radix)) {
             is_float = TRUE;
             p++;
@@ -12446,9 +12446,7 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
                    (*p == sep && to_digit((uint8_t)p[1]) < radix))
                 p++;
         }
-        if (p > p_start &&
-            (((*p == 'e' || *p == 'E') && radix == 10) ||
-             ((*p == 'p' || *p == 'P') && (radix == 2 || radix == 8 || radix == 16)))) {
+        if (p > p_start && (*p == 'e' || *p == 'E')) {
             const char *p1 = p + 1;
             is_float = TRUE;
             if (*p1 == '+') {
@@ -12485,19 +12483,9 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
     }
     buf[j] = '\0';
 
-    if (flags & ATOD_ACCEPT_SUFFIX) {
-        if (*p == 'n') {
-            p++;
-            atod_type = ATOD_TYPE_BIG_INT;
-        } else {
-            if (is_float && radix != 10)
-                goto fail;
-        }
-    } else {
-        if (atod_type == ATOD_TYPE_FLOAT64) {
-            if (is_float && radix != 10)
-                goto fail;
-        }
+    if ((flags & ATOD_ACCEPT_SUFFIX) && *p == 'n') {
+        p++;
+        atod_type = ATOD_TYPE_BIG_INT;
     }
 
     switch(atod_type) {
