@@ -215,6 +215,10 @@ DEF(     yield_star, 1, 1, 2, none)
 DEF(async_yield_star, 1, 1, 2, none)
 DEF(          await, 1, 1, 1, none)
 
+/* explicit resource management */
+DEF(   dispose_call, 1, 1, 0, none)
+DEF(  async_dispose, 1, 1, 1, none)
+
 /* arithmetic/logic operations */
 DEF(            neg, 1, 1, 1, none)
 DEF(           plus, 1, 1, 1, none)

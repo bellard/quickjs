@@ -21304,6 +21304,8 @@ enum {
     TOK_STATIC,
     TOK_YIELD,
     TOK_AWAIT, /* must be last */
+    TOK_USING,
+    TOK_AWAIT_USING,
     TOK_OF,     /* only used for js_parse_skip_parens_token() */
 };
 
@@ -23726,6 +23728,8 @@ typedef enum {
     JS_VAR_DEF_NEW_FUNCTION_DECL, /* async/generator function declaration */
     JS_VAR_DEF_CATCH,
     JS_VAR_DEF_VAR,
+    JS_VAR_DEF_USING,
+    JS_VAR_DEF_AWAIT_USING,
 } JSVarDefEnum;
 
 static int define_var(JSParseState *s, JSFunctionDef *fd, JSAtom name,

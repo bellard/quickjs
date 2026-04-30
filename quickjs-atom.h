@@ -275,5 +275,7 @@ DEF(Symbol_hasInstance, "Symbol.hasInstance")
 DEF(Symbol_species, "Symbol.species")
 DEF(Symbol_unscopables, "Symbol.unscopables")
 DEF(Symbol_asyncIterator, "Symbol.asyncIterator")
+DEF(Symbol_dispose, "Symbol.dispose")
+DEF(Symbol_asyncDispose, "Symbol.asyncDispose")
 
 #endif /* DEF */
