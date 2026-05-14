@@ -315,7 +315,7 @@ int unicode_from_utf8(const uint8_t *p, int max_len, const uint8_t **pp)
 
 #if 0
 
-#if defined(EMSCRIPTEN) || defined(__ANDROID__)
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 
 static void *rqsort_arg;
 static int (*rqsort_cmp)(const void *, const void *, void *);

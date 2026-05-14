@@ -3879,7 +3879,7 @@ void js_std_set_worker_new_context_func(JSContext *(*func)(JSRuntime *rt))
 #define OS_PLATFORM "win32"
 #elif defined(__APPLE__)
 #define OS_PLATFORM "darwin"
-#elif defined(EMSCRIPTEN)
+#elif defined(__EMSCRIPTEN__)
 #define OS_PLATFORM "js"
 #else
 #define OS_PLATFORM "linux"
