@@ -31,8 +31,6 @@ test262/test/staging/sm/Function/function-name-for.js:13: Test262Error: Expected
 test262/test/staging/sm/Function/implicit-this-in-parameter-expression.js:12: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: strict mode: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: Test262Error: Expected SameValue(«2», «6») to be true
-test262/test/staging/sm/TypedArray/prototype-constructor-identity.js:17: strict mode: Test262Error: Expected SameValue(«2», «6») to be true
 test262/test/staging/sm/async-functions/async-contains-unicode-escape.js:11: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/async-functions/async-contains-unicode-escape.js:11: strict mode: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/async-functions/await-in-arrow-parameters.js:10: Test262Error: AsyncFunction:(a = (b = await/r/g) => {}) => {} Expected a SyntaxError to be thrown but no exception was thrown at all
