@@ -56056,13 +56056,15 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
     if (!alloc_flag && buf && max_len && free_func != js_array_buffer_free) {
         // not observable from JS land, only through C API misuse;
         // JS code cannot create externally managed buffers directly
+        if (free_func)
+            free_func(rt, opaque, buf);
         return JS_ThrowInternalError(ctx,
                                      "resizable ArrayBuffers not supported "
                                      "for externally managed buffers");
     }
     obj = js_create_from_ctor(ctx, new_target, class_id);
     if (JS_IsException(obj))
-        return obj;
+        goto fail2;
     /* XXX: we are currently limited to 2 GB */
     if (len > INT32_MAX) {
         JS_ThrowRangeError(ctx, "invalid array buffer length");
@@ -56113,6 +56115,9 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
  fail:
     JS_FreeValue(ctx, obj);
     js_free(ctx, abuf);
+fail2:
+    if (!alloc_flag && free_func)
+        free_func(rt, opaque, buf);
     return JS_EXCEPTION;
 }
 
