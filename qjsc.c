@@ -504,6 +504,7 @@ static int output_executable(const char *out_filename, const char *cfilename,
     *arg++ = "-lm";
     *arg++ = "-ldl";
     *arg++ = "-lpthread";
+    *arg++ = "-latomic";
     *arg = NULL;
 
     if (verbose) {
