@@ -299,7 +299,7 @@ typedef struct {
 #ifdef JS_MALLOC_USE_ITER
     struct list_head large_block_list; /* list of JSMallocLargeBlockHeader.link */
 #endif
-    JSMallocBlockHeader zero_size_block;
+    __attribute__((aligned(JS_MALLOC_ALIGN))) uint8_t zero_size_block[sizeof(JSMallocBlockHeader)];
 
     /* callbacks to the host malloc */
     JSMallocFunctions mf;
@@ -1457,11 +1457,16 @@ static int get_block_size_index(size_t size)
     }
 }
 
+static JSMallocBlockHeader *get_zero_size_block(JSMallocContext *s)
+{
+    return (JSMallocBlockHeader *)s->zero_size_block;
+}
+
 static void js_malloc_init(JSMallocContext *s)
 {
     int i;
     memset(s, 0, sizeof(*s));
-    s->zero_size_block.u.block_idx = FREE_NIL;
+    get_zero_size_block(s)->u.block_idx = FREE_NIL;
     for(i = 0; i < JS_MALLOC_BLOCK_SIZE_COUNT; i++) {
         init_list_head(&s->arena_list[i]);
         init_list_head(&s->free_arena_list[i]);
@@ -1537,7 +1542,7 @@ static void *__js_malloc(JSMallocContext *s, size_t size)
 {
     size_t total_size;
     if (unlikely(size == 0)) {
-        JSMallocBlockHeader *b = &s->zero_size_block;
+        JSMallocBlockHeader *b = get_zero_size_block(s);
         return b->user_data;
     } else {
         total_size = ((size + JS_MALLOC_ALIGN - 1) & ~(JS_MALLOC_ALIGN - 1)) +
@@ -1587,7 +1592,7 @@ static void __js_free(JSMallocContext *s, void *ptr)
     b = container_of(ptr, JSMallocBlockHeader, user_data);
     if (unlikely(b->u.block_idx == FREE_NIL)) {
         /* large or zero size block */
-        if (b == &s->zero_size_block) {
+        if (b == get_zero_size_block(s)) {
             /* nothing to do */
         } else {
             JSMallocLargeBlockHeader *lb = container_of(ptr, JSMallocLargeBlockHeader, header.user_data);
@@ -1630,7 +1635,7 @@ static void *__js_realloc(JSMallocContext *s, void *ptr, size_t size)
     }
     b = container_of(ptr, JSMallocBlockHeader, user_data);
     if (b->u.block_idx == FREE_NIL) {
-        if (b == &s->zero_size_block) {
+        if (b == get_zero_size_block(s)) {
             return __js_malloc(s, size);
         } else {
             JSMallocLargeBlockHeader *lb, *new_lb;
@@ -1689,7 +1694,7 @@ static size_t __js_malloc_usable_size(JSMallocContext *s, const char *ptr)
         return 0;
     b = container_of(ptr, JSMallocBlockHeader, user_data);
     if (b->u.block_idx == FREE_NIL) {
-        if (b == &s->zero_size_block) {
+        if (b == get_zero_size_block(s)) {
             return 0;
         } else {
             JSMallocLargeBlockHeader *lb;
