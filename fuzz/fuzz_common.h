@@ -12,11 +12,23 @@
  See the License for the specific language governing permissions and
  limitations under the License.
  */
+#ifndef FUZZ_COMMON_H
+#define FUZZ_COMMON_H
 
 #include "quickjs.h"
 #include "quickjs-libc.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static int nbinterrupts = 0;
 
 void reset_nbinterrupts();
 void test_one_input_init(JSRuntime *rt, JSContext *ctx);
+
+#ifdef __cplusplus
+} /* extern "C" { */
+#endif
+
+#endif /* FUZZ_COMMON_H */
