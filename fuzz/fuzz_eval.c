@@ -26,7 +26,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         return 0;
 
     JSRuntime *rt = JS_NewRuntime();
-    JSContext *ctx = JS_NewContext(rt);
+    JSContext *ctx = JS_NewCustomContext(rt);
     test_one_input_init(rt, ctx);
 
     uint8_t *null_terminated_data = malloc(size + 1);
