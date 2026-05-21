@@ -1889,7 +1889,7 @@ int run_test(const char *filename, int index)
 }
 
 /* run a test when called by test262-harness+eshost */
-int run_test262_harness_test(const char *filename, BOOL is_module)
+int run_test262_harness_test(const char *filename, BOOL is_module, BOOL can_block)
 {
     JSRuntime *rt;
     JSContext *ctx;
@@ -1897,7 +1897,6 @@ int run_test262_harness_test(const char *filename, BOOL is_module)
     size_t buf_len;
     int eval_flags, ret_code, ret;
     JSValue res_val;
-    BOOL can_block;
 
     outfile = stdout; /* for js_print */
 
@@ -1912,7 +1911,6 @@ int run_test262_harness_test(const char *filename, BOOL is_module)
     }
     JS_SetRuntimeInfo(rt, filename);
 
-    can_block = TRUE;
     JS_SetCanBlock(rt, can_block);
 
     /* loader for ES6 modules */
@@ -2055,7 +2053,8 @@ void help(void)
            "-e file        load the known errors from 'file'\n"
            "-f file        execute single test from 'file'\n"
            "-r file        set the report file name (default=none)\n"
-           "-x file        exclude tests listed in 'file'\n");
+           "-x file        exclude tests listed in 'file'\n"
+           "--no-can-block set [[CanBlock]] to false (Atomics.wait will throw)\n");
     exit(1);
 }
 
@@ -2076,6 +2075,7 @@ int main(int argc, char **argv)
     const char *ignore = "";
     BOOL is_test262_harness = FALSE;
     BOOL is_module = FALSE;
+    BOOL can_block = TRUE;
     BOOL count_skipped_features = FALSE;
     clock_t clocks;
 
@@ -2144,6 +2144,8 @@ int main(int argc, char **argv)
             is_test262_harness = TRUE;
         } else if (str_equal(arg, "--module")) {
             is_module = TRUE;
+        } else if (str_equal(arg, "--no-can-block")) {
+            can_block = FALSE;
         } else if (str_equal(arg, "--count_skipped_features")) {
             count_skipped_features = TRUE;
         } else {
@@ -2156,7 +2158,7 @@ int main(int argc, char **argv)
         help();
 
     if (is_test262_harness) {
-        return run_test262_harness_test(argv[optind], is_module);
+        return run_test262_harness_test(argv[optind], is_module, can_block);
     }
 
     error_out = stdout;
