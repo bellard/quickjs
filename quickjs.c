@@ -236,9 +236,80 @@ typedef enum {
 
 typedef enum OPCodeEnum OPCodeEnum;
 
-struct JSRuntime {
+/* JS malloc */
+
+#define JS_MALLOC_ALIGN 8
+#define JS_MALLOC_ARENA_SIZE 4096
+#define JS_MALLOC_BLOCK_SIZE_COUNT 31
+#define JS_MALLOC_MIN_SMALL_SIZE 16
+#define JS_MALLOC_MAX_SMALL_SIZE 512
+
+/* allow iteration among the allocated blocks. Currently not used. May
+   be used to suppress the memory overhead of JSGCObjectHeader */
+//#define JS_MALLOC_USE_ITER
+
+#define FREE_NIL 0xffff
+
+/* 8 byte header */
+/* Notes: 
+   - the header is necessary at least to recover a pointer to
+     JSMallocArena because we don't want to enforce a page
+     alignment on the system malloc().
+   - could store the block offset instead of (block_idx,
+   block_size_idx), but it would require a division to recover the block
+   index.
+*/
+typedef struct JSMallocBlockHeader {
+    union {
+        uint16_t block_idx; /* FREE_NIL if large block */
+        uint16_t free_next; /* FREE_NIL if none */
+    } u;
+    uint8_t block_size_idx;
+    uint8_t gc_obj_type : 7;
+    uint8_t mark : 1;
+    int ref_count;
+    __attribute__((aligned(JS_MALLOC_ALIGN))) uint8_t user_data[];
+} JSMallocBlockHeader;
+
+typedef struct JSMallocLargeBlockHeader {
+#ifdef JS_MALLOC_USE_ITER    
+    struct list_head link;
+#endif
+    JSMallocBlockHeader header;
+} JSMallocLargeBlockHeader;
+
+typedef struct {
+    struct list_head free_link;
+    struct list_head link;
+    uint8_t block_size_idx;
+    uint16_t n_used_blocks; /* number of allocated blocks */
+    uint16_t n_blocks; /* total number of blocks */
+    uint16_t first_free_block; /* FREE_NIL if none */
+#ifdef JS_MALLOC_USE_ITER    
+    /* bit set to 1 for allocated block */
+    uint32_t bitmap[((JS_MALLOC_ARENA_SIZE / JS_MALLOC_MIN_SMALL_SIZE) + 31) / 32]; 
+#endif
+    /* n_blocks memory blocks of identical size */
+    __attribute__((aligned(JS_MALLOC_ALIGN))) uint8_t blocks[];
+} JSMallocArena;
+
+typedef struct {
+    struct list_head arena_list[JS_MALLOC_BLOCK_SIZE_COUNT]; /* list of JSMallocArena.link (all arenas) */
+    struct list_head free_arena_list[JS_MALLOC_BLOCK_SIZE_COUNT]; /* list of JSMallocArena.free_link (arenas where n_used_blocks < n_blocks) */
+#ifdef JS_MALLOC_USE_ITER
+    struct list_head large_block_list; /* list of JSMallocLargeBlockHeader.link */
+#endif
+    JSMallocBlockHeader zero_size_block;
+
+    /* callbacks to the host malloc */
     JSMallocFunctions mf;
     JSMallocState malloc_state;
+} JSMallocContext;
+
+/* end JS Malloc */
+
+struct JSRuntime {
+    JSMallocContext malloc_ctx;
     const char *rt_info;
 
     int atom_hash_size; /* power of two */
@@ -354,12 +425,6 @@ typedef enum {
    reference count that can reference other GC objects. JS Objects are
    a particular type of GC object. */
 struct JSGCObjectHeader {
-    int ref_count; /* must come first, 32-bit */
-    JSGCObjectTypeEnum gc_obj_type : 4;
-    uint8_t mark : 1; /* used by the GC */
-    uint8_t dummy0: 3;
-    uint8_t dummy1; /* not used by the GC */
-    uint16_t dummy2; /* not used by the GC */
     struct list_head link;
 };
 
@@ -375,16 +440,10 @@ typedef struct {
 } JSWeakRefHeader;
 
 typedef struct JSVarRef {
-    union {
-        JSGCObjectHeader header; /* must come first */
-        struct {
-            int __gc_ref_count; /* corresponds to header.ref_count */
-            uint8_t __gc_mark; /* corresponds to header.mark/gc_obj_type */
-            uint8_t is_detached;
-            uint8_t is_lexical; /* only used with global variables */
-            uint8_t is_const; /* only used with global variables */
-        };
-    };
+    JSGCObjectHeader header; /* must come first */
+    uint8_t is_detached;
+    uint8_t is_lexical; /* only used with global variables */
+    uint8_t is_const; /* only used with global variables */
     JSValue *pvalue; /* pointer to the value, either on the stack or
                         to 'value' */
     union {
@@ -421,7 +480,6 @@ typedef uint128_t js_dlimb_t;
 #endif
 
 typedef struct JSBigInt {
-    JSRefCountHeader header; /* must come first, 32-bit */
     uint32_t len; /* number of limbs, >= 1 */
     js_limb_t tab[]; /* two's complement representation, always
                         normalized so that 'len' is the minimum
@@ -515,7 +573,6 @@ typedef enum {
 #define JS_ATOM_HASH_PRIVATE JS_ATOM_HASH_MASK
 
 struct JSString {
-    JSRefCountHeader header; /* must come first, 32-bit */
     uint32_t len : 31;
     uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
     /* for JS_ATOM_TYPE_SYMBOL: hash = weakref_count, atom_type = 3,
@@ -534,7 +591,6 @@ struct JSString {
 };
 
 typedef struct JSStringRope {
-    JSRefCountHeader header; /* must come first, 32-bit */
     uint32_t len;
     uint8_t is_wide_char; /* 0 = 8 bits, 1 = 16 bits characters */
     uint8_t depth; /* max depth of the rope tree */
@@ -908,47 +964,40 @@ typedef struct JSShapeProperty {
 } JSShapeProperty;
 
 struct JSShape {
-    /* hash table of size hash_mask + 1 before the start of the
-       structure (see prop_hash_end()). */
     JSGCObjectHeader header;
     /* true if the shape is inserted in the shape hash table. If not,
        JSShape.hash is not valid */
     uint8_t is_hashed;
     uint32_t hash; /* current hash value */
-    uint32_t prop_hash_mask;
+    uint32_t prop_hash_mask; /* >= 2 */
     int prop_size; /* allocated properties */
     int prop_count; /* include deleted properties */
     int deleted_prop_count;
     JSShape *shape_hash_next; /* in JSRuntime.shape_hash[h] list */
     JSObject *proto;
-    JSShapeProperty prop[0]; /* prop_size elements */
+    uint32_t hash_table[]; /* prop_hash_mask + 1 elements */
+    /* followed by JSShapeProperty prop[prop_size]; */
 };
 
 struct JSObject {
-    union {
-        JSGCObjectHeader header;
-        struct {
-            int __gc_ref_count; /* corresponds to header.ref_count */
-            uint8_t __gc_mark : 7; /* corresponds to header.mark/gc_obj_type */
-            /* TRUE if the array prototype is "normal":
-               - no small index properties which are get/set or non writable
-               - its prototype is Object.prototype
-               - Object.prototype has no small index properties which are get/set or non writable
-               - the prototype of Object.prototype is null (always true as it is immutable)
-            */
-            uint8_t is_std_array_prototype : 1;
-
-            uint8_t extensible : 1;
-            uint8_t free_mark : 1; /* only used when freeing objects with cycles */
-            uint8_t is_exotic : 1; /* TRUE if object has exotic property handlers */
-            uint8_t fast_array : 1; /* TRUE if u.array is used for get/put (for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS and typed arrays) */
-            uint8_t is_constructor : 1; /* TRUE if object is a constructor function */
-            uint8_t has_immutable_prototype : 1; /* cannot modify the prototype */
-            uint8_t tmp_mark : 1; /* used in JS_WriteObjectRec() */
-            uint8_t is_HTMLDDA : 1; /* specific annex B IsHtmlDDA behavior */
-            uint16_t class_id; /* see JS_CLASS_x */
-        };
-    };
+    JSGCObjectHeader header;
+    /* TRUE if the array prototype is "normal":
+       - no small index properties which are get/set or non writable
+       - its prototype is Object.prototype
+       - Object.prototype has no small index properties which are get/set or non writable
+       - the prototype of Object.prototype is null (always true as it is immutable)
+    */
+    uint8_t is_std_array_prototype : 1;
+    
+    uint8_t extensible : 1;
+    uint8_t free_mark : 1; /* only used when freeing objects with cycles */
+    uint8_t is_exotic : 1; /* TRUE if object has exotic property handlers */
+    uint8_t fast_array : 1; /* TRUE if u.array is used for get/put (for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS and typed arrays) */
+    uint8_t is_constructor : 1; /* TRUE if object is a constructor function */
+    uint8_t has_immutable_prototype : 1; /* cannot modify the prototype */
+    uint8_t tmp_mark : 1; /* used in JS_WriteObjectRec() */
+    uint8_t is_HTMLDDA : 1; /* specific annex B IsHtmlDDA behavior */
+    uint16_t class_id; /* see JS_CLASS_x */
     /* count the number of weak references to this object. The object
        structure is freed only if header.ref_count = 0 and
        weakref_count = 0 */
@@ -1356,62 +1405,415 @@ static const JSClassExoticMethods js_proxy_exotic_methods;
 static const JSClassExoticMethods js_module_ns_exotic_methods;
 static JSClassID js_class_id_alloc = JS_CLASS_INIT_COUNT;
 
+/* JS malloc */
+
+/* max overhead for size >= 64: 12.5% */
+static const uint16_t js_malloc_block_sizes[JS_MALLOC_BLOCK_SIZE_COUNT] = {
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+    72,
+    80,
+    88,
+    96,
+    104,
+    112,
+    120,
+    128,
+    144,
+    160,
+    176,
+    192,
+    208,
+    224,
+    240,
+    256,
+    288,
+    320,
+    352,
+    384,
+    416,
+    448,
+    480,
+    512,
+};
+
+static int get_block_size_index(size_t size)
+{
+    if (size <= 16) {
+        return 0;
+    } else if (size <= 128) {
+        return (size + 7) / 8 - 2;
+    } else if (size <= 256) {
+        return (size + 15) / 16 + 6;
+    } else if (size <= 512) {
+        return (size + 31) / 32 + 14;
+    } else {
+        return JS_MALLOC_BLOCK_SIZE_COUNT;
+    }
+}
+
+static void js_malloc_init(JSMallocContext *s)
+{
+    int i;
+    memset(s, 0, sizeof(*s));
+    s->zero_size_block.u.block_idx = FREE_NIL;
+    for(i = 0; i < JS_MALLOC_BLOCK_SIZE_COUNT; i++) {
+        init_list_head(&s->arena_list[i]);
+        init_list_head(&s->free_arena_list[i]);
+    }
+#ifdef JS_MALLOC_USE_ITER
+    init_list_head(&s->large_block_list);
+#endif
+}
+
+static void *get_arena_block(JSMallocArena *ar, unsigned int idx, unsigned int block_size)
+{
+    return ar->blocks + idx * block_size;
+}
+
+static inline JSMallocBlockHeader *js_rc(void *ptr)
+{
+    return container_of(ptr, JSMallocBlockHeader, user_data);
+}
+
+static no_inline JSMallocArena *js_malloc_new_arena(JSMallocContext *s, int block_size_idx)
+{
+    JSMallocBlockHeader *b;
+    JSMallocArena *ar;
+    int n_blocks, block_size, i;
+
+    block_size = js_malloc_block_sizes[block_size_idx];
+    n_blocks = (JS_MALLOC_ARENA_SIZE - sizeof(JSMallocArena)) / block_size;
+    ar = s->mf.js_malloc(&s->malloc_state, sizeof(JSMallocArena) + n_blocks * block_size);
+    if (!ar)
+        return NULL;
+
+    ar->block_size_idx = block_size_idx;
+    ar->n_blocks = n_blocks;
+    ar->n_used_blocks = 0;
+    ar->first_free_block = 0;
+#ifdef JS_MALLOC_USE_ITER
+    {
+        int n_bitmap_words = (n_blocks + 31) / 32;
+        for(i = 0; i < n_bitmap_words; i++)
+            ar->bitmap[i] = 0;
+    }
+#endif
+    for(i = 0; i < n_blocks - 1; i++) {
+        b = get_arena_block(ar, i, block_size);
+        b->u.free_next = i + 1;
+        b->block_size_idx = block_size_idx;
+    }
+    b = get_arena_block(ar, n_blocks - 1, block_size);
+    b->u.free_next = FREE_NIL;
+    b->block_size_idx = block_size_idx;
+    
+    /* add to the head */
+    list_add(&ar->link, &s->arena_list[block_size_idx]);
+    list_add(&ar->free_link, &s->free_arena_list[block_size_idx]);
+    return ar;
+}
+
+static no_inline void *js_malloc_large(JSMallocContext *s, size_t size)
+{
+    JSMallocLargeBlockHeader *b;
+    b = s->mf.js_malloc(&s->malloc_state, sizeof(JSMallocLargeBlockHeader) + size);
+    if (!b)
+        return NULL;
+    b->header.u.block_idx = FREE_NIL;
+    b->header.block_size_idx = 0xff; /* fail safe */
+#ifdef JS_MALLOC_USE_ITER
+    list_add_tail(&b->link, &s->large_block_list);
+#endif
+    return b->header.user_data;
+}
+
+static void *__js_malloc(JSMallocContext *s, size_t size)
+{
+    size_t total_size;
+    if (unlikely(size == 0)) {
+        JSMallocBlockHeader *b = &s->zero_size_block;
+        return b->user_data;
+    } else {
+        total_size = ((size + JS_MALLOC_ALIGN - 1) & ~(JS_MALLOC_ALIGN - 1)) +
+            sizeof(JSMallocBlockHeader);
+        if (total_size <= JS_MALLOC_MAX_SMALL_SIZE) { /* TEST */
+            int block_size_idx;
+            unsigned int block_idx, block_size;
+            JSMallocBlockHeader *b;
+            JSMallocArena *ar;
+            struct list_head *el, *head;
+            
+            block_size_idx = get_block_size_index(total_size);
+            block_size = js_malloc_block_sizes[block_size_idx];
+            head = &s->free_arena_list[block_size_idx];
+            el = head->next;
+            if (unlikely(el == head)) {
+                ar = js_malloc_new_arena(s, block_size_idx);
+                if (!ar)
+                    return NULL;
+            } else {
+                ar = list_entry(el, JSMallocArena, free_link);
+            }
+            block_idx = ar->first_free_block;
+            b = get_arena_block(ar, ar->first_free_block, block_size);
+            ar->first_free_block = b->u.free_next;
+            b->u.block_idx = block_idx;
+            ar->n_used_blocks++;
+            if (unlikely(ar->n_used_blocks == ar->n_blocks)) {
+                list_del(&ar->free_link);
+            }
+#ifdef JS_MALLOC_USE_ITER
+            ar->bitmap[block_idx / 32] |= 1 << (block_idx % 32);
+#endif
+            return b->user_data;
+        } else {
+            return js_malloc_large(s, size);
+        }
+    }
+}
+
+static void __js_free(JSMallocContext *s, void *ptr)
+{
+    JSMallocBlockHeader *b;
+
+    if (!ptr)
+        return;
+    b = container_of(ptr, JSMallocBlockHeader, user_data);
+    if (unlikely(b->u.block_idx == FREE_NIL)) {
+        /* large or zero size block */
+        if (b == &s->zero_size_block) {
+            /* nothing to do */
+        } else {
+            JSMallocLargeBlockHeader *lb = container_of(ptr, JSMallocLargeBlockHeader, header.user_data);
+#ifdef JS_MALLOC_USE_ITER
+            list_del(&lb->link);
+#endif
+            s->mf.js_free(&s->malloc_state, lb);
+        }
+    } else {
+        unsigned int block_idx = b->u.block_idx;
+        unsigned int block_size_idx = b->block_size_idx;
+        unsigned int block_size = js_malloc_block_sizes[block_size_idx];
+        JSMallocArena *ar = (JSMallocArena *)((uint8_t *)b - block_size * block_idx - sizeof(JSMallocArena));
+        b->u.free_next = ar->first_free_block;
+        ar->first_free_block = block_idx;
+#ifdef JS_MALLOC_USE_ITER
+        ar->bitmap[block_idx / 32] &= ~(1 << (block_idx % 32));
+#endif
+        /* add back to the free list if needed */
+        if (unlikely(ar->n_used_blocks == ar->n_blocks)) {
+            list_add(&ar->free_link, &s->free_arena_list[block_size_idx]);
+        }
+        ar->n_used_blocks--;
+        if (unlikely(ar->n_used_blocks == 0)) {
+            list_del(&ar->link);
+            list_del(&ar->free_link);
+            s->mf.js_free(&s->malloc_state, ar);
+        }
+    }
+}
+
+static void *__js_realloc(JSMallocContext *s, void *ptr, size_t size)
+{
+    JSMallocBlockHeader *b;
+    if (ptr == NULL) {
+        return __js_malloc(s, size);
+    } else if (size == 0) {
+        __js_free(s, ptr);
+        return NULL;
+    }
+    b = container_of(ptr, JSMallocBlockHeader, user_data);
+    if (b->u.block_idx == FREE_NIL) {
+        if (b == &s->zero_size_block) {
+            return __js_malloc(s, size);
+        } else {
+            JSMallocLargeBlockHeader *lb, *new_lb;
+            lb = container_of(ptr, JSMallocLargeBlockHeader, header.user_data);
+#ifdef JS_MALLOC_USE_ITER
+            list_del(&lb->link);
+#endif
+            new_lb = s->mf.js_realloc(&s->malloc_state, lb, sizeof(JSMallocLargeBlockHeader) + size);
+            if (!new_lb) {
+#ifdef JS_MALLOC_USE_ITER
+                /* add again in the list */
+                list_add_tail(&lb->link, &s->large_block_list);
+#endif
+                return NULL;
+            }
+            new_lb->header.u.block_idx = FREE_NIL;
+            new_lb->header.block_size_idx = 0xff; /* fail safe */
+#ifdef JS_MALLOC_USE_ITER
+            list_add_tail(&new_lb->link, &s->large_block_list);
+#endif
+            return new_lb->header.user_data;
+        }
+    } else {
+        unsigned int block_size_idx = b->block_size_idx;
+        size_t block_size = js_malloc_block_sizes[block_size_idx];
+        size_t total_size, old_size;
+        void *new_ptr;
+        JSMallocBlockHeader *new_b;
+
+        total_size = ((size + JS_MALLOC_ALIGN - 1) & ~(JS_MALLOC_ALIGN - 1)) +
+            sizeof(JSMallocBlockHeader);
+        if (total_size <= block_size)
+            return ptr;
+        new_ptr = __js_malloc(s, size);
+        if (!new_ptr)
+            return NULL;
+        new_b = container_of(new_ptr, JSMallocBlockHeader, user_data);
+        /* copy the GC data */
+        new_b->gc_obj_type = b->gc_obj_type;
+        new_b->mark = b->mark;
+        new_b->ref_count = b->ref_count;
+        /* copy the data */
+        old_size = block_size - sizeof(JSMallocBlockHeader);
+        if (size > old_size)
+            size = old_size;
+        memcpy(new_ptr, ptr, size);
+        __js_free(s, ptr);
+        return new_ptr;
+    }
+}
+
+static size_t __js_malloc_usable_size(JSMallocContext *s, const char *ptr)
+{
+    JSMallocBlockHeader *b;
+    if (!ptr)
+        return 0;
+    b = container_of(ptr, JSMallocBlockHeader, user_data);
+    if (b->u.block_idx == FREE_NIL) {
+        if (b == &s->zero_size_block) {
+            return 0;
+        } else {
+            JSMallocLargeBlockHeader *lb;
+            size_t size;
+            lb = container_of(ptr, JSMallocLargeBlockHeader, header.user_data);
+            if (s->mf.js_malloc_usable_size) {
+                size = s->mf.js_malloc_usable_size(lb);
+                if (size != 0)
+                    size -= sizeof(JSMallocLargeBlockHeader);
+                return size;
+            } else {
+                return 0;
+            }
+        }
+    } else {
+        size_t block_size = js_malloc_block_sizes[b->block_size_idx];
+        return block_size - sizeof(*b);
+    }
+}
+
+static __maybe_unused void js_malloc_dump_arenas(JSMallocContext *s)
+{
+    struct list_head *el;
+    int block_size_idx;
+
+    printf("%20s %10s %10s\n", "PTR", "BLK_SIZE", "ALLOC");
+    for(block_size_idx = 0; block_size_idx < JS_MALLOC_BLOCK_SIZE_COUNT; block_size_idx++) {
+        int block_size = js_malloc_block_sizes[block_size_idx];
+        list_for_each(el, &s->arena_list[block_size_idx]) {
+            JSMallocArena *ar = list_entry(el, JSMallocArena, link);
+            printf("%20p %10u %9.1f%%\n",
+                   ar, block_size,
+                   (double)ar->n_used_blocks / ar->n_blocks * 100);
+        }
+    }
+}
+
+#ifdef JS_MALLOC_USE_ITER
+typedef void JSMallocIterFunc(void *opaque, void *ptr);
+
+/* iterate thru allocated blocks. The allocated block list should not
+   be modified while iterating. */
+static __maybe_unused void js_malloc_iter(JSMallocContext *s, JSMallocIterFunc *iter_func, void *iter_opaque)
+{
+    struct list_head *el;
+    int block_size_idx;
+    int i, j, n_words;
+    uint32_t bmp;
+    
+    for(block_size_idx = 0; block_size_idx < JS_MALLOC_BLOCK_SIZE_COUNT; block_size_idx++) {
+        unsigned int block_size = js_malloc_block_sizes[block_size_idx];
+        list_for_each(el, &s->arena_list[block_size_idx]) {
+            JSMallocArena *ar = list_entry(el, JSMallocArena, link);
+            n_words = (ar->n_blocks + 31) / 32;
+            for(i = 0; i < n_words; i++) {
+                bmp = ar->bitmap[i];
+                while (bmp != 0) {
+                    j = ctz32(bmp);
+                    bmp &= ~(1 << j);
+                    iter_func(iter_opaque, get_arena_block(ar, i * 32+ j, block_size));
+                }
+            }
+        }
+    }
+    list_for_each(el, &s->large_block_list) {
+        JSMallocLargeBlockHeader *lb = list_entry(el, JSMallocLargeBlockHeader, link);
+        iter_func(iter_opaque, lb->header.user_data);
+    }
+}
+#endif
+
+/* end JS malloc */
+
 static void js_trigger_gc(JSRuntime *rt, size_t size)
 {
     BOOL force_gc;
 #ifdef FORCE_GC_AT_MALLOC
     force_gc = TRUE;
 #else
-    force_gc = ((rt->malloc_state.malloc_size + size) >
+    force_gc = ((rt->malloc_ctx.malloc_state.malloc_size + size) >
                 rt->malloc_gc_threshold);
 #endif
     if (force_gc) {
 #ifdef DUMP_GC
         printf("GC: size=%" PRIu64 "\n",
-               (uint64_t)rt->malloc_state.malloc_size);
+               (uint64_t)rt->malloc_ctx.malloc_state.malloc_size);
 #endif
         JS_RunGC(rt);
-        rt->malloc_gc_threshold = rt->malloc_state.malloc_size +
-            (rt->malloc_state.malloc_size >> 1);
+        rt->malloc_gc_threshold = rt->malloc_ctx.malloc_state.malloc_size +
+            (rt->malloc_ctx.malloc_state.malloc_size >> 1);
     }
 }
 
-static size_t js_malloc_usable_size_unknown(const void *ptr)
+extern force_inline void *js_malloc_rt(JSRuntime *rt, size_t size)
 {
-    return 0;
+    return __js_malloc(&rt->malloc_ctx, size);
 }
 
-void *js_malloc_rt(JSRuntime *rt, size_t size)
+extern force_inline void js_free_rt(JSRuntime *rt, void *ptr)
 {
-    return rt->mf.js_malloc(&rt->malloc_state, size);
+    __js_free(&rt->malloc_ctx, ptr);
 }
 
-void js_free_rt(JSRuntime *rt, void *ptr)
+extern force_inline void *js_realloc_rt(JSRuntime *rt, void *ptr, size_t size)
 {
-    rt->mf.js_free(&rt->malloc_state, ptr);
+    return __js_realloc(&rt->malloc_ctx, ptr, size);
 }
 
-void *js_realloc_rt(JSRuntime *rt, void *ptr, size_t size)
+extern force_inline size_t js_malloc_usable_size_rt(JSRuntime *rt, const void *ptr)
 {
-    return rt->mf.js_realloc(&rt->malloc_state, ptr, size);
-}
-
-size_t js_malloc_usable_size_rt(JSRuntime *rt, const void *ptr)
-{
-    return rt->mf.js_malloc_usable_size(ptr);
+    return __js_malloc_usable_size(&rt->malloc_ctx, ptr);
 }
 
 void *js_mallocz_rt(JSRuntime *rt, size_t size)
 {
     void *ptr;
     ptr = js_malloc_rt(rt, size);
-    if (!ptr)
+    if (unlikely(!ptr))
         return NULL;
     return memset(ptr, 0, size);
 }
 
 /* Throw out of memory in case of error */
-void *js_malloc(JSContext *ctx, size_t size)
+extern force_inline void *js_malloc(JSContext *ctx, size_t size)
 {
     void *ptr;
     ptr = js_malloc_rt(ctx->rt, size);
@@ -1423,7 +1825,7 @@ void *js_malloc(JSContext *ctx, size_t size)
 }
 
 /* Throw out of memory in case of error */
-void *js_mallocz(JSContext *ctx, size_t size)
+extern force_inline void *js_mallocz(JSContext *ctx, size_t size)
 {
     void *ptr;
     ptr = js_mallocz_rt(ctx->rt, size);
@@ -1434,7 +1836,7 @@ void *js_mallocz(JSContext *ctx, size_t size)
     return ptr;
 }
 
-void js_free(JSContext *ctx, void *ptr)
+extern force_inline void js_free(JSContext *ctx, void *ptr)
 {
     js_free_rt(ctx->rt, ptr);
 }
@@ -1529,7 +1931,7 @@ static void *js_realloc_bytecode_rt(void *opaque, void *ptr, size_t size)
            avoid some overflows. */
         return NULL;
     } else {
-        return rt->mf.js_realloc(&rt->malloc_state, ptr, size);
+        return js_realloc_rt(rt, ptr, size);
     }
 }
 
@@ -1661,12 +2063,9 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
     if (!rt)
         return NULL;
     memset(rt, 0, sizeof(*rt));
-    rt->mf = *mf;
-    if (!rt->mf.js_malloc_usable_size) {
-        /* use dummy function if none provided */
-        rt->mf.js_malloc_usable_size = js_malloc_usable_size_unknown;
-    }
-    rt->malloc_state = ms;
+    js_malloc_init(&rt->malloc_ctx);
+    rt->malloc_ctx.mf = *mf;
+    rt->malloc_ctx.malloc_state = ms;
     rt->malloc_gc_threshold = 256 * 1024;
 
     init_list_head(&rt->context_list);
@@ -1807,7 +2206,7 @@ JSRuntime *JS_NewRuntime(void)
 
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
 {
-    rt->malloc_state.malloc_limit = limit;
+    rt->malloc_ctx.malloc_state.malloc_limit = limit;
 }
 
 /* use -1 to disable automatic GC */
@@ -1914,7 +2313,7 @@ int JS_ExecutePendingJob(JSRuntime *rt, JSContext **pctx)
     JS_FreeValue(ctx, res);
     js_free(ctx, e);
     if (pctx) {
-        if (ctx->header.ref_count > 1)
+        if (js_rc(ctx)->ref_count > 1)
             *pctx = ctx;
         else
             *pctx = NULL;
@@ -1945,7 +2344,7 @@ static JSString *js_alloc_string_rt(JSRuntime *rt, int max_len, int is_wide_char
     str = js_malloc_rt(rt, sizeof(JSString) + (max_len << is_wide_char) + 1 - is_wide_char);
     if (unlikely(!str))
         return NULL;
-    str->header.ref_count = 1;
+    js_rc(str)->ref_count = 1;
     str->is_wide_char = is_wide_char;
     str->len = max_len;
     str->atom_type = 0;
@@ -1971,7 +2370,7 @@ static JSString *js_alloc_string(JSContext *ctx, int max_len, int is_wide_char)
 /* same as JS_FreeValueRT() but faster */
 static inline void js_free_string(JSRuntime *rt, JSString *str)
 {
-    if (--str->header.ref_count <= 0) {
+    if (--js_rc(str)->ref_count <= 0) {
         if (str->atom_type) {
             JS_FreeAtomStruct(rt, str);
         } else {
@@ -2020,14 +2419,14 @@ void JS_FreeRuntime(JSRuntime *rt)
            referenced externally */
         list_for_each(el, &rt->gc_obj_list) {
             p = list_entry(el, JSGCObjectHeader, link);
-            p->mark = 0;
+            js_rc(p)->mark = 0;
         }
         gc_decref(rt);
 
         header_done = FALSE;
         list_for_each(el, &rt->gc_obj_list) {
             p = list_entry(el, JSGCObjectHeader, link);
-            if (p->ref_count != 0) {
+            if (js_rc(p)->ref_count != 0) {
                 if (!header_done) {
                     printf("Object leaks:\n");
                     JS_DumpObjectHeader(rt);
@@ -2040,7 +2439,7 @@ void JS_FreeRuntime(JSRuntime *rt)
         count = 0;
         list_for_each(el, &rt->gc_obj_list) {
             p = list_entry(el, JSGCObjectHeader, link);
-            if (p->ref_count == 0) {
+            if (js_rc(p)->ref_count == 0) {
                 count++;
             }
         }
@@ -2068,7 +2467,7 @@ void JS_FreeRuntime(JSRuntime *rt)
         for(i = 0; i < rt->atom_size; i++) {
             JSAtomStruct *p = rt->atom_array[i];
             if (!atom_is_free(p) /* && p->str*/) {
-                if (i >= JS_ATOM_END || p->header.ref_count != 1) {
+                if (i >= JS_ATOM_END || js_rc(p)->ref_count != 1) {
                     if (!header_done) {
                         header_done = TRUE;
                         if (rt->rt_info) {
@@ -2082,7 +2481,7 @@ void JS_FreeRuntime(JSRuntime *rt)
                     if (rt->rt_info) {
                         printf(" ");
                     } else {
-                        printf("    %6u %6u ", i, p->header.ref_count);
+                        printf("    %6u %6u ", i, js_rc(p)->ref_count);
                     }
                     switch (p->atom_type) {
                     case JS_ATOM_TYPE_STRING:
@@ -2106,7 +2505,7 @@ void JS_FreeRuntime(JSRuntime *rt)
                         break;
                     }
                     if (rt->rt_info) {
-                        printf(":%u", p->header.ref_count);
+                        printf(":%u", js_rc(p)->ref_count);
                     } else {
                         printf("\n");
                     }
@@ -2145,11 +2544,11 @@ void JS_FreeRuntime(JSRuntime *rt)
             if (rt->rt_info) {
                 printf(" ");
             } else {
-                printf("    %6u ", str->header.ref_count);
+                printf("    %6u ", js_rc(str)->ref_count);
             }
             JS_DumpString(rt, str);
             if (rt->rt_info) {
-                printf(":%u", str->header.ref_count);
+                printf(":%u", js_rc(str)->ref_count);
             } else {
                 printf("\n");
             }
@@ -2160,7 +2559,7 @@ void JS_FreeRuntime(JSRuntime *rt)
             printf("\n");
     }
     {
-        JSMallocState *s = &rt->malloc_state;
+        JSMallocState *s = &rt->malloc_ctx.malloc_state;
         if (s->malloc_count > 1) {
             if (rt->rt_info)
                 printf("%s:1: ", rt->rt_info);
@@ -2172,8 +2571,8 @@ void JS_FreeRuntime(JSRuntime *rt)
 #endif
 
     {
-        JSMallocState ms = rt->malloc_state;
-        rt->mf.js_free(&ms, rt);
+        JSMallocState ms = rt->malloc_ctx.malloc_state;
+        rt->malloc_ctx.mf.js_free(&ms, rt);
     }
 }
 
@@ -2185,7 +2584,7 @@ JSContext *JS_NewContextRaw(JSRuntime *rt)
     ctx = js_mallocz_rt(rt, sizeof(JSContext));
     if (!ctx)
         return NULL;
-    ctx->header.ref_count = 1;
+    js_rc(ctx)->ref_count = 1;
     add_gc_object(rt, &ctx->header, JS_GC_OBJ_TYPE_JS_CONTEXT);
 
     ctx->class_proto = js_malloc_rt(rt, sizeof(ctx->class_proto[0]) *
@@ -2296,7 +2695,7 @@ static void js_free_modules(JSContext *ctx, JSFreeModuleEnum flag)
 
 JSContext *JS_DupContext(JSContext *ctx)
 {
-    ctx->header.ref_count++;
+    js_rc(ctx)->ref_count++;
     return ctx;
 }
 
@@ -2354,9 +2753,9 @@ void JS_FreeContext(JSContext *ctx)
     JSRuntime *rt = ctx->rt;
     int i;
 
-    if (--ctx->header.ref_count > 0)
+    if (--js_rc(ctx)->ref_count > 0)
         return;
-    assert(ctx->header.ref_count == 0);
+    assert(js_rc(ctx)->ref_count == 0);
 
 #ifdef DUMP_ATOMS
     JS_DumpAtoms(ctx->rt);
@@ -2588,8 +2987,8 @@ static __maybe_unused void JS_DumpString(JSRuntime *rt, const JSString *p)
         printf("<null>");
         return;
     }
-    printf("%d", p->header.ref_count);
-    sep = (p->header.ref_count == 1) ? '\"' : '\'';
+    printf("%d", js_rc((void *)p)->ref_count);
+    sep = (js_rc((void *)p)->ref_count == 1) ? '\"' : '\'';
     putchar(sep);
     for(i = 0; i < p->len; i++) {
         JS_DumpChar(stdout, string_get(p, i), sep);
@@ -2697,7 +3096,7 @@ static JSAtom JS_DupAtomRT(JSRuntime *rt, JSAtom v)
 
     if (!__JS_AtomIsConst(v)) {
         p = rt->atom_array[v];
-        p->header.ref_count++;
+        js_rc(p)->ref_count++;
     }
     return v;
 }
@@ -2710,7 +3109,7 @@ JSAtom JS_DupAtom(JSContext *ctx, JSAtom v)
     if (!__JS_AtomIsConst(v)) {
         rt = ctx->rt;
         p = rt->atom_array[v];
-        p->header.ref_count++;
+        js_rc(p)->ref_count++;
     }
     return v;
 }
@@ -2779,7 +3178,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
             i = js_get_atom_index(rt, str);
             /* reduce string refcount and increase atom's unless constant */
             if (__JS_AtomIsConst(i))
-                str->header.ref_count--;
+                js_rc(str)->ref_count--;
             return i;
         }
         /* try and locate an already registered atom */
@@ -2795,7 +3194,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
                 p->len == len &&
                 js_string_memcmp(p, 0, str, 0, len) == 0) {
                 if (!__JS_AtomIsConst(i))
-                    p->header.ref_count++;
+                    js_rc(p)->ref_count++;
                 goto done;
             }
             i = p->hash_next;
@@ -2835,7 +3234,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
                 js_free_rt(rt, new_array);
                 goto fail;
             }
-            p->header.ref_count = 1;  /* not refcounted */
+            js_rc(p)->ref_count = 1;  /* not refcounted */
             p->atom_type = JS_ATOM_TYPE_SYMBOL;
 #ifdef DUMP_LEAKS
             list_add_tail(&p->link, &rt->string_list);
@@ -2867,7 +3266,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
                              1 - str->is_wide_char);
             if (unlikely(!p))
                 goto fail;
-            p->header.ref_count = 1;
+            js_rc(p)->ref_count = 1;
             p->is_wide_char = str->is_wide_char;
             p->len = str->len;
 #ifdef DUMP_LEAKS
@@ -2881,7 +3280,7 @@ static JSAtom __JS_NewAtom(JSRuntime *rt, JSString *str, int atom_type)
         p = js_malloc_rt(rt, sizeof(JSAtomStruct)); /* empty wide string */
         if (!p)
             return JS_ATOM_NULL;
-        p->header.ref_count = 1;
+        js_rc(p)->ref_count = 1;
         p->is_wide_char = 1;    /* Hack to represent NULL as a JSString */
         p->len = 0;
 #ifdef DUMP_LEAKS
@@ -2950,7 +3349,7 @@ static JSAtom __JS_FindAtom(JSRuntime *rt, const char *str, size_t len,
             p->is_wide_char == 0 &&
             memcmp(p->u.str8, str, len) == 0) {
             if (!__JS_AtomIsConst(i))
-                p->header.ref_count++;
+                js_rc(p)->ref_count++;
             return i;
         }
         i = p->hash_next;
@@ -2962,7 +3361,7 @@ static void JS_FreeAtomStruct(JSRuntime *rt, JSAtomStruct *p)
 {
 #if 0   /* JS_ATOM_NULL is not refcounted: __JS_AtomIsConst() includes 0 */
     if (unlikely(i == JS_ATOM_NULL)) {
-        p->header.ref_count = INT32_MAX / 2;
+        js_rc(p)->ref_count = INT32_MAX / 2;
         return;
     }
 #endif
@@ -3012,7 +3411,7 @@ static void __JS_FreeAtom(JSRuntime *rt, uint32_t i)
     JSAtomStruct *p;
 
     p = rt->atom_array[i];
-    if (--p->header.ref_count > 0)
+    if (--js_rc(p)->ref_count > 0)
         return;
     JS_FreeAtomStruct(rt, p);
 }
@@ -4262,7 +4661,7 @@ static BOOL JS_ConcatStringInPlace(JSContext *ctx, JSString *p1, JSValueConst op
 
         if (p2->len == 0)
             return TRUE;
-        if (p1->header.ref_count != 1)
+        if (js_rc(p1)->ref_count != 1)
             return FALSE;
         size1 = js_malloc_usable_size(ctx, p1);
         if (p1->is_wide_char) {
@@ -4435,7 +4834,7 @@ static JSValue js_linearize_string_rope(JSContext *ctx, JSValue rope)
     if (string_buffer_concat_value(b, rope))
         goto fail;
     ret = string_buffer_end(b);
-    if (r->header.ref_count > 1) {
+    if (js_rc(r)->ref_count > 1) {
         /* update the rope so that it won't need to be linearized again */
         JS_FreeValue(ctx, r->left);
         JS_FreeValue(ctx, r->right);
@@ -4488,7 +4887,7 @@ static JSValue js_new_string_rope(JSContext *ctx, JSValue op1, JSValue op2)
     r = js_malloc(ctx, sizeof(*r));
     if (!r)
         goto fail;
-    r->header.ref_count = 1;
+    js_rc(r)->ref_count = 1;
     r->len = len;
     r->is_wide_char = is_wide_char;
     r->depth = depth + 1;
@@ -4707,28 +5106,13 @@ static JSValue JS_ConcatString(JSContext *ctx, JSValue op1, JSValue op2)
 
 static inline size_t get_shape_size(size_t hash_size, size_t prop_size)
 {
-    return hash_size * sizeof(uint32_t) + sizeof(JSShape) +
+    return sizeof(JSShape) + hash_size * sizeof(uint32_t) +
         prop_size * sizeof(JSShapeProperty);
-}
-
-static inline JSShape *get_shape_from_alloc(void *sh_alloc, size_t hash_size)
-{
-    return (JSShape *)(void *)((uint32_t *)sh_alloc + hash_size);
-}
-
-static inline uint32_t *prop_hash_end(JSShape *sh)
-{
-    return (uint32_t *)sh;
-}
-
-static inline void *get_alloc_from_shape(JSShape *sh)
-{
-    return prop_hash_end(sh) - ((intptr_t)sh->prop_hash_mask + 1);
 }
 
 static inline JSShapeProperty *get_shape_prop(JSShape *sh)
 {
-    return sh->prop;
+    return (JSShapeProperty *)((uint32_t *)(sh + 1) + sh->prop_hash_mask + 1);
 }
 
 static int init_shape_hash(JSRuntime *rt)
@@ -4817,20 +5201,17 @@ static inline JSShape *js_new_shape_nohash(JSContext *ctx, JSObject *proto,
                                            int hash_size, int prop_size)
 {
     JSRuntime *rt = ctx->rt;
-    void *sh_alloc;
     JSShape *sh;
 
-    sh_alloc = js_malloc(ctx, get_shape_size(hash_size, prop_size));
-    if (!sh_alloc)
+    sh = js_malloc(ctx, get_shape_size(hash_size, prop_size));
+    if (!sh)
         return NULL;
-    sh = get_shape_from_alloc(sh_alloc, hash_size);
-    sh->header.ref_count = 1;
+    js_rc(sh)->ref_count = 1;
     add_gc_object(rt, &sh->header, JS_GC_OBJ_TYPE_SHAPE);
     if (proto)
         JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, proto));
     sh->proto = proto;
-    memset(prop_hash_end(sh) - hash_size, 0, sizeof(prop_hash_end(sh)[0]) *
-           hash_size);
+    memset(sh->hash_table, 0, sizeof(sh->hash_table[0]) * hash_size);
     sh->prop_hash_mask = hash_size - 1;
     sh->prop_size = prop_size;
     sh->prop_count = 0;
@@ -4873,20 +5254,18 @@ static JSShape *js_new_shape(JSContext *ctx, JSObject *proto)
 static JSShape *js_clone_shape(JSContext *ctx, JSShape *sh1)
 {
     JSShape *sh;
-    void *sh_alloc, *sh_alloc1;
     size_t size;
     JSShapeProperty *pr;
     uint32_t i, hash_size;
 
     hash_size = sh1->prop_hash_mask + 1;
     size = get_shape_size(hash_size, sh1->prop_size);
-    sh_alloc = js_malloc(ctx, size);
-    if (!sh_alloc)
+    sh = js_malloc(ctx, size);
+    if (!sh)
         return NULL;
-    sh_alloc1 = get_alloc_from_shape(sh1);
-    memcpy(sh_alloc, sh_alloc1, size);
-    sh = get_shape_from_alloc(sh_alloc, hash_size);
-    sh->header.ref_count = 1;
+    memcpy(&sh->header + 1, &sh1->header + 1,
+           size - sizeof(JSGCObjectHeader));
+    js_rc(sh)->ref_count = 1;
     add_gc_object(ctx->rt, &sh->header, JS_GC_OBJ_TYPE_SHAPE);
     sh->is_hashed = FALSE;
     if (sh->proto) {
@@ -4900,7 +5279,7 @@ static JSShape *js_clone_shape(JSContext *ctx, JSShape *sh1)
 
 static JSShape *js_dup_shape(JSShape *sh)
 {
-    sh->header.ref_count++;
+    js_rc(sh)->ref_count++;
     return sh;
 }
 
@@ -4909,7 +5288,7 @@ static void js_free_shape0(JSRuntime *rt, JSShape *sh)
     uint32_t i;
     JSShapeProperty *pr;
 
-    assert(sh->header.ref_count == 0);
+    assert(js_rc(sh)->ref_count == 0);
     if (sh->is_hashed)
         js_shape_hash_unlink(rt, sh);
     if (sh->proto != NULL) {
@@ -4921,12 +5300,12 @@ static void js_free_shape0(JSRuntime *rt, JSShape *sh)
         pr++;
     }
     remove_gc_object(&sh->header);
-    js_free_rt(rt, get_alloc_from_shape(sh));
+    js_free_rt(rt, sh);
 }
 
 static void js_free_shape(JSRuntime *rt, JSShape *sh)
 {
-    if (unlikely(--sh->header.ref_count <= 0)) {
+    if (unlikely(--js_rc(sh)->ref_count <= 0)) {
         js_free_shape0(rt, sh);
     }
 }
@@ -4944,7 +5323,6 @@ static no_inline int resize_properties(JSContext *ctx, JSShape **psh,
     JSShape *sh;
     uint32_t new_size, new_hash_size, new_hash_mask, i;
     JSShapeProperty *pr;
-    void *sh_alloc;
     intptr_t h;
     JSShape *old_sh;
 
@@ -4965,35 +5343,41 @@ static no_inline int resize_properties(JSContext *ctx, JSShape **psh,
     /* resize the property shapes. Using js_realloc() is not possible in
        case the GC runs during the allocation */
     old_sh = sh;
-    sh_alloc = js_malloc(ctx, get_shape_size(new_hash_size, new_size));
-    if (!sh_alloc)
+    sh = js_malloc(ctx, get_shape_size(new_hash_size, new_size));
+    if (!sh)
         return -1;
-    sh = get_shape_from_alloc(sh_alloc, new_hash_size);
-    list_del(&old_sh->header.link);
-    /* copy all the shape properties */
-    memcpy(sh, old_sh,
-           sizeof(JSShape) + sizeof(sh->prop[0]) * old_sh->prop_count);
-    list_add_tail(&sh->header.link, &ctx->rt->gc_obj_list);
+    remove_gc_object(&old_sh->header);
 
+    js_rc(sh)->ref_count = 1;
+    add_gc_object(ctx->rt, &sh->header, JS_GC_OBJ_TYPE_SHAPE);
+
+    memcpy(&sh->header + 1, &old_sh->header + 1,
+           sizeof(JSShape) - sizeof(JSGCObjectHeader));
+    
     if (new_hash_size != (sh->prop_hash_mask + 1)) {
         /* resize the hash table and the properties */
         new_hash_mask = new_hash_size - 1;
         sh->prop_hash_mask = new_hash_mask;
-        memset(prop_hash_end(sh) - new_hash_size, 0,
-               sizeof(prop_hash_end(sh)[0]) * new_hash_size);
-        for(i = 0, pr = sh->prop; i < sh->prop_count; i++, pr++) {
+        memset(sh->hash_table, 0,
+               sizeof(sh->hash_table[0]) * new_hash_size);
+        memcpy(get_shape_prop(sh), get_shape_prop(old_sh),
+               sizeof(JSShapeProperty) * old_sh->prop_count);
+        for(i = 0, pr = get_shape_prop(sh); i < sh->prop_count; i++, pr++) {
             if (pr->atom != JS_ATOM_NULL) {
                 h = ((uintptr_t)pr->atom & new_hash_mask);
-                pr->hash_next = prop_hash_end(sh)[-h - 1];
-                prop_hash_end(sh)[-h - 1] = i + 1;
+                pr->hash_next = sh->hash_table[h];
+                sh->hash_table[h] = i + 1;
             }
         }
     } else {
-        /* just copy the previous hash table */
-        memcpy(prop_hash_end(sh) - new_hash_size, prop_hash_end(old_sh) - new_hash_size,
-               sizeof(prop_hash_end(sh)[0]) * new_hash_size);
+        /* just copy the previous hash table and the properties */
+        memcpy(sh->hash_table, old_sh->hash_table,
+               sizeof(sh->hash_table[0]) * new_hash_size);
+
+        memcpy(get_shape_prop(sh), get_shape_prop(old_sh),
+               sizeof(JSShapeProperty) * old_sh->prop_count);
     }
-    js_free(ctx, get_alloc_from_shape(old_sh));
+    js_free(ctx, old_sh);
     *psh = sh;
     sh->prop_size = new_size;
     return 0;
@@ -5003,7 +5387,6 @@ static no_inline int resize_properties(JSContext *ctx, JSShape **psh,
 static int compact_properties(JSContext *ctx, JSObject *p)
 {
     JSShape *sh, *old_sh;
-    void *sh_alloc;
     intptr_t h;
     uint32_t new_hash_size, i, j, new_hash_mask, new_size;
     JSShapeProperty *old_pr, *pr;
@@ -5023,28 +5406,31 @@ static int compact_properties(JSContext *ctx, JSObject *p)
 
     /* resize the hash table and the properties */
     old_sh = sh;
-    sh_alloc = js_malloc(ctx, get_shape_size(new_hash_size, new_size));
-    if (!sh_alloc)
+    sh = js_malloc(ctx, get_shape_size(new_hash_size, new_size));
+    if (!sh)
         return -1;
-    sh = get_shape_from_alloc(sh_alloc, new_hash_size);
-    list_del(&old_sh->header.link);
-    memcpy(sh, old_sh, sizeof(JSShape));
-    list_add_tail(&sh->header.link, &ctx->rt->gc_obj_list);
+    remove_gc_object(&old_sh->header);
 
-    memset(prop_hash_end(sh) - new_hash_size, 0,
-           sizeof(prop_hash_end(sh)[0]) * new_hash_size);
+    js_rc(sh)->ref_count = 1;
+    add_gc_object(ctx->rt, &sh->header, JS_GC_OBJ_TYPE_SHAPE);
+
+    memcpy(&sh->header + 1, &old_sh->header + 1,
+           sizeof(JSShape) - sizeof(JSGCObjectHeader));
+
+    memset(sh->hash_table, 0, sizeof(sh->hash_table[0]) * new_hash_size);
+    sh->prop_hash_mask = new_hash_mask;
 
     j = 0;
-    old_pr = old_sh->prop;
-    pr = sh->prop;
+    old_pr = get_shape_prop(old_sh);
+    pr = get_shape_prop(sh);
     prop = p->prop;
     for(i = 0; i < sh->prop_count; i++) {
         if (old_pr->atom != JS_ATOM_NULL) {
             pr->atom = old_pr->atom;
             pr->flags = old_pr->flags;
             h = ((uintptr_t)old_pr->atom & new_hash_mask);
-            pr->hash_next = prop_hash_end(sh)[-h - 1];
-            prop_hash_end(sh)[-h - 1] = j + 1;
+            pr->hash_next = sh->hash_table[h];
+            sh->hash_table[h] = j + 1;
             prop[j] = prop[i];
             j++;
             pr++;
@@ -5052,13 +5438,12 @@ static int compact_properties(JSContext *ctx, JSObject *p)
         old_pr++;
     }
     assert(j == (sh->prop_count - sh->deleted_prop_count));
-    sh->prop_hash_mask = new_hash_mask;
     sh->prop_size = new_size;
     sh->deleted_prop_count = 0;
     sh->prop_count = j;
 
     p->shape = sh;
-    js_free(ctx, get_alloc_from_shape(old_sh));
+    js_free(ctx, old_sh);
 
     /* reduce the size of the object properties */
     new_prop = js_realloc(ctx, p->prop, sizeof(new_prop[0]) * new_size);
@@ -5105,8 +5490,8 @@ static int add_shape_property(JSContext *ctx, JSShape **psh,
     /* add in hash table */
     hash_mask = sh->prop_hash_mask;
     h = atom & hash_mask;
-    pr->hash_next = prop_hash_end(sh)[-h - 1];
-    prop_hash_end(sh)[-h - 1] = sh->prop_count;
+    pr->hash_next = sh->hash_table[h];
+    sh->hash_table[h] = sh->prop_count;
     return 0;
 }
 
@@ -5147,13 +5532,15 @@ static JSShape *find_hashed_shape_prop(JSRuntime *rt, JSShape *sh,
         if (sh1->hash == h &&
             sh1->proto == sh->proto &&
             sh1->prop_count == ((n = sh->prop_count) + 1)) {
+            JSShapeProperty *prop = get_shape_prop(sh);
+            JSShapeProperty *prop1 = get_shape_prop(sh1);
             for(i = 0; i < n; i++) {
-                if (unlikely(sh1->prop[i].atom != sh->prop[i].atom) ||
-                    unlikely(sh1->prop[i].flags != sh->prop[i].flags))
+                if (unlikely(prop1[i].atom != prop[i].atom) ||
+                    unlikely(prop1[i].flags != prop[i].flags))
                     goto next;
             }
-            if (unlikely(sh1->prop[n].atom != atom) ||
-                unlikely(sh1->prop[n].flags != prop_flags))
+            if (unlikely(prop1[n].atom != atom) ||
+                unlikely(prop1[n].flags != prop_flags))
                 goto next;
             return sh1;
         }
@@ -5169,11 +5556,11 @@ static __maybe_unused void JS_DumpShape(JSRuntime *rt, int i, JSShape *sh)
 
     /* XXX: should output readable class prototype */
     printf("%5d %3d%c %14p %5d %5d", i,
-           sh->header.ref_count, " *"[sh->is_hashed],
+           js_rc(sh)->ref_count, " *"[sh->is_hashed],
            (void *)sh->proto, sh->prop_size, sh->prop_count);
     for(j = 0; j < sh->prop_count; j++) {
         printf(" %s", JS_AtomGetStrRT(rt, atom_buf, sizeof(atom_buf),
-                                      sh->prop[j].atom));
+                                      get_shape_prop(sh)[j].atom));
     }
     printf("\n");
 }
@@ -5197,7 +5584,7 @@ static __maybe_unused void JS_DumpShapes(JSRuntime *rt)
     /* dump non-hashed shapes */
     list_for_each(el, &rt->gc_obj_list) {
         gp = list_entry(el, JSGCObjectHeader, link);
-        if (gp->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT) {
+        if (js_rc(gp)->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT) {
             p = (JSObject *)gp;
             if (!p->shape->is_hashed) {
                 JS_DumpShape(rt, -1, p->shape);
@@ -5321,7 +5708,7 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
         }
         break;
     }
-    p->header.ref_count = 1;
+    js_rc(p)->ref_count = 1;
     add_gc_object(ctx->rt, &p->header, JS_GC_OBJ_TYPE_JS_OBJECT);
     if (props) {
         for(i = 0; i < sh->prop_count; i++)
@@ -5719,7 +6106,7 @@ static force_inline JSShapeProperty *find_own_property1(JSObject *p,
     intptr_t h;
     sh = p->shape;
     h = (uintptr_t)atom & sh->prop_hash_mask;
-    h = prop_hash_end(sh)[-h - 1];
+    h = sh->hash_table[h];
     prop = get_shape_prop(sh);
     while (h) {
         pr = &prop[h - 1];
@@ -5740,7 +6127,7 @@ static force_inline JSShapeProperty *find_own_property(JSProperty **ppr,
     intptr_t h;
     sh = p->shape;
     h = (uintptr_t)atom & sh->prop_hash_mask;
-    h = prop_hash_end(sh)[-h - 1];
+    h = sh->hash_table[h];
     prop = get_shape_prop(sh);
     while (h) {
         pr = &prop[h - 1];
@@ -5763,8 +6150,8 @@ static void set_cycle_flag(JSContext *ctx, JSValueConst obj)
 static void free_var_ref(JSRuntime *rt, JSVarRef *var_ref)
 {
     if (var_ref) {
-        assert(var_ref->header.ref_count > 0);
-        if (--var_ref->header.ref_count == 0) {
+        assert(js_rc(var_ref)->ref_count > 0);
+        if (--js_rc(var_ref)->ref_count == 0) {
             if (var_ref->is_detached) {
                 JS_FreeValueRT(rt, var_ref->value);
             } else {
@@ -5973,7 +6360,7 @@ static void free_object(JSRuntime *rt, JSObject *p)
 
     remove_gc_object(&p->header);
     if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES) {
-        if (p->header.ref_count == 0 && p->weakref_count == 0) {
+        if (js_rc(p)->ref_count == 0 && p->weakref_count == 0) {
             js_free_rt(rt, p);
         } else {
             /* keep the object structure because there are may be
@@ -5985,14 +6372,14 @@ static void free_object(JSRuntime *rt, JSObject *p)
         if (p->weakref_count == 0) {
             js_free_rt(rt, p);
         } else {
-            p->header.mark = 0; /* reset the mark so that the weakref can be freed */
+            js_rc(p)->mark = 0; /* reset the mark so that the weakref can be freed */
         }
     }
 }
 
 static void free_gc_object(JSRuntime *rt, JSGCObjectHeader *gp)
 {
-    switch(gp->gc_obj_type) {
+    switch(js_rc(gp)->gc_obj_type) {
     case JS_GC_OBJ_TYPE_JS_OBJECT:
         free_object(rt, (JSObject *)gp);
         break;
@@ -6021,7 +6408,7 @@ static void free_zero_refcount(JSRuntime *rt)
         if (el == &rt->gc_zero_ref_count_list)
             break;
         p = list_entry(el, JSGCObjectHeader, link);
-        assert(p->ref_count == 0);
+        assert(js_rc(p)->ref_count == 0);
         free_gc_object(rt, p);
     }
     rt->gc_phase = JS_GC_PHASE_NONE;
@@ -6075,7 +6462,7 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
             if (rt->gc_phase != JS_GC_PHASE_REMOVE_CYCLES) {
                 list_del(&p->link);
                 list_add(&p->link, &rt->gc_zero_ref_count_list);
-                p->mark = 1; /* indicate that the object is about to be freed */
+                js_rc(p)->mark = 1; /* indicate that the object is about to be freed */
                 if (rt->gc_phase == JS_GC_PHASE_NONE) {
                     free_zero_refcount(rt);
                 }
@@ -6139,8 +6526,8 @@ static void gc_remove_weak_objects(JSRuntime *rt)
 static void add_gc_object(JSRuntime *rt, JSGCObjectHeader *h,
                           JSGCObjectTypeEnum type)
 {
-    h->mark = 0;
-    h->gc_obj_type = type;
+    js_rc(h)->mark = 0;
+    js_rc(h)->gc_obj_type = type;
     list_add_tail(&h->link, &rt->gc_obj_list);
 }
 
@@ -6167,7 +6554,7 @@ void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func)
 static void mark_children(JSRuntime *rt, JSGCObjectHeader *gp,
                           JS_MarkFunc *mark_func)
 {
-    switch(gp->gc_obj_type) {
+    switch(js_rc(gp)->gc_obj_type) {
     case JS_GC_OBJ_TYPE_JS_OBJECT:
         {
             JSObject *p = (JSObject *)gp;
@@ -6285,9 +6672,9 @@ static void mark_children(JSRuntime *rt, JSGCObjectHeader *gp,
 
 static void gc_decref_child(JSRuntime *rt, JSGCObjectHeader *p)
 {
-    assert(p->ref_count > 0);
-    p->ref_count--;
-    if (p->ref_count == 0 && p->mark == 1) {
+    assert(js_rc(p)->ref_count > 0);
+    js_rc(p)->ref_count--;
+    if (js_rc(p)->ref_count == 0 && js_rc(p)->mark == 1) {
         list_del(&p->link);
         list_add_tail(&p->link, &rt->tmp_obj_list);
     }
@@ -6305,10 +6692,10 @@ static void gc_decref(JSRuntime *rt)
        tmp_obj_list */
     list_for_each_safe(el, el1, &rt->gc_obj_list) {
         p = list_entry(el, JSGCObjectHeader, link);
-        assert(p->mark == 0);
+        assert(js_rc(p)->mark == 0);
         mark_children(rt, p, gc_decref_child);
-        p->mark = 1;
-        if (p->ref_count == 0) {
+        js_rc(p)->mark = 1;
+        if (js_rc(p)->ref_count == 0) {
             list_del(&p->link);
             list_add_tail(&p->link, &rt->tmp_obj_list);
         }
@@ -6317,19 +6704,19 @@ static void gc_decref(JSRuntime *rt)
 
 static void gc_scan_incref_child(JSRuntime *rt, JSGCObjectHeader *p)
 {
-    p->ref_count++;
-    if (p->ref_count == 1) {
+    js_rc(p)->ref_count++;
+    if (js_rc(p)->ref_count == 1) {
         /* ref_count was 0: remove from tmp_obj_list and add at the
            end of gc_obj_list */
         list_del(&p->link);
         list_add_tail(&p->link, &rt->gc_obj_list);
-        p->mark = 0; /* reset the mark for the next GC call */
+        js_rc(p)->mark = 0; /* reset the mark for the next GC call */
     }
 }
 
 static void gc_scan_incref_child2(JSRuntime *rt, JSGCObjectHeader *p)
 {
-    p->ref_count++;
+    js_rc(p)->ref_count++;
 }
 
 static void gc_scan(JSRuntime *rt)
@@ -6340,8 +6727,8 @@ static void gc_scan(JSRuntime *rt)
     /* keep the objects with a refcount > 0 and their children. */
     list_for_each(el, &rt->gc_obj_list) {
         p = list_entry(el, JSGCObjectHeader, link);
-        assert(p->ref_count > 0);
-        p->mark = 0; /* reset the mark for the next GC call */
+        assert(js_rc(p)->ref_count > 0);
+        js_rc(p)->mark = 0; /* reset the mark for the next GC call */
         mark_children(rt, p, gc_scan_incref_child);
     }
 
@@ -6370,7 +6757,7 @@ static void gc_free_cycles(JSRuntime *rt)
         /* Only need to free the GC object associated with JS values
            or async functions. The rest will be automatically removed
            because they must be referenced by them. */
-        switch(p->gc_obj_type) {
+        switch(js_rc(p)->gc_obj_type) {
         case JS_GC_OBJ_TYPE_JS_OBJECT:
         case JS_GC_OBJ_TYPE_FUNCTION_BYTECODE:
         case JS_GC_OBJ_TYPE_ASYNC_FUNCTION:
@@ -6395,14 +6782,14 @@ static void gc_free_cycles(JSRuntime *rt)
 
     list_for_each_safe(el, el1, &rt->gc_zero_ref_count_list) {
         p = list_entry(el, JSGCObjectHeader, link);
-        assert(p->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT ||
-               p->gc_obj_type == JS_GC_OBJ_TYPE_FUNCTION_BYTECODE ||
-               p->gc_obj_type == JS_GC_OBJ_TYPE_ASYNC_FUNCTION ||
-               p->gc_obj_type == JS_GC_OBJ_TYPE_MODULE);
-        if (p->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT &&
+        assert(js_rc(p)->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT ||
+               js_rc(p)->gc_obj_type == JS_GC_OBJ_TYPE_FUNCTION_BYTECODE ||
+               js_rc(p)->gc_obj_type == JS_GC_OBJ_TYPE_ASYNC_FUNCTION ||
+               js_rc(p)->gc_obj_type == JS_GC_OBJ_TYPE_MODULE);
+        if (js_rc(p)->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT &&
             ((JSObject *)p)->weakref_count != 0) {
             /* keep the object because there are weak references to it */
-            p->mark = 0;
+            js_rc(p)->mark = 0;
         } else {
             js_free_rt(rt, p);
         }
@@ -6466,7 +6853,7 @@ static void compute_value_size(JSValueConst val, JSMemoryUsage_helper *hp);
 static void compute_jsstring_size(JSString *str, JSMemoryUsage_helper *hp)
 {
     if (!str->atom_type) {  /* atoms are handled separately */
-        double s_ref_count = str->header.ref_count;
+        double s_ref_count = js_rc(str)->ref_count;
         hp->str_count += 1 / s_ref_count;
         hp->str_size += ((sizeof(*str) + (str->len << str->is_wide_char) +
                           1 - str->is_wide_char) / s_ref_count);
@@ -6531,9 +6918,9 @@ void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s)
     JSMemoryUsage_helper mem = { 0 }, *hp = &mem;
 
     memset(s, 0, sizeof(*s));
-    s->malloc_count = rt->malloc_state.malloc_count;
-    s->malloc_size = rt->malloc_state.malloc_size;
-    s->malloc_limit = rt->malloc_state.malloc_limit;
+    s->malloc_count = rt->malloc_ctx.malloc_state.malloc_count;
+    s->malloc_size = rt->malloc_ctx.malloc_state.malloc_size;
+    s->malloc_limit = rt->malloc_ctx.malloc_state.malloc_limit;
 
     s->memory_used_count = 2; /* rt + rt->class_array */
     s->memory_used_size = sizeof(JSRuntime) + sizeof(JSValue) * rt->class_count;
@@ -6593,10 +6980,10 @@ void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s)
         JSShapeProperty *prs;
 
         /* XXX: could count the other GC object types too */
-        if (gp->gc_obj_type == JS_GC_OBJ_TYPE_FUNCTION_BYTECODE) {
+        if (js_rc(gp)->gc_obj_type == JS_GC_OBJ_TYPE_FUNCTION_BYTECODE) {
             compute_bytecode_size((JSFunctionBytecode *)gp, hp);
             continue;
-        } else if (gp->gc_obj_type != JS_GC_OBJ_TYPE_JS_OBJECT) {
+        } else if (js_rc(gp)->gc_obj_type != JS_GC_OBJ_TYPE_JS_OBJECT) {
             continue;
         }
         p = (JSObject *)gp;
@@ -6674,7 +7061,7 @@ void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s)
                     s->js_func_size += b->closure_var_count * sizeof(*var_refs);
                     for (i = 0; i < b->closure_var_count; i++) {
                         if (var_refs[i]) {
-                            double ref_count = var_refs[i]->header.ref_count;
+                            double ref_count = js_rc(var_refs[i])->ref_count;
                             s->memory_used_count += 1 / ref_count;
                             s->js_func_size += sizeof(*var_refs[i]) / ref_count;
                             /* handle non object closed values */
@@ -6860,7 +7247,7 @@ void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
             list_for_each(el, &rt->gc_obj_list) {
                 JSGCObjectHeader *gp = list_entry(el, JSGCObjectHeader, link);
                 JSObject *p;
-                if (gp->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT) {
+                if (js_rc(gp)->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT) {
                     p = (JSObject *)gp;
                     obj_classes[min_uint32(p->class_id, JS_CLASS_INIT_COUNT)]++;
                 }
@@ -7789,7 +8176,7 @@ static int JS_AutoInitProperty(JSContext *ctx, JSObject *p, JSAtom prop,
         /* WARNING: a varref is returned as a string  ! */
         prs->flags |= JS_PROP_VARREF;
         pr->u.var_ref = JS_VALUE_GET_PTR(val);
-        pr->u.var_ref->header.ref_count++;
+        js_rc(pr->u.var_ref)->ref_count++;
     } else if (p->class_id == JS_CLASS_GLOBAL_OBJECT) {
         JSVarRef *var_ref;
         /* in the global object we use references */
@@ -8819,7 +9206,7 @@ static JSProperty *add_property(JSContext *ctx,
             p->shape = js_dup_shape(new_sh);
             js_free_shape(ctx->rt, sh);
             return &p->prop[new_sh->prop_count - 1];
-        } else if (sh->header.ref_count != 1) {
+        } else if (js_rc(sh)->ref_count != 1) {
             /* if the shape is shared, clone it */
             new_sh = js_clone_shape(ctx, sh);
             if (!new_sh)
@@ -8831,7 +9218,7 @@ static JSProperty *add_property(JSContext *ctx,
             p->shape = new_sh;
         }
     }
-    assert(p->shape->header.ref_count == 1);
+    assert(js_rc(p->shape)->ref_count == 1);
     if (add_shape_property(ctx, &p->shape, p, prop, prop_flags))
         return NULL;
     return &p->prop[p->shape->prop_count - 1];
@@ -8892,14 +9279,14 @@ static int remove_global_object_property(JSContext *ctx, JSObject *p,
     JSProperty *pr1;
     
     var_ref = pr->u.var_ref;
-    if (var_ref->header.ref_count == 1)
+    if (js_rc(var_ref)->ref_count == 1)
         return 0;
     p1 = JS_VALUE_GET_OBJ(p->u.global_object.uninitialized_vars);
     pr1 = add_property(ctx, p1, prs->atom, JS_PROP_C_W_E | JS_PROP_VARREF);
     if (!pr1)
         return -1;
     pr1->u.var_ref = var_ref;
-    var_ref->header.ref_count++;
+    js_rc(var_ref)->ref_count++;
     JS_FreeValue(ctx, var_ref->value);
     var_ref->is_lexical = FALSE;
     var_ref->is_const = FALSE;
@@ -8918,7 +9305,7 @@ static int delete_property(JSContext *ctx, JSObject *p, JSAtom atom)
  redo:
     sh = p->shape;
     h1 = atom & sh->prop_hash_mask;
-    h = prop_hash_end(sh)[-h1 - 1];
+    h = sh->hash_table[h1];
     prop = get_shape_prop(sh);
     lpr = NULL;
     lpr_idx = 0;   /* prevent warning */
@@ -8939,7 +9326,7 @@ static int delete_property(JSContext *ctx, JSObject *p, JSAtom atom)
                 lpr = get_shape_prop(sh) + lpr_idx;
                 lpr->hash_next = pr->hash_next;
             } else {
-                prop_hash_end(sh)[-h1 - 1] = pr->hash_next;
+                sh->hash_table[h1] = pr->hash_next;
             }
             sh->deleted_prop_count++;
             /* free the entry */
@@ -9040,7 +9427,7 @@ static int set_array_length(JSContext *ctx, JSObject *p, JSValue val,
     if (ret)
         return -1;
     /* JS_ToArrayLengthFree() must be done before the read-only test */
-    if (unlikely(!(p->shape->prop[0].flags & JS_PROP_WRITABLE)))
+    if (unlikely(!(get_shape_prop(p->shape)[0].flags & JS_PROP_WRITABLE)))
         return JS_ThrowTypeErrorReadOnly(ctx, flags, JS_ATOM_length);
 
     if (likely(p->fast_array)) {
@@ -9821,7 +10208,7 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
             if (prs1) {
                 delete_obj = p1;
                 var_ref = pr1->u.var_ref;
-                var_ref->header.ref_count++;
+                js_rc(var_ref)->ref_count++;
             } else {
                 var_ref = js_create_var_ref(ctx, FALSE);
                 if (!var_ref)
@@ -9906,7 +10293,7 @@ static int js_shape_prepare_update(JSContext *ctx, JSObject *p,
 
     sh = p->shape;
     if (sh->is_hashed) {
-        if (sh->header.ref_count != 1) {
+        if (js_rc(sh)->ref_count != 1) {
             if (pprs)
                 idx = *pprs - get_shape_prop(sh);
             /* clone the shape (the resulting one is no longer hashed) */
@@ -11197,7 +11584,7 @@ static JSBigInt *js_bigint_new(JSContext *ctx, int len)
     r = js_malloc(ctx, sizeof(JSBigInt) + len * sizeof(js_limb_t));
     if (!r)
         return NULL;
-    r->header.ref_count = 1;
+    js_rc(r)->ref_count = 1;
     r->len = len;
     return r;
 }
@@ -11205,7 +11592,6 @@ static JSBigInt *js_bigint_new(JSContext *ctx, int len)
 static JSBigInt *js_bigint_set_si(JSBigIntBuf *buf, js_slimb_t a)
 {
     JSBigInt *r = (JSBigInt *)buf->big_int_buf;
-    r->header.ref_count = 0; /* fail safe */
     r->len = 1;
     r->tab[0] = a;
     return r;
@@ -11217,7 +11603,6 @@ static JSBigInt *js_bigint_set_si64(JSBigIntBuf *buf, int64_t a)
     return js_bigint_set_si(buf, a);
 #else
     JSBigInt *r = (JSBigInt *)buf->big_int_buf;
-    r->header.ref_count = 0; /* fail safe */
     if (a >= INT32_MIN && a <= INT32_MAX) {
         r->len = 1;
         r->tab[0] = a;
@@ -11332,7 +11717,7 @@ static JSBigInt *js_bigint_normalize1(JSContext *ctx, JSBigInt *a, int l)
 {
     js_limb_t v;
 
-    assert(a->header.ref_count == 1);
+    assert(js_rc(a)->ref_count == 1);
     while (l > 1) {
         v = a->tab[l - 1];
         if ((v != 0 && v != -1) ||
@@ -13415,8 +13800,8 @@ static void js_print_string(JSPrintValueState *s, JSValueConst val)
     int sep;
     if (s->options.raw_dump && JS_VALUE_GET_TAG(val) == JS_TAG_STRING) {
         JSString *p = JS_VALUE_GET_STRING(val);
-        js_printf(s, "%d", p->header.ref_count);
-        sep = (p->header.ref_count == 1) ? '\"' : '\'';
+        js_printf(s, "%d", js_rc(p)->ref_count);
+        sep = (js_rc(p)->ref_count == 1) ? '\"' : '\'';
     } else {
         sep = '\"';
     }
@@ -14098,10 +14483,10 @@ static __maybe_unused void JS_DumpObject(JSRuntime *rt, JSObject *p)
     sh = p->shape; /* the shape can be NULL while freeing an object */
     printf("%14p %4d ",
            (void *)p,
-           p->header.ref_count);
+           js_rc(p)->ref_count);
     if (sh) {
         printf("%3d%c %14p ",
-               sh->header.ref_count,
+               js_rc(sh)->ref_count,
                " *"[sh->is_hashed],
                (void *)sh->proto);
     } else {
@@ -14119,13 +14504,13 @@ static __maybe_unused void JS_DumpObject(JSRuntime *rt, JSObject *p)
 
 static __maybe_unused void JS_DumpGCObject(JSRuntime *rt, JSGCObjectHeader *p)
 {
-    if (p->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT) {
+    if (js_rc(p)->gc_obj_type == JS_GC_OBJ_TYPE_JS_OBJECT) {
         JS_DumpObject(rt, (JSObject *)p);
     } else {
         printf("%14p %4d ",
                (void *)p,
-               p->ref_count);
-        switch(p->gc_obj_type) {
+               js_rc(p)->ref_count);
+        switch(js_rc(p)->gc_obj_type) {
         case JS_GC_OBJ_TYPE_FUNCTION_BYTECODE:
             printf("[function bytecode]");
             break;
@@ -14145,7 +14530,7 @@ static __maybe_unused void JS_DumpGCObject(JSRuntime *rt, JSGCObjectHeader *p)
             printf("[module]");
             break;
         default:
-            printf("[unknown %d]", p->gc_obj_type);
+            printf("[unknown %d]", js_rc(p)->gc_obj_type);
             break;
         }
         printf("\n");
@@ -16608,7 +16993,7 @@ static JSVarRef *js_create_var_ref(JSContext *ctx, BOOL is_lexical)
     var_ref = js_malloc(ctx, sizeof(JSVarRef));
     if (!var_ref)
         return NULL;
-    var_ref->header.ref_count = 1;
+    js_rc(var_ref)->ref_count = 1;
     if (is_lexical)
         var_ref->value = JS_UNINITIALIZED;
     else
@@ -16648,7 +17033,7 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf, int var_idx,
     if (var_ref) {
         /* reference to the already created local variable */
         assert(var_ref->pvalue == pvalue);
-        var_ref->header.ref_count++;
+        js_rc(var_ref)->ref_count++;
         return var_ref;
     }
 
@@ -16656,7 +17041,7 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf, int var_idx,
     var_ref = js_malloc(ctx, sizeof(JSVarRef));
     if (!var_ref)
         return NULL;
-    var_ref->header.ref_count = 1;
+    js_rc(var_ref)->ref_count = 1;
     add_gc_object(ctx->rt, &var_ref->header, JS_GC_OBJ_TYPE_VAR_REF);
     var_ref->is_detached = FALSE;
     var_ref->is_lexical = FALSE;
@@ -16674,7 +17059,7 @@ static JSVarRef *get_var_ref(JSContext *ctx, JSStackFrame *sf, int var_idx,
            the JSVarRef of async functions during the GC. It would
            have the advantage of allowing the release of unused stack
            frames in a cycle. */
-        async_func->header.ref_count++;
+        js_rc(async_func)->ref_count++;
     }
     var_ref->pvalue = pvalue;
     return var_ref;
@@ -16705,7 +17090,7 @@ static JSVarRef *js_global_object_get_uninitialized_var(JSContext *ctx, JSObject
     if (prs) {
         assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
         var_ref = pr->u.var_ref;
-        var_ref->header.ref_count++;
+        js_rc(var_ref)->ref_count++;
         return var_ref;
     }
 
@@ -16718,7 +17103,7 @@ static JSVarRef *js_global_object_get_uninitialized_var(JSContext *ctx, JSObject
         return NULL;
     }
     pr->u.var_ref = var_ref;
-    var_ref->header.ref_count++;
+    js_rc(var_ref)->ref_count++;
     return var_ref;
 }
 
@@ -16737,7 +17122,7 @@ static JSVarRef *js_global_object_find_uninitialized_var(JSContext *ctx, JSObjec
     if (prs) {
         assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
         var_ref = pr->u.var_ref;
-        var_ref->header.ref_count++;
+        js_rc(var_ref)->ref_count++;
         delete_property(ctx, p1, atom);
         if (!is_lexical)
             var_ref->value = JS_UNDEFINED;
@@ -16768,7 +17153,7 @@ static JSVarRef *js_closure_define_global_var(JSContext *ctx, JSClosureVar *cv,
         if (prs) {
             assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
             var_ref = pr->u.var_ref;
-            var_ref->header.ref_count++;
+            js_rc(var_ref)->ref_count++;
             return var_ref;
         }
 
@@ -16806,7 +17191,7 @@ static JSVarRef *js_closure_define_global_var(JSContext *ctx, JSClosureVar *cv,
                     return NULL;
             } else {
                 var_ref = pr->u.var_ref;
-                var_ref->header.ref_count++;
+                js_rc(var_ref)->ref_count++;
             }
             if (cv->var_kind == JS_VAR_GLOBAL_FUNCTION_DECL &&
                 (prs->flags & JS_PROP_CONFIGURABLE)) {
@@ -16816,7 +17201,7 @@ static JSVarRef *js_closure_define_global_var(JSContext *ctx, JSClosureVar *cv,
                     free_property(ctx->rt, pr, prs->flags);
                     prs->flags = flags | JS_PROP_VARREF;
                     pr->u.var_ref = var_ref;
-                    var_ref->header.ref_count++;
+                    js_rc(var_ref)->ref_count++;
                 } else {
                     assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
                     prs->flags = (prs->flags & ~JS_PROP_C_W_E) | flags;
@@ -16848,7 +17233,7 @@ static JSVarRef *js_closure_define_global_var(JSContext *ctx, JSClosureVar *cv,
         return NULL;
     }
     pr->u.var_ref = var_ref;
-    var_ref->header.ref_count++;
+    js_rc(var_ref)->ref_count++;
     return var_ref;
 }
 
@@ -16864,7 +17249,7 @@ static JSVarRef *js_closure_global_var(JSContext *ctx, JSClosureVar *cv)
     if (prs) {
         assert((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF);
         var_ref = pr->u.var_ref;
-        var_ref->header.ref_count++;
+        js_rc(var_ref)->ref_count++;
         return var_ref;
     }
     p = JS_VALUE_GET_OBJ(ctx->global_obj);
@@ -16879,7 +17264,7 @@ static JSVarRef *js_closure_global_var(JSContext *ctx, JSClosureVar *cv)
         }
         if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
             var_ref = pr->u.var_ref;
-            var_ref->header.ref_count++;
+            js_rc(var_ref)->ref_count++;
             return var_ref;
         }
     }
@@ -16948,7 +17333,7 @@ static JSValue js_closure2(JSContext *ctx, JSValue func_obj,
             case JS_CLOSURE_REF:
             case JS_CLOSURE_GLOBAL_REF:
                 var_ref = cur_var_refs[cv->var_idx];
-                var_ref->header.ref_count++;
+                js_rc(var_ref)->ref_count++;
                 break;
             default:
                 abort();
@@ -18408,7 +18793,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     goto exception;
                 if (opcode == OP_make_var_ref_ref) {
                     var_ref = var_refs[idx];
-                    var_ref->header.ref_count++;
+                    js_rc(var_ref)->ref_count++;
                 } else {
                     var_ref = get_var_ref(ctx, sf, idx, opcode == OP_make_arg_ref);
                     if (!var_ref)
@@ -20331,7 +20716,7 @@ static JSAsyncFunctionState *async_func_init(JSContext *ctx,
     if (!s)
         return NULL;
     memset(s, 0, sizeof(*s));
-    s->header.ref_count = 1;
+    js_rc(s)->ref_count = 1;
     add_gc_object(ctx->rt, &s->header, JS_GC_OBJ_TYPE_ASYNC_FUNCTION);
 
     sf = &s->frame;
@@ -20421,7 +20806,7 @@ static void __async_func_free(JSRuntime *rt, JSAsyncFunctionState *s)
     JS_FreeValueRT(rt, s->resolving_funcs[1]);
 
     remove_gc_object(&s->header);
-    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && s->header.ref_count != 0) {
+    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && js_rc(s)->ref_count != 0) {
         list_add_tail(&s->header.link, &rt->gc_zero_ref_count_list);
     } else {
         js_free_rt(rt, s);
@@ -20430,7 +20815,7 @@ static void __async_func_free(JSRuntime *rt, JSAsyncFunctionState *s)
 
 static void async_func_free(JSRuntime *rt, JSAsyncFunctionState *s)
 {
-    if (--s->header.ref_count == 0) {
+    if (--js_rc(s)->ref_count == 0) {
         if (rt->gc_phase != JS_GC_PHASE_REMOVE_CYCLES) {
             list_del(&s->header.link);
             list_add(&s->header.link, &rt->gc_zero_ref_count_list);
@@ -20653,7 +21038,7 @@ static int js_async_function_resolve_create(JSContext *ctx,
             return -1;
         }
         p = JS_VALUE_GET_OBJ(resolving_funcs[i]);
-        s->header.ref_count++;
+        js_rc(s)->ref_count++;
         p->u.async_function_data = s;
     }
     return 0;
@@ -29088,7 +29473,7 @@ static JSModuleDef *js_new_module_def(JSContext *ctx, JSAtom name)
         JS_FreeAtom(ctx, name);
         return NULL;
     }
-    m->header.ref_count = 1;
+    js_rc(m)->ref_count = 1;
     add_gc_object(ctx->rt, &m->header, JS_GC_OBJ_TYPE_MODULE);
     m->module_name = name;
     m->module_ns = JS_UNDEFINED;
@@ -29176,7 +29561,7 @@ static void js_free_module_def(JSRuntime *rt, JSModuleDef *m)
         list_del(&m->link);
     }
     remove_gc_object(&m->header);
-    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && m->header.ref_count != 0) {
+    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && js_rc(m)->ref_count != 0) {
         list_add_tail(&m->header.link, &rt->gc_zero_ref_count_list);
     } else {
         js_free_rt(rt, m);
@@ -29896,7 +30281,7 @@ static JSValue js_build_module_ns(JSContext *ctx, JSModuleDef *m)
                                   JS_PROP_VARREF);
                 if (!pr)
                     goto fail;
-                var_ref->header.ref_count++;
+                js_rc(var_ref)->ref_count++;
                 pr->u.var_ref = var_ref;
             }
             break;
@@ -30187,7 +30572,7 @@ static int js_inner_module_linking(JSContext *ctx, JSModuleDef *m,
                         p1 = JS_VALUE_GET_OBJ(res_m->func_obj);
                         var_ref = p1->u.func.var_refs[res_me->u.local.var_idx];
                     }
-                    var_ref->header.ref_count++;
+                    js_rc(var_ref)->ref_count++;
                     var_refs[mi->var_idx] = var_ref;
 #ifdef DUMP_MODULE_RESOLVE
                     printf("local export (var_ref=%p)\n", var_ref);
@@ -30203,7 +30588,7 @@ static int js_inner_module_linking(JSContext *ctx, JSModuleDef *m,
             JSExportEntry *me = &m->export_entries[i];
             if (me->export_type == JS_EXPORT_TYPE_LOCAL) {
                 var_ref = var_refs[me->u.local.var_idx];
-                var_ref->header.ref_count++;
+                js_rc(var_ref)->ref_count++;
                 me->u.local.var_ref = var_ref;
             }
         }
@@ -35549,7 +35934,7 @@ static JSValue js_create_function(JSContext *ctx, JSFunctionDef *fd)
     b = js_mallocz(ctx, function_size);
     if (!b)
         goto fail;
-    b->header.ref_count = 1;
+    js_rc(b)->ref_count = 1;
 
     b->byte_code_buf = (void *)((uint8_t*)b + byte_code_offset);
     b->byte_code_len = fd->byte_code.size;
@@ -35731,7 +36116,7 @@ static void free_function_bytecode(JSRuntime *rt, JSFunctionBytecode *b)
     }
 
     remove_gc_object(&b->header);
-    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && b->header.ref_count != 0) {
+    if (rt->gc_phase == JS_GC_PHASE_REMOVE_CYCLES && js_rc(b)->ref_count != 0) {
         list_add_tail(&b->header.link, &rt->gc_zero_ref_count_list);
     } else {
         js_free_rt(rt, b);
@@ -36752,7 +37137,6 @@ static JSValue JS_EvalObject(JSContext *ctx, JSValueConst this_obj,
     ret = JS_EvalInternal(ctx, this_obj, str, len, "<input>", flags, scope_idx);
     JS_FreeCString(ctx, str);
     return ret;
-
 }
 
 JSValue JS_EvalThis(JSContext *ctx, JSValueConst this_obj,
@@ -38166,8 +38550,6 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
     uint64_t function_size;
     
     memset(&bc, 0, sizeof(bc));
-    bc.header.ref_count = 1;
-    //bc.gc_header.mark = 0;
 
     if (bc_get_u16(s, &v16))
         goto fail;
@@ -38232,7 +38614,6 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         return JS_EXCEPTION;
 
     memcpy(b, &bc, offsetof(JSFunctionBytecode, debug));
-    b->header.ref_count = 1;
     if (local_count != 0) {
         b->vardefs = (void *)((uint8_t*)b + vardefs_offset);
     }
@@ -38243,6 +38624,7 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         b->cpool = (void *)((uint8_t*)b + cpool_offset);
     }
 
+    js_rc(b)->ref_count = 1;
     add_gc_object(ctx->rt, &b->header, JS_GC_OBJ_TYPE_FUNCTION_BYTECODE);
 
     obj = JS_MKPTR(JS_TAG_FUNCTION_BYTECODE, b);
@@ -51016,11 +51398,11 @@ static BOOL js_weakref_is_target(JSValueConst val)
 /* XXX: add a specific JSWeakRef value type ? */
 static BOOL js_weakref_is_live(JSValueConst val)
 {
-    int *pref_count;
+    void *p;
     if (JS_IsUndefined(val))
         return TRUE;
-    pref_count = JS_VALUE_GET_PTR(val);
-    return (*pref_count != 0);
+    p = JS_VALUE_GET_PTR(val);
+    return (js_rc(p)->ref_count != 0);
 }
 
 /* 'val' can be JS_UNDEFINED */
@@ -51033,15 +51415,15 @@ static void js_weakref_free(JSRuntime *rt, JSValue val)
         /* 'mark' is tested to avoid freeing the object structure when
            it is about to be freed in a cycle or in
            free_zero_refcount() */
-        if (p->weakref_count == 0 && p->header.ref_count == 0 &&
-            p->header.mark == 0) {
+        if (p->weakref_count == 0 && js_rc(p)->ref_count == 0 &&
+            js_rc(p)->mark == 0) {
             js_free_rt(rt, p);
         }
     } else if (JS_VALUE_GET_TAG(val) == JS_TAG_SYMBOL) {
         JSString *p = JS_VALUE_GET_STRING(val);
         assert(p->hash >= 1);
         p->hash--;
-        if (p->hash == 0 && p->header.ref_count == 0) {
+        if (p->hash == 0 && js_rc(p)->ref_count == 0) {
             /* can remove the dummy structure */
             js_free_rt(rt, p);
         }
