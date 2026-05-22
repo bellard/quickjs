@@ -39,6 +39,11 @@
 #elif defined(__FreeBSD__)
 #include <malloc_np.h>
 #endif
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#endif
 
 #include "cutils.h"
 #include "list.h"
@@ -380,6 +385,9 @@ struct JSRuntime {
     int shape_hash_count; /* number of hashed shapes */
     JSShape **shape_hash;
     void *user_opaque;
+    #if defined(_WIN32)
+    WSADATA wsa_data;
+    #endif
 };
 
 struct JSClass {
@@ -548,6 +556,9 @@ struct JSContext {
                              const char *input, size_t input_len,
                              const char *filename, int flags, int scope_idx);
     void *user_opaque;
+    #if defined(_WIN32)
+    WSADATA wsa_data;
+    #endif
 };
 
 typedef union JSFloat64Union {
@@ -2108,6 +2119,10 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
 
     rt->current_exception = JS_UNINITIALIZED;
 
+#if defined(_WIN32)
+    WSAStartup(MAKEWORD(2, 2), &rt->wsa_data);
+#endif
+
     return rt;
  fail:
     JS_FreeRuntime(rt);
@@ -2579,6 +2594,9 @@ void JS_FreeRuntime(JSRuntime *rt)
         JSMallocState ms = rt->malloc_ctx.malloc_state;
         rt->malloc_ctx.mf.js_free(&ms, rt);
     }
+#if defined(_WIN32)
+    WSACleanup();
+#endif
 }
 
 JSContext *JS_NewContextRaw(JSRuntime *rt)
