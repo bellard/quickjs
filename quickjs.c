@@ -1278,13 +1278,20 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
                              int flags);
 static int js_string_memcmp(const JSString *p1, int pos1, const JSString *p2,
                             int pos2, int len);
-static JSValue js_array_buffer_constructor3(JSContext *ctx,
-                                            JSValueConst new_target,
-                                            uint64_t len, uint64_t *max_len,
-                                            JSClassID class_id,
-                                            uint8_t *buf,
-                                            JSFreeArrayBufferDataFunc *free_func,
-                                            void *opaque, BOOL alloc_flag);
+static JSValue js_array_buffer_constructor_copy(JSContext *ctx,
+                                                JSValueConst new_target,
+                                                uint64_t len, uint64_t *max_len,
+                                                JSClassID class_id,
+                                                const uint8_t *buf,
+                                                JSFreeArrayBufferDataFunc *free_func,
+                                                void *opaque);
+static JSValue js_array_buffer_constructor_sink(JSContext *ctx,
+                                                JSValueConst new_target,
+                                                uint64_t len, uint64_t *max_len,
+                                                JSClassID class_id,
+                                                uint8_t *buf,
+                                                JSFreeArrayBufferDataFunc *free_func,
+                                                void *opaque);
 static void js_array_buffer_free(JSRuntime *rt, void *opaque, void *ptr);
 static JSArrayBuffer *js_get_array_buffer(JSContext *ctx, JSValueConst obj);
 static BOOL array_buffer_is_resizable(const JSArrayBuffer *abuf);
@@ -39008,12 +39015,10 @@ static JSValue JS_ReadArrayBuffer(BCReaderState *s)
         return JS_EXCEPTION;
     }
     // makes a copy of the input
-    obj = js_array_buffer_constructor3(ctx, JS_UNDEFINED,
-                                       byte_length, pmax_byte_length,
-                                       JS_CLASS_ARRAY_BUFFER,
-                                       (uint8_t*)s->ptr,
-                                       js_array_buffer_free, NULL,
-                                       /*alloc_flag*/TRUE);
+    obj = js_array_buffer_constructor_copy(ctx, JS_UNDEFINED,
+                                           byte_length, pmax_byte_length,
+                                           JS_CLASS_ARRAY_BUFFER,
+                                           s->ptr, js_array_buffer_free, NULL);
     if (JS_IsException(obj))
         goto fail;
     if (BC_add_object_ref(s, obj))
@@ -39048,13 +39053,12 @@ static JSValue JS_ReadSharedArrayBuffer(BCReaderState *s)
         return JS_EXCEPTION;
     data_ptr = (uint8_t *)(uintptr_t)u64;
     /* the SharedArrayBuffer is cloned */
-    obj = js_array_buffer_constructor3(ctx, JS_UNDEFINED,
-                                       byte_length, pmax_byte_length,
-                                       JS_CLASS_SHARED_ARRAY_BUFFER,
-                                       data_ptr,
-                                       NULL, NULL, FALSE);
+    obj = js_array_buffer_constructor_sink(ctx, JS_UNDEFINED,
+                                           byte_length, pmax_byte_length,
+                                           JS_CLASS_SHARED_ARRAY_BUFFER,
+                                           data_ptr, NULL, NULL);
     if (JS_IsException(obj))
-        goto fail;
+        return obj;
     if (BC_add_object_ref(s, obj))
         goto fail;
     return obj;
@@ -56431,22 +56435,11 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
                                             JSValueConst new_target,
                                             uint64_t len, uint64_t *max_len,
                                             JSClassID class_id,
-                                            uint8_t *buf,
-                                            JSFreeArrayBufferDataFunc *free_func,
-                                            void *opaque, BOOL alloc_flag)
+                                            JSArrayBuffer **pabuf)
 {
-    JSRuntime *rt = ctx->rt;
     JSValue obj;
-    JSArrayBuffer *abuf = NULL;
-    uint64_t sab_alloc_len;
+    JSArrayBuffer *abuf;
 
-    if (!alloc_flag && buf && max_len && free_func != js_array_buffer_free) {
-        // not observable from JS land, only through C API misuse;
-        // JS code cannot create externally managed buffers directly
-        return JS_ThrowInternalError(ctx,
-                                     "resizable ArrayBuffers not supported "
-                                     "for externally managed buffers");
-    }
     obj = js_create_from_ctor(ctx, new_target, class_id);
     if (JS_IsException(obj))
         return obj;
@@ -56464,36 +56457,54 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
         goto fail;
     abuf->byte_length = len;
     abuf->max_byte_length = max_len ? *max_len : -1;
-    if (alloc_flag) {
-        if (class_id == JS_CLASS_SHARED_ARRAY_BUFFER &&
-            rt->sab_funcs.sab_alloc) {
-            // TOOD(bnoordhuis) resizing backing memory for SABs atomically
-            // is hard so we cheat and allocate |maxByteLength| bytes upfront
-            sab_alloc_len = max_len ? *max_len : len;
-            abuf->data = rt->sab_funcs.sab_alloc(rt->sab_funcs.sab_opaque,
-                                                 max_int(sab_alloc_len, 1));
-            if (!abuf->data)
-                goto fail;
-            memset(abuf->data, 0, sab_alloc_len);
-        } else {
-            /* the allocation must be done after the object creation */
-            abuf->data = js_mallocz(ctx, max_int(len, 1));
-            if (!abuf->data)
-                goto fail;
-        }
-    } else {
-        if (class_id == JS_CLASS_SHARED_ARRAY_BUFFER &&
-            rt->sab_funcs.sab_dup) {
-            rt->sab_funcs.sab_dup(rt->sab_funcs.sab_opaque, buf);
-        }
-        abuf->data = buf;
-    }
-    init_list_head(&abuf->array_list);
-    abuf->detached = FALSE;
     abuf->shared = (class_id == JS_CLASS_SHARED_ARRAY_BUFFER);
+    abuf->detached = FALSE;
+    abuf->opaque = NULL;
+    abuf->free_func = NULL;
+    abuf->data = NULL;
+    init_list_head(&abuf->array_list);
+    *pabuf = abuf;
+    return obj;
+fail:
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+}
+
+static JSValue js_array_buffer_constructor_copy(JSContext *ctx,
+                                                JSValueConst new_target,
+                                                uint64_t len, uint64_t *max_len,
+                                                JSClassID class_id,
+                                                const uint8_t *buf,
+                                                JSFreeArrayBufferDataFunc *free_func,
+                                                void *opaque)
+{
+    JSRuntime *rt = ctx->rt;
+    JSValue obj;
+    JSArrayBuffer *abuf;
+    uint64_t sab_alloc_len;
+
+    obj = js_array_buffer_constructor3(ctx, new_target, len, max_len, class_id,
+                                       &abuf);
+    if (JS_IsException(obj))
+        return obj;
+    if (class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt->sab_funcs.sab_alloc) {
+        // TODO(bnoordhuis) resizing backing memory for SABs atomically
+        // is hard so we cheat and allocate |maxByteLength| bytes upfront
+        sab_alloc_len = max_len ? *max_len : len;
+        abuf->data = rt->sab_funcs.sab_alloc(rt->sab_funcs.sab_opaque,
+                                             max_int(sab_alloc_len, 1));
+        if (!abuf->data)
+            goto fail;
+        memset(abuf->data, 0, sab_alloc_len);
+    } else {
+        /* the allocation must be done after the object creation */
+        abuf->data = js_mallocz(ctx, max_int(len, 1));
+        if (!abuf->data)
+            goto fail;
+    }
     abuf->opaque = opaque;
     abuf->free_func = free_func;
-    if (alloc_flag && buf)
+    if (buf)
         memcpy(abuf->data, buf, len);
     JS_SetOpaque(obj, abuf);
     return obj;
@@ -56501,6 +56512,32 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
     JS_FreeValue(ctx, obj);
     js_free(ctx, abuf);
     return JS_EXCEPTION;
+}
+
+static JSValue js_array_buffer_constructor_sink(JSContext *ctx,
+                                                JSValueConst new_target,
+                                                uint64_t len, uint64_t *max_len,
+                                                JSClassID class_id,
+                                                uint8_t *buf,
+                                                JSFreeArrayBufferDataFunc *free_func,
+                                                void *opaque)
+{
+    JSRuntime *rt = ctx->rt;
+    JSValue obj;
+    JSArrayBuffer *abuf;
+
+    obj = js_array_buffer_constructor3(ctx, new_target, len, max_len, class_id,
+                                       &abuf);
+    if (JS_IsException(obj))
+        return obj;
+    if (class_id == JS_CLASS_SHARED_ARRAY_BUFFER && rt->sab_funcs.sab_dup) {
+        rt->sab_funcs.sab_dup(rt->sab_funcs.sab_opaque, buf);
+    }
+    abuf->data = buf;
+    abuf->opaque = opaque;
+    abuf->free_func = free_func;
+    JS_SetOpaque(obj, abuf);
+    return obj;
 }
 
 static void js_array_buffer_free(JSRuntime *rt, void *opaque, void *ptr)
@@ -56513,9 +56550,8 @@ static JSValue js_array_buffer_constructor2(JSContext *ctx,
                                             uint64_t len, uint64_t *max_len,
                                             JSClassID class_id)
 {
-    return js_array_buffer_constructor3(ctx, new_target, len, max_len, class_id,
-                                        NULL, js_array_buffer_free, NULL,
-                                        TRUE);
+    return js_array_buffer_constructor_copy(ctx, new_target, len, max_len, class_id,
+                                            NULL, js_array_buffer_free, NULL);
 }
 
 static JSValue js_array_buffer_constructor1(JSContext *ctx,
@@ -56532,18 +56568,16 @@ JSValue JS_NewArrayBuffer(JSContext *ctx, uint8_t *buf, size_t len,
 {
     JSClassID class_id =
         is_shared ? JS_CLASS_SHARED_ARRAY_BUFFER : JS_CLASS_ARRAY_BUFFER;
-    return js_array_buffer_constructor3(ctx, JS_UNDEFINED, len, NULL, class_id,
-                                        buf, free_func, opaque, FALSE);
+    return js_array_buffer_constructor_sink(ctx, JS_UNDEFINED, len, NULL,
+                                            class_id, buf, free_func, opaque);
 }
 
 /* create a new ArrayBuffer of length 'len' and copy 'buf' to it */
 JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len)
 {
-    return js_array_buffer_constructor3(ctx, JS_UNDEFINED, len, NULL,
-                                        JS_CLASS_ARRAY_BUFFER,
-                                        (uint8_t *)buf,
-                                        js_array_buffer_free, NULL,
-                                        TRUE);
+    return js_array_buffer_constructor_copy(ctx, JS_UNDEFINED, len, NULL,
+                                            JS_CLASS_ARRAY_BUFFER, buf,
+                                            js_array_buffer_free, NULL);
 }
 
 static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_target,
@@ -56841,9 +56875,17 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
         JS_DetachArrayBuffer(ctx, this_val);
         return js_array_buffer_constructor2(ctx, JS_UNDEFINED, 0, pmax_len, JS_CLASS_ARRAY_BUFFER);
     } else {
+        JSValue obj;
         uint64_t old_len;
         uint8_t *bs, *new_bs;
+        JSArrayBuffer *new_abuf;
         JSFreeArrayBufferDataFunc *free_func;
+
+        obj = js_array_buffer_constructor3(ctx, JS_UNDEFINED, new_len,
+                                           pmax_len, JS_CLASS_ARRAY_BUFFER,
+                                           &new_abuf);
+        if (JS_IsException(obj))
+            return obj;
         
         bs = abuf->data;
         old_len = abuf->byte_length;
@@ -56851,16 +56893,12 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
 
         /* if length mismatch, realloc. Otherwise, use the same backing buffer. */
         if (new_len != old_len) {
-            /* XXX: we are currently limited to 2 GB */
-            if (new_len > INT32_MAX)
-                return JS_ThrowRangeError(ctx, "invalid array buffer length");
-
             if (free_func != js_array_buffer_free) {
                 /* cannot use js_realloc() because the buffer was
                    allocated with a custom allocator */
                 new_bs = js_mallocz(ctx, new_len);
                 if (!new_bs)
-                    return JS_EXCEPTION;
+                    goto fail;
                 memcpy(new_bs, bs, min_int(old_len, new_len));
                 abuf->free_func(ctx->rt, abuf->opaque, bs);
                 bs = new_bs;
@@ -56868,7 +56906,7 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
             } else {
                 new_bs = js_realloc(ctx, bs, new_len);
                 if (!new_bs)
-                    return JS_EXCEPTION;
+                    goto fail;
                 bs = new_bs;
                 if (new_len > old_len)
                     memset(bs + old_len, 0, new_len - old_len);
@@ -56879,10 +56917,15 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
         abuf->byte_length = 0;
         abuf->detached = TRUE;
         js_array_buffer_update_typed_arrays(abuf);
-        return js_array_buffer_constructor3(ctx, JS_UNDEFINED, new_len, pmax_len,
-                                            JS_CLASS_ARRAY_BUFFER,
-                                            bs, free_func,
-                                            NULL, FALSE);
+
+        new_abuf->free_func = free_func;
+        new_abuf->data = bs;
+        JS_SetOpaque(obj, new_abuf);
+        return obj;
+fail:
+        JS_FreeValue(ctx, obj);
+        js_free(ctx, new_abuf);
+        return JS_EXCEPTION;
     }
 }
 
@@ -58988,11 +59031,9 @@ static JSValue JS_NewUint8ArrayCopy(JSContext *ctx, const uint8_t *buf, size_t l
     JSValue buffer, obj;
     JSArrayBuffer *abuf;
 
-    buffer = js_array_buffer_constructor3(ctx, JS_UNDEFINED, len, NULL,
-                                          JS_CLASS_ARRAY_BUFFER,
-                                          (uint8_t *)buf,
-                                          js_array_buffer_free, NULL,
-                                          TRUE);
+    buffer = js_array_buffer_constructor_copy(ctx, JS_UNDEFINED, len, NULL,
+                                              JS_CLASS_ARRAY_BUFFER,
+                                              buf, js_array_buffer_free, NULL);
     if (JS_IsException(buffer))
         return JS_EXCEPTION;
     obj = js_create_from_ctor(ctx, JS_UNDEFINED, JS_CLASS_UINT8_ARRAY);
