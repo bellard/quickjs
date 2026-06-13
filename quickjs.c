@@ -37545,6 +37545,8 @@ static void bc_byte_swap(uint8_t *bc_buf, int bc_len)
     while (pos < bc_len) {
         op = bc_buf[pos];
         len = short_opcode_info(op).size;
+        if (pos + len > bc_len)
+            break;
         fmt = short_opcode_info(op).fmt;
         switch(fmt) {
         case OP_FMT_u16:
@@ -38523,6 +38525,12 @@ static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
     while (pos < bc_len) {
         op = bc_buf[pos];
         len = short_opcode_info(op).size;
+        if (unlikely(pos + len > bc_len)) {
+            /* the opcode reads past the end of the bytecode: avoid
+               fetching or relocating an atom out of bounds */
+            b->byte_code_len = pos;
+            return bc_read_error_end(s);
+        }
         switch(short_opcode_info(op).fmt) {
         case OP_FMT_atom:
         case OP_FMT_atom_u8:
