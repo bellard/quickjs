@@ -1270,7 +1270,7 @@ static BOOL js_strict_eq2(JSContext *ctx, JSValue op1, JSValue op2,
 static BOOL js_strict_eq(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 static BOOL js_same_value(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 static BOOL js_same_value_zero(JSContext *ctx, JSValueConst op1, JSValueConst op2);
-static JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
+JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
 static JSValue JS_ToObjectFree(JSContext *ctx, JSValue val);
 static JSProperty *add_property(JSContext *ctx,
                                 JSObject *p, JSAtom prop, int prop_flags);
@@ -1344,7 +1344,7 @@ static BOOL js_string_eq(JSContext *ctx,
                          const JSString *p1, const JSString *p2);
 static int js_string_compare(JSContext *ctx,
                              const JSString *p1, const JSString *p2);
-static JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
+JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
 static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
                                JSValue prop, JSValue val, int flags);
 static int JS_NumberIsInteger(JSContext *ctx, JSValueConst val);
@@ -13080,7 +13080,7 @@ int JS_ToFloat64(JSContext *ctx, double *pres, JSValueConst val)
     return JS_ToFloat64Free(ctx, pres, JS_DupValue(ctx, val));
 }
 
-static JSValue JS_ToNumber(JSContext *ctx, JSValueConst val)
+JSValue JS_ToNumber(JSContext *ctx, JSValueConst val)
 {
     return JS_ToNumberFree(ctx, JS_DupValue(ctx, val));
 }
@@ -39787,7 +39787,7 @@ static JSValue js_global_isFinite(JSContext *ctx, JSValueConst this_val,
 
 /* Object class */
 
-static JSValue JS_ToObject(JSContext *ctx, JSValueConst val)
+JSValue JS_ToObject(JSContext *ctx, JSValueConst val)
 {
     int tag = JS_VALUE_GET_NORM_TAG(val);
     JSValue obj;
