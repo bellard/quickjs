@@ -3837,6 +3837,11 @@ JSClassID JS_NewClassID(JSClassID *pclass_id)
     return class_id;
 }
 
+const char *JS_GetVersion(void)
+{
+    return CONFIG_VERSION;
+}
+
 JSClassID JS_GetClassID(JSValue v)
 {
     JSObject *p;
