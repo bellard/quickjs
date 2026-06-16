@@ -771,6 +771,8 @@ JS_BOOL JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, JS_BOOL val)
 JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);
 JS_BOOL JS_IsArrayBuffer(JSValueConst val);
+JS_BOOL JS_IsSharedArrayBuffer(JSValueConst val);
+JS_BOOL JS_IsTypedArray(JSValueConst val);
 JS_BOOL JS_IsDataView(JSValueConst val);
 JS_BOOL JS_IsDate(JSValueConst val);
 JS_BOOL JS_IsRegExp(JSValueConst val);

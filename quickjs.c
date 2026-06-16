@@ -3851,6 +3851,17 @@ JS_BOOL JS_IsArrayBuffer(JSValueConst v)
     return JS_GetClassID(v) == JS_CLASS_ARRAY_BUFFER;
 }
 
+JS_BOOL JS_IsSharedArrayBuffer(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_SHARED_ARRAY_BUFFER;
+}
+
+JS_BOOL JS_IsTypedArray(JSValueConst v)
+{
+    JSClassID class_id = JS_GetClassID(v);
+    return class_id >= JS_CLASS_UINT8C_ARRAY && class_id <= JS_CLASS_FLOAT64_ARRAY;
+}
+
 JS_BOOL JS_IsDataView(JSValueConst v)
 {
     return JS_GetClassID(v) == JS_CLASS_DATAVIEW;
