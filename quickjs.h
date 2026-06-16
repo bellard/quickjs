@@ -546,7 +546,7 @@ typedef struct JSClassDef {
 #define JS_INVALID_CLASS_ID 0
 JSClassID JS_NewClassID(JSClassID *pclass_id);
 /* Returns the class ID if `v` is an object, otherwise returns JS_INVALID_CLASS_ID. */
-JSClassID JS_GetClassID(JSValue v);
+JSClassID JS_GetClassID(JSValueConst v);
 int JS_NewClass(JSRuntime *rt, JSClassID class_id, const JSClassDef *class_def);
 int JS_IsRegisteredClass(JSRuntime *rt, JSClassID class_id);
 
@@ -770,6 +770,26 @@ JS_BOOL JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, JS_BOOL val)
 
 JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);
+JS_BOOL JS_IsArrayBuffer(JSValueConst val);
+JS_BOOL JS_IsSharedArrayBuffer(JSValueConst val);
+JS_BOOL JS_IsTypedArray(JSValueConst val);
+JS_BOOL JS_IsDataView(JSValueConst val);
+JS_BOOL JS_IsDate(JSValueConst val);
+JS_BOOL JS_IsRegExp(JSValueConst val);
+JS_BOOL JS_IsPromise(JSValueConst val);
+JS_BOOL JS_IsProxy(JSValueConst val);
+JS_BOOL JS_IsMap(JSValueConst val);
+JS_BOOL JS_IsSet(JSValueConst val);
+JS_BOOL JS_IsWeakMap(JSValueConst val);
+JS_BOOL JS_IsWeakSet(JSValueConst val);
+JS_BOOL JS_IsWeakRef(JSValueConst val);
+JS_BOOL JS_IsAsyncFunction(JSValueConst val);
+JS_BOOL JS_IsGeneratorFunction(JSValueConst val);
+JS_BOOL JS_IsGenerator(JSValueConst val);
+JS_BOOL JS_IsArguments(JSValueConst val);
+JS_BOOL JS_IsMapIterator(JSValueConst val);
+JS_BOOL JS_IsSetIterator(JSValueConst val);
+JS_BOOL JS_IsModuleNamespace(JSValueConst val);
 
 JSValue JS_NewDate(JSContext *ctx, double epoch_ms);
 

@@ -3837,13 +3837,115 @@ JSClassID JS_NewClassID(JSClassID *pclass_id)
     return class_id;
 }
 
-JSClassID JS_GetClassID(JSValue v)
+JSClassID JS_GetClassID(JSValueConst v)
 {
     JSObject *p;
     if (JS_VALUE_GET_TAG(v) != JS_TAG_OBJECT)
         return JS_INVALID_CLASS_ID;
     p = JS_VALUE_GET_OBJ(v);
     return p->class_id;
+}
+
+JS_BOOL JS_IsArrayBuffer(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_ARRAY_BUFFER;
+}
+
+JS_BOOL JS_IsSharedArrayBuffer(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_SHARED_ARRAY_BUFFER;
+}
+
+JS_BOOL JS_IsTypedArray(JSValueConst v)
+{
+    JSClassID class_id = JS_GetClassID(v);
+    return class_id >= JS_CLASS_UINT8C_ARRAY && class_id <= JS_CLASS_FLOAT64_ARRAY;
+}
+
+JS_BOOL JS_IsDataView(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_DATAVIEW;
+}
+
+JS_BOOL JS_IsDate(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_DATE;
+}
+
+JS_BOOL JS_IsRegExp(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_REGEXP;
+}
+
+JS_BOOL JS_IsPromise(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_PROMISE;
+}
+
+JS_BOOL JS_IsProxy(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_PROXY;
+}
+
+JS_BOOL JS_IsMap(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_MAP;
+}
+
+JS_BOOL JS_IsSet(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_SET;
+}
+
+JS_BOOL JS_IsWeakMap(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_WEAKMAP;
+}
+
+JS_BOOL JS_IsWeakSet(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_WEAKSET;
+}
+
+JS_BOOL JS_IsWeakRef(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_WEAK_REF;
+}
+
+JS_BOOL JS_IsAsyncFunction(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_ASYNC_FUNCTION;
+}
+
+JS_BOOL JS_IsGeneratorFunction(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_GENERATOR_FUNCTION;
+}
+
+JS_BOOL JS_IsGenerator(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_GENERATOR;
+}
+
+JS_BOOL JS_IsArguments(JSValueConst v)
+{
+    JSClassID class_id = JS_GetClassID(v);
+    return class_id == JS_CLASS_ARGUMENTS || class_id == JS_CLASS_MAPPED_ARGUMENTS;
+}
+
+JS_BOOL JS_IsMapIterator(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_MAP_ITERATOR;
+}
+
+JS_BOOL JS_IsSetIterator(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_SET_ITERATOR;
+}
+
+JS_BOOL JS_IsModuleNamespace(JSValueConst v)
+{
+    return JS_GetClassID(v) == JS_CLASS_MODULE_NS;
 }
 
 BOOL JS_IsRegisteredClass(JSRuntime *rt, JSClassID class_id)
