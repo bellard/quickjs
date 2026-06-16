@@ -740,6 +740,13 @@ int JS_ToBigInt64(JSContext *ctx, int64_t *pres, JSValueConst val);
 /* same as JS_ToInt64() but allow BigInt */
 int JS_ToInt64Ext(JSContext *ctx, int64_t *pres, JSValueConst val);
 
+static inline JSValue JS_ToBoolean(JSContext *ctx, JSValueConst val)
+{
+    return JS_NewBool(ctx, JS_ToBool(ctx, val));
+}
+JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
+JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
+
 JSValue JS_NewStringLen(JSContext *ctx, const char *str1, size_t len1);
 static inline JSValue JS_NewString(JSContext *ctx, const char *str)
 {
