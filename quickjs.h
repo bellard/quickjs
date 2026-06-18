@@ -746,6 +746,7 @@ static inline JSValue JS_NewString(JSContext *ctx, const char *str)
     return JS_NewStringLen(ctx, str, strlen(str));
 }
 JSValue JS_NewAtomString(JSContext *ctx, const char *str);
+JSValue JS_NewSymbol(JSContext *ctx, const char *description, JS_BOOL is_global);
 JSValue JS_ToString(JSContext *ctx, JSValueConst val);
 JSValue JS_ToPropertyKey(JSContext *ctx, JSValueConst val);
 const char *JS_ToCStringLen2(JSContext *ctx, size_t *plen, JSValueConst val1, JS_BOOL cesu8);
