@@ -1189,7 +1189,8 @@ int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
                 goto not_latin1;
         }
         buf = (int *)dbuf->buf;
-        memcpy(buf, src, src_len * sizeof(int));
+        if (src_len != 0)
+            memcpy(buf, src, src_len * sizeof(int));
         *pdst = (uint32_t *)buf;
         return src_len;
     not_latin1: ;

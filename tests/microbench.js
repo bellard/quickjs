@@ -1577,8 +1577,14 @@ function main(argc, argv, g)
 }
 
 if (typeof scriptArgs === "undefined") {
-    scriptArgs = [];
-    if (typeof process.argv === "object")
+    if (typeof process !== "undefined" && typeof process.argv === "object") {
+        /* node case */
         scriptArgs = process.argv.slice(1);
+    } else if (typeof arguments !== "undefined") {
+        /* d8 case */
+        scriptArgs = arguments;
+    } else {
+        scriptArgs = [];
+    }
 }
 main(scriptArgs.length, scriptArgs, this);

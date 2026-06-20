@@ -32,7 +32,7 @@ rm -rf $outdir
 mkdir -p $outdir $outdir/unicode $outdir/tests
 
 cp unicode/* $outdir/unicode
-cp -a tests/bench-v8 $outdir/tests
+cp -a tests/bench-v8 tests/octane tests/cli $outdir/tests
 
 ( cd /tmp && tar Jcvf /tmp/${name}.tar.xz ${d} )
 
