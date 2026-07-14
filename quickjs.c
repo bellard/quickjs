@@ -316,6 +316,23 @@ typedef struct {
 
 /* end JS Malloc */
 
+#define JS_TZ_OFFSET_CACHE_SIZE 8
+#define JS_TZ_OFFSET_CACHE_TTL_MS 1000
+
+typedef struct JSTimezoneOffsetCacheEntry {
+    int64_t start_sec;
+    int64_t end_sec;
+    int64_t expires_ms;
+    int offset;
+    uint64_t tz_hash;
+    BOOL valid;
+} JSTimezoneOffsetCacheEntry;
+
+typedef struct JSTimezoneOffsetCache {
+    JSTimezoneOffsetCacheEntry entries[JS_TZ_OFFSET_CACHE_SIZE];
+    uint32_t next_entry;
+} JSTimezoneOffsetCache;
+
 struct JSRuntime {
     JSMallocContext malloc_ctx;
     const char *rt_info;
@@ -375,6 +392,7 @@ struct JSRuntime {
     void *module_loader_opaque;
     /* timestamp for internal use in module evaluation */
     int64_t module_async_evaluation_next_timestamp;
+    JSTimezoneOffsetCache tz_offset_cache;
 
     BOOL can_block : 8; /* TRUE if Atomics.wait can block */
     /* used to allocate, free and clone SharedArrayBuffers */
@@ -47451,12 +47469,8 @@ static const JSCFunctionListEntry js_math_obj[] = {
 
 /* OS dependent. d = argv[0] is in ms from 1970. Return the difference
    between UTC time and local time 'd' in minutes */
-static int getTimezoneOffset(int64_t time)
+static int64_t clampTimezoneTimeSec(int64_t time)
 {
-    time_t ti;
-    int res;
-
-    time /= 1000; /* convert to seconds */
     if (sizeof(time_t) == 4) {
         /* on 32-bit systems, we need to clamp the time value to the
            range of `time_t`. This is better than truncating values to
@@ -47477,6 +47491,41 @@ static int getTimezoneOffset(int64_t time)
             }
         }
     }
+    return time;
+}
+
+static int64_t normalizeTimezoneTimeSec(int64_t time)
+{
+    return clampTimezoneTimeSec(time / 1000); /* convert to seconds */
+}
+
+static int64_t timezoneFloorDiv(int64_t a, int64_t b)
+{
+    int64_t m = a % b;
+    return (a - (m + (m < 0) * b)) / b;
+}
+
+static int64_t getTimezoneCacheTimeMs(void)
+{
+#if defined(__linux__) || defined(__APPLE__)
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+#else
+    struct timeval tv;
+
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+#endif
+}
+
+static int getTimezoneOffsetSecRaw(int64_t time)
+{
+    time_t ti;
+    int res;
+
+    time = clampTimezoneTimeSec(time);
     ti = time;
 #if defined(_WIN32)
     {
@@ -47503,6 +47552,75 @@ static int getTimezoneOffset(int64_t time)
     }
 #endif
     return res;
+}
+
+static int getTimezoneOffsetRaw(int64_t time)
+{
+    return getTimezoneOffsetSecRaw(normalizeTimezoneTimeSec(time));
+}
+
+static uint64_t getTimezoneHash(void)
+{
+    const char *tz = getenv("TZ");
+    uint64_t h = UINT64_C(1469598103934665603);
+
+    if (!tz)
+        return 0;
+    while (*tz) {
+        h ^= (uint8_t)*tz++;
+        h *= UINT64_C(1099511628211);
+    }
+    return h;
+}
+
+static void refreshTimezoneState(void)
+{
+#if !defined(_WIN32)
+    tzset();
+#endif
+}
+
+static int getTimezoneOffset(JSRuntime *rt, int64_t time)
+{
+    JSTimezoneOffsetCache *cache = &rt->tz_offset_cache;
+    int64_t time_sec = normalizeTimezoneTimeSec(time);
+    uint64_t tz_hash = getTimezoneHash();
+    int64_t start_sec, end_sec;
+    int64_t now_ms = getTimezoneCacheTimeMs();
+    int i, offset;
+
+    for(i = 0; i < JS_TZ_OFFSET_CACHE_SIZE; i++) {
+        JSTimezoneOffsetCacheEntry *e = &cache->entries[i];
+        if (e->valid && e->tz_hash == tz_hash &&
+            now_ms < e->expires_ms &&
+            time_sec >= e->start_sec && time_sec <= e->end_sec) {
+            return e->offset;
+        }
+    }
+
+    refreshTimezoneState();
+    offset = getTimezoneOffsetRaw(time);
+    start_sec = time_sec;
+    end_sec = time_sec;
+    {
+        int64_t hour_start, hour_end;
+
+        hour_start = timezoneFloorDiv(time_sec, 3600) * 3600;
+        hour_end = hour_start + 3599;
+        if (getTimezoneOffsetSecRaw(hour_start) == offset &&
+            getTimezoneOffsetSecRaw(hour_end) == offset) {
+            start_sec = hour_start;
+            end_sec = hour_end;
+        }
+    }
+    cache->entries[cache->next_entry].start_sec = start_sec;
+    cache->entries[cache->next_entry].end_sec = end_sec;
+    cache->entries[cache->next_entry].expires_ms = now_ms + JS_TZ_OFFSET_CACHE_TTL_MS;
+    cache->entries[cache->next_entry].offset = offset;
+    cache->entries[cache->next_entry].tz_hash = tz_hash;
+    cache->entries[cache->next_entry].valid = TRUE;
+    cache->next_entry = (cache->next_entry + 1) % JS_TZ_OFFSET_CACHE_SIZE;
+    return offset;
 }
 
 #if 0
@@ -55103,7 +55221,7 @@ static __exception int get_date_fields(JSContext *ctx, JSValueConst obj,
     } else {
         d = dval;     /* assuming -8.64e15 <= dval <= -8.64e15 */
         if (is_local) {
-            tz = -getTimezoneOffset(d);
+            tz = -getTimezoneOffset(ctx->rt, d);
             d += tz * 60000;
         }
     }
@@ -55149,7 +55267,7 @@ static double time_clip(double t) {
 
 /* The spec mandates the use of 'double' and it specifies the order
    of the operations */
-static double set_date_fields(double fields[minimum_length(7)], int is_local) {
+static double set_date_fields(JSRuntime *rt, double fields[minimum_length(7)], int is_local) {
     double y, m, dt, ym, mn, day, h, s, milli, time, tv;
     int yi, mi, i;
     int64_t days;
@@ -55201,12 +55319,12 @@ static double set_date_fields(double fields[minimum_length(7)], int is_local) {
     /* adjust for local time and clip */
     if (is_local) {
         int64_t ti = tv < INT64_MIN ? INT64_MIN : tv >= 0x1p63 ? INT64_MAX : (int64_t)tv;
-        tv += getTimezoneOffset(ti) * 60000;
+        tv += getTimezoneOffset(rt, ti) * 60000;
     }
     return time_clip(tv);
 }
 
-static double set_date_fields_checked(double fields[minimum_length(7)], int is_local)
+static double set_date_fields_checked(JSRuntime *rt, double fields[minimum_length(7)], int is_local)
 {
     int i;
     double a;
@@ -55218,7 +55336,7 @@ static double set_date_fields_checked(double fields[minimum_length(7)], int is_l
         if (i == 0 && fields[0] >= 0 && fields[0] < 100)
             fields[0] += 1900;
     }
-    return set_date_fields(fields, is_local);
+    return set_date_fields(rt, fields, is_local);
 }
 
 static JSValue get_date_field(JSContext *ctx, JSValueConst this_val,
@@ -55274,7 +55392,7 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
         return JS_NAN; /* thisTimeValue is NaN */
 
     if (res && argc > 0)
-        d = set_date_fields(fields, is_local);
+        d = set_date_fields(ctx->rt, fields, is_local);
 
     return JS_SetThisTimeValue(ctx, this_val, d);
 }
@@ -55447,7 +55565,7 @@ static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
             if (JS_ToFloat64(ctx, &fields[i], argv[i]))
                 return JS_EXCEPTION;
         }
-        val = set_date_fields_checked(fields, 1);
+        val = set_date_fields_checked(ctx->rt, fields, 1);
     }
 has_val:
 #if 0
@@ -55487,7 +55605,7 @@ static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
         if (JS_ToFloat64(ctx, &fields[i], argv[i]))
             return JS_EXCEPTION;
     }
-    return JS_NewFloat64(ctx, set_date_fields_checked(fields, 0));
+    return JS_NewFloat64(ctx, set_date_fields_checked(ctx->rt, fields, 0));
 }
 
 /* Date string parsing */
@@ -55946,7 +56064,7 @@ static JSValue js_Date_parse(JSContext *ctx, JSValueConst this_val,
         if (valid) {
             for(i = 0; i < 7; i++)
                 fields1[i] = fields[i];
-            d = set_date_fields(fields1, is_local) - fields[8] * 60000;
+            d = set_date_fields(ctx->rt, fields1, is_local) - fields[8] * 60000;
             rv = JS_NewFloat64(ctx, d);
         }
     }
@@ -56005,7 +56123,7 @@ static JSValue js_date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val,
         return JS_NAN;
     else
         /* assuming -8.64e15 <= v <= -8.64e15 */
-        return JS_NewInt64(ctx, getTimezoneOffset((int64_t)trunc(v)));
+        return JS_NewInt64(ctx, getTimezoneOffset(ctx->rt, (int64_t)trunc(v)));
 }
 
 static JSValue js_date_getTime(JSContext *ctx, JSValueConst this_val,
