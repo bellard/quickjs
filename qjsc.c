@@ -35,6 +35,7 @@
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#include "quickjs-bytecode.h"
 
 typedef struct {
     char *name;
@@ -296,13 +297,15 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
                 find_unique_cname(cname, sizeof(cname));
             }
 
-            /* output the module name */
-            fprintf(outfile, "static const uint8_t %s_module_name[] = {\n",
-                    cname);
-            dump_hex(outfile, (const uint8_t *)module_name, strlen(module_name) + 1);
-            fprintf(outfile, "};\n\n");
+            if (outfile) {
+                /* output the module name */
+                fprintf(outfile, "static const uint8_t %s_module_name[] = {\n",
+                        cname);
+                dump_hex(outfile, (const uint8_t *)module_name, strlen(module_name) + 1);
+                fprintf(outfile, "};\n\n");
 
-            output_object_code(ctx, outfile, val, cname, CNAME_TYPE_JSON_MODULE);
+                output_object_code(ctx, outfile, val, cname, CNAME_TYPE_JSON_MODULE);
+            }
             JS_FreeValue(ctx, val);
         } else {
             JSValue func_val;
@@ -317,7 +320,8 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
             if (namelist_find(&cname_list, cname)) {
                 find_unique_cname(cname, sizeof(cname));
             }
-            output_object_code(ctx, outfile, func_val, cname, CNAME_TYPE_MODULE);
+            if (outfile)
+                output_object_code(ctx, outfile, func_val, cname, CNAME_TYPE_MODULE);
             
             /* the module is already referenced, so we must free it */
             m = JS_VALUE_GET_PTR(func_val);
@@ -327,13 +331,10 @@ JSModuleDef *jsc_module_loader(JSContext *ctx,
     return m;
 }
 
-static void compile_file(JSContext *ctx, FILE *fo,
-                         const char *filename,
-                         const char *c_name1,
-                         int module)
+static JSValue compile_file_to_object(JSContext *ctx, const char *filename,
+                                      int module)
 {
     uint8_t *buf;
-    char c_name[1024];
     int eval_flags;
     JSValue obj;
     size_t buf_len;
@@ -358,6 +359,18 @@ static void compile_file(JSContext *ctx, FILE *fo,
         exit(1);
     }
     js_free(ctx, buf);
+    return obj;
+}
+
+static void compile_file(JSContext *ctx, FILE *fo,
+                         const char *filename,
+                         const char *c_name1,
+                         int module)
+{
+    char c_name[1024];
+    JSValue obj;
+
+    obj = compile_file_to_object(ctx, filename, module);
     if (c_name1) {
         pstrcpy(c_name, sizeof(c_name), c_name1);
     } else {
@@ -398,6 +411,7 @@ void help(void)
            "options are:\n"
            "-c          only output bytecode to a C file\n"
            "-e          output main() and bytecode to a C file (default = executable output)\n"
+           "-b  --bytecode  output checked bytecode to a file\n"
            "-o output   set the output filename\n"
            "-N cname    set the C name of the generated data\n"
            "-m          compile as Javascript module (default=autodetect)\n"
@@ -555,6 +569,7 @@ static size_t get_suffixed_size(const char *str)
 typedef enum {
     OUTPUT_C,
     OUTPUT_C_MAIN,
+    OUTPUT_BYTECODE,
     OUTPUT_EXECUTABLE,
 } OutputTypeEnum;
 
@@ -637,6 +652,10 @@ int main(int argc, char **argv)
             }
             if (opt == 'e') {
                 output_type = OUTPUT_C_MAIN;
+                continue;
+            }
+            if (opt == 'b' || !strcmp(longopt, "bytecode")) {
+                output_type = OUTPUT_BYTECODE;
                 continue;
             }
             if (opt == 'N') {
@@ -732,9 +751,21 @@ int main(int argc, char **argv)
     if (!out_filename) {
         if (output_type == OUTPUT_EXECUTABLE) {
             out_filename = "a.out";
+        } else if (output_type == OUTPUT_BYTECODE) {
+            out_filename = "out.qbc";
         } else {
             out_filename = "out.c";
         }
+    }
+
+    if (output_type == OUTPUT_BYTECODE && argc - optind != 1) {
+        fprintf(stderr, "qjsc: bytecode output expects exactly one input file\n");
+        exit(1);
+    }
+
+    if (output_type == OUTPUT_BYTECODE && byte_swap) {
+        fprintf(stderr, "qjsc: -x is not supported with --bytecode\n");
+        exit(1);
     }
 
     if (output_type == OUTPUT_EXECUTABLE) {
@@ -748,13 +779,6 @@ int main(int argc, char **argv)
         pstrcpy(cfilename, sizeof(cfilename), out_filename);
     }
 
-    fo = fopen(cfilename, "w");
-    if (!fo) {
-        perror(cfilename);
-        exit(1);
-    }
-    outfile = fo;
-
     rt = JS_NewRuntime();
     ctx = JS_NewContext(rt);
 
@@ -762,6 +786,31 @@ int main(int argc, char **argv)
 
     /* loader for ES6 modules */
     JS_SetModuleLoaderFunc2(rt, NULL, jsc_module_loader, NULL, NULL);
+
+    if (output_type == OUTPUT_BYTECODE) {
+        JSValue obj;
+        int ret;
+
+        obj = compile_file_to_object(ctx, argv[optind], module);
+        ret = qjs_bytecode_write_file(ctx, out_filename, obj, 0);
+        JS_FreeValue(ctx, obj);
+        if (ret) {
+            js_std_dump_error(ctx);
+        }
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(rt);
+        namelist_free(&cname_list);
+        namelist_free(&cmodule_list);
+        namelist_free(&init_module_list);
+        return ret ? 1 : 0;
+    }
+
+    fo = fopen(cfilename, "w");
+    if (!fo) {
+        perror(cfilename);
+        exit(1);
+    }
+    outfile = fo;
 
     fprintf(fo, "/* File generated automatically by the QuickJS compiler. */\n"
             "\n"
