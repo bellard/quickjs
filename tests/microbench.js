@@ -993,6 +993,116 @@ function regexp_replace(n)
     return n * 1000;
 }
 
+function regexp_escaped_hex(n)
+{
+    var i, j, r, s = "the quick brown fox jumped over the lazy dog";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /\x74he quick brown fox/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_escaped_unicode(n)
+{
+    var i, j, r, s = "the quick brown \u1234x jumped over the lazy dog";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /the quick brown \u1234x/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_escaped_dot(n)
+{
+    var i, j, r, s = "the quick.brown fox jumped over the lazy dog";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /quick\.brown/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_literal_late(n)
+{
+    var i, j, r, s = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxliteral";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /literal/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_literal_miss(n)
+{
+    var i, j, r, s = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /literal/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_literal_mixed(n)
+{
+    var i, j, r, s = "\u0100xxxxxxxxxxxxxxxxliteral";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /literal/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_prefix_late(n)
+{
+    var i, j, r, s = "xxxxxxxxxxxxxxxxxxxxxxxxabcdef123";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /abcdef[0-9]+/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_prefix_miss(n)
+{
+    var i, j, r, s = "abcdefXxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /abcdef[0-9]+/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_quick_check_late(n)
+{
+    var i, j, r, s = "000000000000000000000000xbcdef";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /[a-z]bcdef/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
+function regexp_quick_check_miss(n)
+{
+    var i, j, r, s = "000000000000000000000000xbcdeg";
+    for(j = 0; j < n; j++) {
+        for(i = 0; i < 1000; i++)
+            r = /[a-z]bcdef/.exec(s);
+        global_res = r;
+    }
+    return n * 1000;
+}
+
 function string_length(n)
 {
     var str, sum, j;
@@ -1483,6 +1593,16 @@ function main(argc, argv, g)
         regexp_ascii,
         regexp_utf16,
         regexp_replace,
+        regexp_escaped_hex,
+        regexp_escaped_unicode,
+        regexp_escaped_dot,
+        regexp_literal_late,
+        regexp_literal_miss,
+        regexp_literal_mixed,
+        regexp_prefix_late,
+        regexp_prefix_miss,
+        regexp_quick_check_late,
+        regexp_quick_check_miss,
         string_length,
         string_build1,
         string_build1x,

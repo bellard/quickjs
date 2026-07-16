@@ -748,6 +748,7 @@ typedef struct JSForInIterator {
 typedef struct JSRegExp {
     JSString *pattern;
     JSString *bytecode; /* also contains the flags */
+    const uint8_t *metadata; /* validated view owned by bytecode */
 } JSRegExp;
 
 typedef struct JSProxyData {
@@ -1070,7 +1071,7 @@ struct JSObject {
             } u;
             uint32_t count; /* <= 2^31-1. 0 for a detached typed array */
         } array;    /* 12/20 bytes */
-        JSRegExp regexp;    /* JS_CLASS_REGEXP: 8/16 bytes */
+        JSRegExp regexp;    /* JS_CLASS_REGEXP: 12/24 bytes */
         JSValue object_data;    /* for JS_SetObjectData(): 8/16/16 bytes */
         JSGlobalObject global_object;
     } u;
@@ -37502,7 +37503,7 @@ typedef enum BCTagEnum {
     BC_TAG_OBJECT_REFERENCE,
 } BCTagEnum;
 
-#define BC_VERSION 5
+#define BC_VERSION 8
 
 typedef struct BCWriterState {
     JSContext *ctx;
@@ -38510,6 +38511,12 @@ static int bc_get_leb128_u16(BCReaderState *s, uint16_t *pval)
         *pval = 0;
         return -1;
     }
+    if (val > UINT16_MAX) {
+        *pval = 0;
+        if (!s->error_state)
+            JS_ThrowSyntaxError(s->ctx, "invalid bytecode integer");
+        return s->error_state = -1;
+    }
     *pval = val;
     return 0;
 }
@@ -38612,6 +38619,31 @@ static uint32_t bc_get_flags(uint32_t flags, int *pidx, int n)
     return val;
 }
 
+static int js_check_function_bytecode_bounds(JSContext *ctx,
+                                             const uint8_t *bc_buf,
+                                             uint32_t bc_len)
+{
+    uint32_t pos;
+
+    if (bc_len == 0)
+        return JS_ThrowSyntaxError(ctx, "empty function bytecode"), -1;
+    pos = 0;
+    while (pos < bc_len) {
+        const JSOpCode *oi;
+        int op = bc_buf[pos];
+
+        if (op == OP_invalid || op >= OP_COUNT)
+            return JS_ThrowSyntaxError(ctx, "invalid function opcode"), -1;
+        oi = &short_opcode_info(op);
+        if (oi->size == 0 || oi->size > bc_len - pos)
+            return JS_ThrowSyntaxError(ctx, "truncated function opcode"), -1;
+        pos += oi->size;
+    }
+    if (pos != bc_len)
+        return JS_ThrowSyntaxError(ctx, "invalid function bytecode length"), -1;
+    return 0;
+}
+
 static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
                                    int byte_code_offset, uint32_t bc_len)
 {
@@ -38633,6 +38665,12 @@ static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
     }
     b->byte_code_buf = bc_buf;
 
+    if (js_check_function_bytecode_bounds(s->ctx, bc_buf, bc_len)) {
+        /* No atom reference was fixed up yet, so the buffer is not safe to
+           scan during cleanup. */
+        b->byte_code_len = 0;
+        return -1;
+    }
     if (is_be())
         bc_byte_swap(bc_buf, bc_len);
 
@@ -38668,6 +38706,267 @@ static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
         pos += len;
     }
     return 0;
+}
+
+static int js_get_pushed_constant(JSFunctionBytecode *b, int pos,
+                                  uint32_t *pidx)
+{
+    const uint8_t *bc_buf = b->byte_code_buf;
+
+    if (pos < 0)
+        return -1;
+    if (bc_buf[pos] == OP_push_const) {
+        *pidx = get_u32(bc_buf + pos + 1);
+    } else if (bc_buf[pos] == OP_push_const8) {
+        *pidx = bc_buf[pos + 1];
+    } else {
+        return -1;
+    }
+    if (*pidx >= b->cpool_count)
+        return -1;
+    return 0;
+}
+
+static int js_validate_regexp_constant(JSContext *ctx, JSFunctionBytecode *b,
+                                       int pattern_pos, int bytecode_pos)
+{
+    static const int source_flag_mask =
+        LRE_FLAG_GLOBAL | LRE_FLAG_IGNORECASE | LRE_FLAG_MULTILINE |
+        LRE_FLAG_DOTALL | LRE_FLAG_UNICODE | LRE_FLAG_STICKY |
+        LRE_FLAG_INDICES | LRE_FLAG_UNICODE_SETS;
+    JSValueConst pattern_val, bytecode_val;
+    JSString *bytecode_str;
+    uint8_t *trusted_bytecode;
+    const char *pattern_buf;
+    uint32_t pattern_idx, bytecode_idx;
+    size_t pattern_len;
+    int source_flags, serialized_flags, trusted_len;
+    char error_msg[128];
+
+    if (js_get_pushed_constant(b, pattern_pos, &pattern_idx) ||
+        js_get_pushed_constant(b, bytecode_pos, &bytecode_idx)) {
+        JS_ThrowSyntaxError(ctx, "invalid regexp constant operands");
+        return -1;
+    }
+    pattern_val = b->cpool[pattern_idx];
+    bytecode_val = b->cpool[bytecode_idx];
+    if (!JS_IsString(pattern_val) || !JS_IsString(bytecode_val)) {
+        JS_ThrowSyntaxError(ctx, "regexp constants must be strings");
+        return -1;
+    }
+    bytecode_str = JS_VALUE_GET_STRING(bytecode_val);
+    if (bytecode_str->is_wide_char) {
+        JS_ThrowSyntaxError(ctx, "regexp bytecode must be an 8 bit string");
+        return -1;
+    }
+    if (lre_validate_bytecode(bytecode_str->u.str8, bytecode_str->len,
+                              error_msg, sizeof(error_msg), ctx)) {
+        JS_ThrowSyntaxError(ctx, "invalid regexp bytecode: %s", error_msg);
+        return -1;
+    }
+
+    serialized_flags = lre_get_flags(bytecode_str->u.str8);
+    source_flags = serialized_flags & source_flag_mask;
+    pattern_buf = JS_ToCStringLen2(ctx, &pattern_len, pattern_val,
+                                  !(source_flags & (LRE_FLAG_UNICODE |
+                                                    LRE_FLAG_UNICODE_SETS)));
+    if (!pattern_buf)
+        return -1;
+    trusted_bytecode = lre_compile(&trusted_len, error_msg, sizeof(error_msg),
+                                   pattern_buf, pattern_len, source_flags, ctx);
+    JS_FreeCString(ctx, pattern_buf);
+    if (!trusted_bytecode) {
+        JS_ThrowSyntaxError(ctx, "invalid regexp pattern: %s", error_msg);
+        return -1;
+    }
+
+    /* Serialized payloads may omit the optional ATOM optimization marker. */
+    if (!(serialized_flags & LRE_FLAG_ATOM)) {
+        put_u16(trusted_bytecode,
+                lre_get_flags(trusted_bytecode) & ~LRE_FLAG_ATOM);
+    }
+    if (trusted_len != bytecode_str->len ||
+        memcmp(trusted_bytecode, bytecode_str->u.str8, trusted_len) != 0) {
+        js_free(ctx, trusted_bytecode);
+        JS_ThrowSyntaxError(ctx, "regexp bytecode does not match its pattern");
+        return -1;
+    }
+    js_free(ctx, trusted_bytecode);
+    return 0;
+}
+
+static int js_check_bytecode_target(JSContext *ctx, const uint8_t *boundaries,
+                                    int bytecode_len, int base, int32_t diff)
+{
+    int64_t target = (int64_t)base + diff;
+
+    if (target < 0 || target >= bytecode_len || !boundaries[target]) {
+        JS_ThrowSyntaxError(ctx, "invalid function bytecode jump");
+        return -1;
+    }
+    return 0;
+}
+
+static int js_validate_loaded_function_bytecode(JSContext *ctx,
+                                                JSFunctionBytecode *b)
+{
+    JSFunctionDef fd_s, *fd = &fd_s;
+    const uint8_t *bc_buf = b->byte_code_buf;
+    uint8_t *boundaries;
+    int pos, prev_pos, prev_prev_pos, computed_stack_size;
+
+    boundaries = js_mallocz(ctx, b->byte_code_len);
+    if (!boundaries)
+        return -1;
+    pos = 0;
+    while (pos < b->byte_code_len) {
+        int op = bc_buf[pos];
+        boundaries[pos] = 1;
+        pos += short_opcode_info(op).size;
+    }
+
+    memset(fd, 0, sizeof(*fd));
+    fd->byte_code.buf = (uint8_t *)bc_buf;
+    fd->byte_code.size = b->byte_code_len;
+    if (compute_stack_size(ctx, fd, &computed_stack_size))
+        goto fail;
+    if (computed_stack_size != b->stack_size) {
+        JS_ThrowSyntaxError(ctx, "invalid function bytecode stack size");
+        goto fail;
+    }
+
+    prev_pos = -1;
+    prev_prev_pos = -1;
+    pos = 0;
+    while (pos < b->byte_code_len) {
+        const JSOpCode *oi;
+        uint32_t idx;
+        int op = bc_buf[pos];
+        int operand_index = -1;
+
+        oi = &short_opcode_info(op);
+        switch(oi->fmt) {
+        case OP_FMT_const:
+            idx = get_u32(bc_buf + pos + 1);
+            if (idx >= b->cpool_count) {
+                JS_ThrowSyntaxError(ctx, "invalid constant pool index");
+                goto fail;
+            }
+            break;
+        case OP_FMT_const8:
+            idx = bc_buf[pos + 1];
+            if (idx >= b->cpool_count) {
+                JS_ThrowSyntaxError(ctx, "invalid constant pool index");
+                goto fail;
+            }
+            break;
+        case OP_FMT_loc:
+            operand_index = get_u16(bc_buf + pos + 1);
+            if (operand_index >= b->var_count)
+                goto invalid_local;
+            break;
+        case OP_FMT_loc8:
+            operand_index = bc_buf[pos + 1];
+            if (operand_index >= b->var_count)
+                goto invalid_local;
+            break;
+        case OP_FMT_none_loc:
+            operand_index = (op - OP_get_loc0) % 4;
+            if (operand_index >= b->var_count)
+                goto invalid_local;
+            break;
+        case OP_FMT_arg:
+            operand_index = get_u16(bc_buf + pos + 1);
+            if (operand_index >= b->arg_count)
+                goto invalid_argument;
+            break;
+        case OP_FMT_none_arg:
+            operand_index = (op - OP_get_arg0) % 4;
+            if (operand_index >= b->arg_count)
+                goto invalid_argument;
+            break;
+        case OP_FMT_var_ref:
+            operand_index = get_u16(bc_buf + pos + 1);
+            if (operand_index >= b->closure_var_count)
+                goto invalid_var_ref;
+            break;
+        case OP_FMT_none_var_ref:
+            operand_index = (op - OP_get_var_ref0) % 4;
+            if (operand_index >= b->closure_var_count)
+                goto invalid_var_ref;
+            break;
+        case OP_FMT_label:
+            if (js_check_bytecode_target(ctx, boundaries, b->byte_code_len,
+                                         pos + 1, get_i32(bc_buf + pos + 1)))
+                goto fail;
+            break;
+        case OP_FMT_label8:
+            if (js_check_bytecode_target(ctx, boundaries, b->byte_code_len,
+                                         pos + 1, get_i8(bc_buf + pos + 1)))
+                goto fail;
+            break;
+        case OP_FMT_label16:
+            if (js_check_bytecode_target(ctx, boundaries, b->byte_code_len,
+                                         pos + 1, get_i16(bc_buf + pos + 1)))
+                goto fail;
+            break;
+        case OP_FMT_atom_label_u8:
+        case OP_FMT_atom_label_u16:
+            if (js_check_bytecode_target(ctx, boundaries, b->byte_code_len,
+                                         pos + 5, get_i32(bc_buf + pos + 5)))
+                goto fail;
+            break;
+        case OP_FMT_label_u16:
+            if (js_check_bytecode_target(ctx, boundaries, b->byte_code_len,
+                                         pos + 1, get_i32(bc_buf + pos + 1)))
+                goto fail;
+            break;
+        default:
+            break;
+        }
+
+        if (op == OP_fclosure || op == OP_fclosure8) {
+            if (op == OP_fclosure)
+                idx = get_u32(bc_buf + pos + 1);
+            else
+                idx = bc_buf[pos + 1];
+            if (idx >= b->cpool_count ||
+                JS_VALUE_GET_TAG(b->cpool[idx]) != JS_TAG_FUNCTION_BYTECODE) {
+                JS_ThrowSyntaxError(ctx, "invalid closure constant");
+                goto fail;
+            }
+        } else if (op == OP_make_loc_ref) {
+            if (get_u16(bc_buf + pos + 5) >= b->var_count)
+                goto invalid_local;
+        } else if (op == OP_make_arg_ref) {
+            if (get_u16(bc_buf + pos + 5) >= b->arg_count)
+                goto invalid_argument;
+        } else if (op == OP_make_var_ref_ref) {
+            if (get_u16(bc_buf + pos + 5) >= b->closure_var_count)
+                goto invalid_var_ref;
+        } else if (op == OP_regexp) {
+            if (js_validate_regexp_constant(ctx, b, prev_prev_pos, prev_pos))
+                goto fail;
+        }
+
+        prev_prev_pos = prev_pos;
+        prev_pos = pos;
+        pos += oi->size;
+    }
+    js_free(ctx, boundaries);
+    return 0;
+
+ invalid_local:
+    JS_ThrowSyntaxError(ctx, "invalid local variable index");
+    goto fail;
+ invalid_argument:
+    JS_ThrowSyntaxError(ctx, "invalid argument index");
+    goto fail;
+ invalid_var_ref:
+    JS_ThrowSyntaxError(ctx, "invalid variable reference index");
+ fail:
+    js_free(ctx, boundaries);
+    return -1;
 }
 
 static JSValue JS_ReadBigInt(BCReaderState *s)
@@ -38793,6 +39092,15 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         goto fail;
     if (bc_get_leb128_int(s, &local_count))
         goto fail;
+    if (bc.closure_var_count < 0 || bc.cpool_count < 0 ||
+        bc.byte_code_len <= 0 || local_count < 0 ||
+        bc.defined_arg_count > bc.arg_count ||
+        (local_count != 0 &&
+         local_count != (int)bc.arg_count + bc.var_count) ||
+        bc.var_ref_count > (uint32_t)bc.arg_count + bc.var_count) {
+        JS_ThrowSyntaxError(ctx, "invalid function bytecode header");
+        goto fail;
+    }
 
     if (bc.has_debug) {
         function_size = sizeof(*b);
@@ -38936,6 +39244,8 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         }
         bc_read_trace(s, "}\n");
     }
+    if (js_validate_loaded_function_bytecode(ctx, b))
+        goto fail;
     b->realm = JS_DupContext(ctx);
     return obj;
  fail:
@@ -45542,12 +45852,7 @@ static JSValue js_string_concat(JSContext *ctx, JSValueConst this_val,
 
 static int string_cmp(JSString *p1, JSString *p2, int x1, int x2, int len)
 {
-    int i, c1, c2;
-    for (i = 0; i < len; i++) {
-        if ((c1 = string_get(p1, x1 + i)) != (c2 = string_get(p2, x2 + i)))
-            return c1 - c2;
-    }
-    return 0;
+    return js_string_memcmp(p1, x1, p2, x2, len);
 }
 
 static int string_indexof_char(JSString *p, int c, int from)
@@ -45561,10 +45866,11 @@ static int string_indexof_char(JSString *p, int c, int from)
         }
     } else {
         if ((c & ~0xff) == 0) {
-            for (i = from; i < len; i++) {
-                if (p->u.str8[i] == (uint8_t)c)
-                    return i;
-            }
+            const uint8_t *ptr;
+
+            ptr = memchr(p->u.str8 + from, c, len - from);
+            if (ptr)
+                return ptr - p->u.str8;
         }
     }
     return -1;
@@ -47640,6 +47946,22 @@ static JSValue js_compile_regexp(JSContext *ctx, JSValueConst pattern,
     return ret;
 }
 
+/* The caller transfers its existing pattern and bytecode references to re.
+   metadata is a borrowed view and must always be derived from bytecode. */
+static void js_regexp_set_compiled_data(JSRegExp *re, JSString *pattern,
+                                        JSString *bytecode)
+{
+    LREMetadata metadata;
+
+    re->pattern = pattern;
+    re->bytecode = bytecode;
+    re->metadata = NULL;
+    if (!bytecode->is_wide_char &&
+        lre_get_metadata(bytecode->u.str8, bytecode->len, &metadata) == 1) {
+        re->metadata = metadata.payload - LRE_META_HEADER_LEN;
+    }
+}
+
 /* fast regexp creation */
 static JSValue JS_NewRegexp(JSContext *ctx, JSValue pattern, JSValue bc)
 {
@@ -47660,8 +47982,8 @@ static JSValue JS_NewRegexp(JSContext *ctx, JSValue pattern, JSValue bc)
         goto fail;
     p = JS_VALUE_GET_OBJ(obj);
     re = &p->u.regexp;
-    re->pattern = JS_VALUE_GET_STRING(pattern);
-    re->bytecode = JS_VALUE_GET_STRING(bc);
+    js_regexp_set_compiled_data(re, JS_VALUE_GET_STRING(pattern),
+                               JS_VALUE_GET_STRING(bc));
     return obj;
  fail:
     JS_FreeValue(ctx, bc);
@@ -47689,8 +48011,8 @@ static JSValue js_regexp_set_internal(JSContext *ctx,
 
     p = JS_VALUE_GET_OBJ(obj);
     re = &p->u.regexp;
-    re->pattern = JS_VALUE_GET_STRING(pattern);
-    re->bytecode = JS_VALUE_GET_STRING(bc);
+    js_regexp_set_compiled_data(re, JS_VALUE_GET_STRING(pattern),
+                               JS_VALUE_GET_STRING(bc));
     /* Note: cannot fail because the field is preallocated */
     JS_DefinePropertyValue(ctx, obj, JS_ATOM_lastIndex, JS_NewInt32(ctx, 0),
                            JS_PROP_WRITABLE);
@@ -47840,8 +48162,8 @@ static JSValue js_regexp_compile(JSContext *ctx, JSValueConst this_val,
     }
     JS_FreeValue(ctx, JS_MKPTR(JS_TAG_STRING, re->pattern));
     JS_FreeValue(ctx, JS_MKPTR(JS_TAG_STRING, re->bytecode));
-    re->pattern = JS_VALUE_GET_STRING(pattern);
-    re->bytecode = JS_VALUE_GET_STRING(bc);
+    js_regexp_set_compiled_data(re, JS_VALUE_GET_STRING(pattern),
+                               JS_VALUE_GET_STRING(bc));
     if (JS_SetProperty(ctx, this_val, JS_ATOM_lastIndex,
                        JS_NewInt32(ctx, 0)) < 0)
         return JS_EXCEPTION;
@@ -48105,6 +48427,346 @@ static force_inline int js_regexp_set_lastIndex(JSContext *ctx, JSValueConst thi
     return 0;
 }
 
+#ifndef JS_REGEXP_CAPTURE_STACK_SIZE
+#define JS_REGEXP_CAPTURE_STACK_SIZE 16
+#endif
+#if JS_REGEXP_CAPTURE_STACK_SIZE < 2 || JS_REGEXP_CAPTURE_STACK_SIZE > 512
+#error "JS_REGEXP_CAPTURE_STACK_SIZE must be between 2 and 512"
+#endif
+/* The default capture array uses 64 bytes on 32-bit and 128 bytes on
+   64-bit targets. Larger expressions fall back to the runtime allocator. */
+#define JS_REGEXP_SCAN_CHUNK_SIZE 65536
+
+static force_inline const uint8_t *
+js_regexp_get_atom(int re_flags, int capture_count, const JSRegExp *re)
+{
+    const uint8_t *p = re->metadata;
+
+    if (!(re_flags & LRE_FLAG_ATOM) || capture_count != 1 ||
+        re->pattern->len == 0 || !p)
+        return NULL;
+    return p;
+}
+
+static force_inline const uint8_t *js_regexp_get_prefix(const JSRegExp *re)
+{
+    const uint8_t *p = re->metadata;
+
+    if (!p || p[LRE_META_KIND_OFFSET] != LRE_META_PREFIX ||
+        get_u32(p + LRE_META_LENGTH_OFFSET) < 3 ||
+        get_u32(p + LRE_META_LENGTH_OFFSET) > INT_MAX)
+        return NULL;
+    return p;
+}
+
+static force_inline const uint8_t *js_regexp_get_quick_check(const JSRegExp *re)
+{
+    const uint8_t *p = re->metadata;
+
+    if (!p || p[LRE_META_KIND_OFFSET] != LRE_META_QUICK_CHECK ||
+        get_u32(p + LRE_META_LENGTH_OFFSET) < 3 ||
+        get_u32(p + LRE_META_LENGTH_OFFSET) > LRE_QUICK_CHECK_MAX)
+        return NULL;
+    return p;
+}
+
+static force_inline int js_regexp_atom_char(const uint8_t *atom, int index)
+{
+    const uint8_t *payload = atom + LRE_META_HEADER_LEN;
+
+    if (atom[LRE_META_ENCODING_OFFSET])
+        return get_u16(payload + index * 2);
+    return payload[index];
+}
+
+static force_inline BOOL js_regexp_source_starts_at(JSString *str, int start,
+                                                    JSString *pattern)
+{
+    if (str->is_wide_char == pattern->is_wide_char) {
+        if (str->is_wide_char) {
+            return str->u.str16[start] == pattern->u.str16[0] &&
+                   memcmp(str->u.str16 + start + 1, pattern->u.str16 + 1,
+                          (pattern->len - 1) * sizeof(pattern->u.str16[0])) == 0;
+        } else {
+            return str->u.str8[start] == pattern->u.str8[0] &&
+                   memcmp(str->u.str8 + start + 1, pattern->u.str8 + 1,
+                          pattern->len - 1) == 0;
+        }
+    }
+    return string_get(str, start) == string_get(pattern, 0) &&
+           js_string_memcmp(str, start + 1, pattern, 1,
+                            pattern->len - 1) == 0;
+}
+
+static force_inline BOOL js_regexp_atom_starts_at(JSString *str, int start,
+                                                  const uint8_t *atom)
+{
+    const uint8_t *payload = atom + LRE_META_HEADER_LEN;
+    int encoding = atom[LRE_META_ENCODING_OFFSET];
+    int i, len = get_u32(atom + LRE_META_LENGTH_OFFSET);
+
+    if (len > str->len - start)
+        return FALSE;
+    if (str->is_wide_char == encoding) {
+        return memcmp(str->u.str8 + (start << encoding), payload,
+                      len << encoding) == 0;
+    }
+    for(i = 0; i < len; i++) {
+        if (string_get(str, start + i) != js_regexp_atom_char(atom, i))
+            return FALSE;
+    }
+    return TRUE;
+}
+
+static force_inline int js_regexp_indexof_char_range(JSString *str, int c,
+                                                     int from, int to)
+{
+    int i;
+
+    if (str->is_wide_char) {
+        if (c > 0xffff)
+            return -1;
+        for(i = from; i < to; i++) {
+            if (str->u.str16[i] == c)
+                return i;
+        }
+    } else if ((c & ~0xff) == 0) {
+        const uint8_t *p = memchr(str->u.str8 + from, c, to - from);
+
+        if (p)
+            return p - str->u.str8;
+    }
+    return -1;
+}
+
+static int js_regexp_find_source_atom(JSContext *ctx, JSString *str,
+                                      JSString *pattern, int start_index,
+                                      int *pstart)
+{
+    int c, candidate, chunk_end, limit;
+
+    if (pattern->len > str->len) {
+        *pstart = -1;
+        return 0;
+    }
+    limit = str->len - pattern->len + 1;
+    c = string_get(pattern, 0);
+    while (start_index < limit) {
+        chunk_end = start_index +
+            min_int(limit - start_index, JS_REGEXP_SCAN_CHUNK_SIZE);
+        while (start_index < chunk_end) {
+            candidate = js_regexp_indexof_char_range(str, c, start_index,
+                                                     chunk_end);
+            if (candidate < 0)
+                break;
+            if (js_regexp_source_starts_at(str, candidate, pattern)) {
+                *pstart = candidate;
+                return 0;
+            }
+            start_index = candidate + 1;
+        }
+        start_index = chunk_end;
+        if (start_index < limit && lre_check_timeout(ctx))
+            return LRE_RET_TIMEOUT;
+    }
+    *pstart = -1;
+    return 0;
+}
+
+static int js_regexp_find_decoded_atom(JSContext *ctx, JSString *str,
+                                       const uint8_t *atom, int start_index,
+                                       int *pstart)
+{
+    int c, candidate, chunk_end, len, limit;
+
+    len = get_u32(atom + LRE_META_LENGTH_OFFSET);
+    if (len > str->len) {
+        *pstart = -1;
+        return 0;
+    }
+    limit = str->len - len + 1;
+    c = js_regexp_atom_char(atom, 0);
+    while (start_index < limit) {
+        chunk_end = start_index +
+            min_int(limit - start_index, JS_REGEXP_SCAN_CHUNK_SIZE);
+        while (start_index < chunk_end) {
+            candidate = js_regexp_indexof_char_range(str, c, start_index,
+                                                     chunk_end);
+            if (candidate < 0)
+                break;
+            if (js_regexp_atom_starts_at(str, candidate, atom)) {
+                *pstart = candidate;
+                return 0;
+            }
+            start_index = candidate + 1;
+        }
+        start_index = chunk_end;
+        if (start_index < limit && lre_check_timeout(ctx))
+            return LRE_RET_TIMEOUT;
+    }
+    *pstart = -1;
+    return 0;
+}
+
+static force_inline int js_regexp_match_atom(JSContext *ctx,
+                                             uint8_t **capture, JSString *str,
+                                             const uint8_t *atom,
+                                             JSString *pattern,
+                                             int start_index)
+{
+    int ret, start, shift, len;
+
+    if (atom[LRE_META_FLAGS_OFFSET] & LRE_META_FLAG_SOURCE) {
+        len = pattern->len;
+        if (len <= str->len - start_index &&
+            js_regexp_source_starts_at(str, start_index, pattern)) {
+            start = start_index;
+            ret = 0;
+        } else {
+            ret = js_regexp_find_source_atom(ctx, str, pattern,
+                                             start_index + 1, &start);
+        }
+    } else {
+        len = get_u32(atom + LRE_META_LENGTH_OFFSET);
+        if (len <= str->len - start_index &&
+            js_regexp_atom_starts_at(str, start_index, atom)) {
+            start = start_index;
+            ret = 0;
+        } else {
+            ret = js_regexp_find_decoded_atom(ctx, str, atom,
+                                              start_index + 1, &start);
+        }
+    }
+    if (ret < 0)
+        return ret;
+    if (start < 0)
+        return 0;
+    shift = str->is_wide_char;
+    capture[0] = str->u.str8 + (start << shift);
+    capture[1] = str->u.str8 + ((start + len) << shift);
+    return 1;
+}
+
+static int js_regexp_match_prefix(JSContext *ctx, uint8_t **capture,
+                                  const uint8_t *re_bytecode,
+                                  const uint8_t *prefix, JSString *str,
+                                  int start_index)
+{
+    int c, candidate, chunk_end, ret, len, limit, shift;
+
+    len = get_u32(prefix + LRE_META_LENGTH_OFFSET);
+    shift = str->is_wide_char;
+    c = js_regexp_atom_char(prefix, 0);
+    candidate = start_index;
+    if (len > str->len)
+        return 0;
+    limit = str->len - len + 1;
+    while (candidate < limit) {
+        chunk_end = candidate +
+            min_int(limit - candidate, JS_REGEXP_SCAN_CHUNK_SIZE);
+        while (candidate < chunk_end) {
+            candidate = js_regexp_indexof_char_range(str, c, candidate,
+                                                     chunk_end);
+            if (candidate < 0)
+                break;
+            if (js_regexp_atom_starts_at(str, candidate, prefix)) {
+                ret = lre_exec_at(capture, re_bytecode,
+                                  get_u32(prefix + LRE_META_ENTRY_OFFSET),
+                                  str->u.str8, candidate, str->len, shift, ctx);
+                if (ret != 0)
+                    return ret;
+            }
+            candidate++;
+        }
+        candidate = chunk_end;
+        if (candidate < limit && lre_check_timeout(ctx))
+            return LRE_RET_TIMEOUT;
+    }
+    return 0;
+}
+
+static int js_regexp_match_quick_check(JSContext *ctx, uint8_t **capture,
+                                       const uint8_t *re_bytecode,
+                                       const uint8_t *quick_check,
+                                       JSString *str, int start_index)
+{
+    const uint8_t *payload, *record;
+    uint32_t c, count, mask, value;
+    int attempts, candidate, i, last_offset, ret, shift;
+
+    count = get_u32(quick_check + LRE_META_LENGTH_OFFSET);
+    payload = quick_check + LRE_META_HEADER_LEN;
+    record = payload + (count - 1) * LRE_QUICK_CHECK_RECORD_SIZE;
+    last_offset = get_u16(record + LRE_QUICK_CHECK_OFFSET);
+    shift = str->is_wide_char;
+    attempts = 0;
+    for(candidate = start_index;
+        candidate + last_offset < str->len;
+        candidate++) {
+        for(i = 0; i < (int)count; i++) {
+            record = payload + i * LRE_QUICK_CHECK_RECORD_SIZE;
+            c = string_get(str, candidate +
+                           get_u16(record + LRE_QUICK_CHECK_OFFSET));
+            value = get_u16(record + LRE_QUICK_CHECK_VALUE);
+            mask = get_u16(record + LRE_QUICK_CHECK_MASK);
+            if ((c & mask) != value)
+                break;
+        }
+        if (i == (int)count) {
+            ret = lre_exec_at(capture, re_bytecode,
+                              get_u32(quick_check + LRE_META_ENTRY_OFFSET),
+                              str->u.str8, candidate, str->len, shift, ctx);
+            if (ret != 0)
+                return ret;
+        }
+        if ((++attempts & 1023) == 0 && lre_check_timeout(ctx))
+            return LRE_RET_TIMEOUT;
+    }
+    return 0;
+}
+
+typedef struct JSRegExpExecData {
+    const uint8_t *bytecode;
+    const uint8_t *atom;
+    const uint8_t *prefix;
+    const uint8_t *quick_check;
+    int re_flags;
+    BOOL is_atom;
+} JSRegExpExecData;
+
+static force_inline void
+js_regexp_exec_data_init(JSRegExpExecData *d, JSRegExp *re,
+                         int capture_count)
+{
+    d->bytecode = re->bytecode->u.str8;
+    d->re_flags = lre_get_flags(d->bytecode);
+    d->atom = js_regexp_get_atom(d->re_flags, capture_count, re);
+    d->is_atom = d->atom != NULL;
+    d->prefix = d->is_atom ? NULL : js_regexp_get_prefix(re);
+    d->quick_check = (d->is_atom || d->prefix) ? NULL :
+        js_regexp_get_quick_check(re);
+}
+
+static force_inline int
+js_regexp_match(JSContext *ctx, uint8_t **capture,
+                const JSRegExpExecData *d, JSRegExp *re,
+                JSString *str, int start_index)
+{
+    if (d->is_atom) {
+        return js_regexp_match_atom(ctx, capture, str, d->atom, re->pattern,
+                                    start_index);
+    } else if (d->prefix) {
+        return js_regexp_match_prefix(ctx, capture, d->bytecode, d->prefix,
+                                      str, start_index);
+    } else if (d->quick_check) {
+        return js_regexp_match_quick_check(ctx, capture, d->bytecode,
+                                           d->quick_check, str, start_index);
+    } else {
+        return lre_exec(capture, d->bytecode, str->u.str8, start_index,
+                        str->len, str->is_wide_char, ctx);
+    }
+}
+
 static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
 {
@@ -48113,12 +48775,14 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
     JSValue t, ret, str_val, obj, groups;
     JSValue indices, indices_groups;
     uint8_t *re_bytecode;
+    uint8_t *capture_stack[JS_REGEXP_CAPTURE_STACK_SIZE];
     uint8_t **capture, *str_buf;
     int rc, capture_count, shift, i, re_flags, alloc_count;
     int64_t last_index;
     const char *group_name_ptr;
     JSObject *p_obj;
     JSAtom group_name;
+    JSRegExpExecData exec_data;
     
     if (!re)
         return JS_EXCEPTION;
@@ -48132,7 +48796,7 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
     groups = JS_UNDEFINED;
     indices = JS_UNDEFINED;
     indices_groups = JS_UNDEFINED;
-    capture = NULL;
+    capture = capture_stack;
     group_name = JS_ATOM_NULL;
     
     if (js_regexp_get_lastIndex(ctx, &last_index, this_val))
@@ -48145,20 +48809,19 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
     }
     str = JS_VALUE_GET_STRING(str_val);
     alloc_count = lre_get_alloc_count(re_bytecode);
-    if (alloc_count > 0) {
+    if (alloc_count > countof(capture_stack)) {
         capture = js_malloc(ctx, sizeof(capture[0]) * alloc_count);
         if (!capture)
             goto fail;
     }
     capture_count = lre_get_capture_count(re_bytecode);
+    js_regexp_exec_data_init(&exec_data, re, capture_count);
     shift = str->is_wide_char;
     str_buf = str->u.str8;
     if (last_index > str->len) {
         rc = 2;
     } else {
-        rc = lre_exec(capture, re_bytecode,
-                      str_buf, last_index, str->len,
-                      shift, ctx);
+        rc = js_regexp_match(ctx, capture, &exec_data, re, str, last_index);
     }
     if (rc != 1) {
         if (rc >= 0) {
@@ -48184,7 +48847,43 @@ static JSValue js_regexp_exec(JSContext *ctx, JSValueConst this_val,
                 goto fail;
         }
         prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
-        group_name_ptr = lre_get_groupnames(re_bytecode);
+        if (exec_data.is_atom && !(re_flags & LRE_FLAG_INDICES)) {
+            JSValue val;
+            int start;
+
+            start = (capture[0] - str_buf) >> shift;
+            props[0].u.value = JS_NewInt32(ctx, 1); /* length */
+            props[1].u.value = JS_NewInt32(ctx, start); /* index */
+            props[2].u.value = str_val; /* input */
+            props[3].u.value = JS_UNDEFINED; /* groups */
+            str_val = JS_UNDEFINED;
+            obj = JS_NewObjectFromShape(ctx,
+                                        js_dup_shape(ctx->regexp_result_shape),
+                                        JS_CLASS_ARRAY, props);
+            if (JS_IsException(obj))
+                goto fail;
+            p_obj = JS_VALUE_GET_OBJ(obj);
+            p_obj->u.array.u.values =
+                js_malloc(ctx, sizeof(p_obj->u.array.u.values[0]));
+            if (!p_obj->u.array.u.values)
+                goto fail;
+            p_obj->u.array.u1.size = 1;
+            if (exec_data.atom[LRE_META_FLAGS_OFFSET] &
+                LRE_META_FLAG_SOURCE) {
+                val = JS_DupValue(ctx, JS_MKPTR(JS_TAG_STRING, re->pattern));
+            } else {
+                val = js_sub_string(ctx, str, start,
+                                    start + get_u32(exec_data.atom +
+                                                    LRE_META_LENGTH_OFFSET));
+                if (JS_IsException(val))
+                    goto fail;
+            }
+            p_obj->u.array.u.values[p_obj->u.array.count++] = val;
+            ret = obj;
+            obj = JS_UNDEFINED;
+            goto fail;
+        }
+        group_name_ptr = lre_get_groupnames(re_bytecode, re->bytecode->len);
         if (group_name_ptr) {
             groups = JS_NewObjectProto(ctx, JS_NULL);
             if (JS_IsException(groups))
@@ -48320,7 +49019,8 @@ fail:
     JS_FreeValue(ctx, str_val);
     JS_FreeValue(ctx, groups);
     JS_FreeValue(ctx, obj);
-    js_free(ctx, capture);
+    if (capture != capture_stack)
+        js_free(ctx, capture);
     return ret;
 }
 
@@ -48333,6 +49033,7 @@ static JSValue js_regexp_replace(JSContext *ctx, JSValueConst this_val, JSValueC
     JSValue str_val;
     uint8_t *re_bytecode;
     int ret;
+    uint8_t *capture_stack[JS_REGEXP_CAPTURE_STACK_SIZE];
     uint8_t **capture, *str_buf;
     int capture_count, alloc_count, shift, re_flags;
     int next_src_pos, start, end;
@@ -48340,18 +49041,19 @@ static JSValue js_regexp_replace(JSContext *ctx, JSValueConst this_val, JSValueC
     StringBuffer b_s, *b = &b_s;
     JSString *rp = JS_VALUE_GET_STRING(rep_val);
     const char *group_name_ptr;
-    BOOL fullUnicode;
+    BOOL fullUnicode, has_match, simple_replace;
+    JSRegExpExecData exec_data;
     
     if (!re)
         return JS_EXCEPTION;
     re_bytecode = re->bytecode->u.str8;
-    group_name_ptr = lre_get_groupnames(re_bytecode);
+    group_name_ptr = lre_get_groupnames(re_bytecode, re->bytecode->len);
     if (group_name_ptr)
         return JS_UNDEFINED; /* group names are not supported yet */
     
     string_buffer_init(ctx, b, 0);
 
-    capture = NULL;
+    capture = capture_stack;
     str_val = JS_ToString(ctx, arg);
     if (JS_IsException(str_val))
         goto fail;
@@ -48369,22 +49071,25 @@ static JSValue js_regexp_replace(JSContext *ctx, JSValueConst this_val, JSValueC
             goto fail;
     }
     alloc_count = lre_get_alloc_count(re_bytecode);
-    if (alloc_count > 0) {
+    if (alloc_count > countof(capture_stack)) {
         capture = js_malloc(ctx, sizeof(capture[0]) * alloc_count);
         if (!capture)
             goto fail;
     }
     capture_count = lre_get_capture_count(re_bytecode);
+    js_regexp_exec_data_init(&exec_data, re, capture_count);
     fullUnicode = ((re_flags & (LRE_FLAG_UNICODE | LRE_FLAG_UNICODE_SETS)) != 0);
     shift = str->is_wide_char;
     str_buf = str->u.str8;
     next_src_pos = 0;
+    has_match = FALSE;
+    simple_replace = (string_indexof_char(rp, '$', 0) < 0);
     for (;;) {
         if (last_index > str->len) {
             ret = 0;
         } else {
-            ret = lre_exec(capture, re_bytecode,
-                           str_buf, last_index, str->len, shift, ctx);
+            ret = js_regexp_match(ctx, capture, &exec_data, re, str,
+                                  last_index);
         }
         if (ret != 1) {
             if (ret >= 0) {
@@ -48404,16 +49109,22 @@ static JSValue js_regexp_replace(JSContext *ctx, JSValueConst this_val, JSValueC
         }
         start = (capture[0] - str_buf) >> shift;
         end = (capture[1] - str_buf) >> shift;
+        has_match = TRUE;
         last_index = end;
         if (next_src_pos < start) {
             if (string_buffer_concat(b, str, next_src_pos, start))
                 goto fail;
         }
         if (rp->len != 0) {
-            if (js_string_GetSubstitution(ctx, b, JS_UNDEFINED, str, start,
-                                          JS_UNDEFINED, JS_UNDEFINED, rep_val,
-                                          capture, capture_count)) {
-                goto fail;
+            if (simple_replace) {
+                if (string_buffer_concat(b, rp, 0, rp->len))
+                    goto fail;
+            } else {
+                if (js_string_GetSubstitution(ctx, b, JS_UNDEFINED, str, start,
+                                              JS_UNDEFINED, JS_UNDEFINED, rep_val,
+                                              capture, capture_count)) {
+                    goto fail;
+                }
             }
         }
         next_src_pos = end;
@@ -48429,14 +49140,22 @@ static JSValue js_regexp_replace(JSContext *ctx, JSValueConst this_val, JSValueC
         }
         last_index = end;
     }
+    if (!has_match) {
+        string_buffer_free(b);
+        if (capture != capture_stack)
+            js_free(ctx, capture);
+        return str_val;
+    }
     if (string_buffer_concat(b, str, next_src_pos, str->len))
         goto fail;
     JS_FreeValue(ctx, str_val);
-    js_free(ctx, capture);
+    if (capture != capture_stack)
+        js_free(ctx, capture);
     return string_buffer_end(b);
 fail:
     JS_FreeValue(ctx, str_val);
-    js_free(ctx, capture);
+    if (capture != capture_stack)
+        js_free(ctx, capture);
     string_buffer_free(b);
     return JS_EXCEPTION;
 }
