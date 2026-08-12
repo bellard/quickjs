@@ -91,7 +91,47 @@ Bytecode). Der Build läuft zweistufig, genau wie im Makefile: zuerst wird
   implementiert (via `LoadLibrary`/`GetProcAddress`) – das gilt jetzt
   auch für den MSVC-Build.
 
-## Was getestet wurde
+## Nachträge nach echtem MSVC-Testlauf (danke für den Build-Log!)
+
+Der erste Durchgang war nur mit gcc/pedantic-Heuristiken gegengeprüft, nicht
+mit echtem `cl.exe`. Ein Test auf einer echten Windows-Maschine hat vier
+weitere Probleme aufgedeckt, die jetzt ebenfalls behoben sind:
+
+1. **`(JSValue)v`-artige Casts** (`quickjs.h`, `quickjs.c`, insgesamt 20
+   Stellen): In C ist ein expliziter Cast auf einen Struct-/Union-Typ
+   eigentlich nicht erlaubt (nur auf skalare Typen) – GCC/Clang tolerieren
+   `(JSValue)v` als GCC-Erweiterung, wenn Quell- und Zieltyp identisch
+   sind (was hier immer der Fall ist, da `JSValueConst` per `#define
+   JSValueConst JSValue` ein reiner Alias von `JSValue` ist). MSVC lehnt
+   das mit `C2440` ab. Da der Cast dadurch ohnehin immer ein No-op war,
+   wurden alle 20 Stellen einfach entfernt (`(JSValue)v` → `v`) – das
+   ändert das Verhalten auf keiner Plattform.
+2. **`optind`** in `qjsc.c`: Der Code nutzt für seine eigene,
+   handgeschriebene Optionsverarbeitung die von `<unistd.h>` global
+   deklarierte Variable `optind` mit, ohne sie selbst zu deklarieren.
+   Da `<unistd.h>` für MSVC nicht eingebunden wird, fehlte die
+   Deklaration – jetzt per `static int optind;` für `_MSC_VER` ergänzt.
+3. **`<utime.h>`** in `quickjs-libc.c`: MinGW stellt sowohl `<utime.h>`
+   als auch `<sys/utime.h>` bereit, MSVCs CRT nur Letzteres. Für
+   `_MSC_VER` wird jetzt `<sys/utime.h>` eingebunden.
+4. **`__attribute((unused))`** (fehlender zweiter Unterstrich) bei
+   `dump_token()` in `quickjs.c`: GCC/Clang akzeptieren auch die
+   Kurzform `__attribute` als Alias für `__attribute__` – dieser Fall
+   war bei der ersten Codesuche nach `__attribute__` (mit Doppel-
+   Unterstrich) durchgerutscht. Jetzt auf `__maybe_unused` umgestellt.
+
+Zusätzlich habe ich den kompletten Quellbaum noch einmal mit
+`gcc -std=c11 -pedantic-errors` durchsucht (das erkennt u. a. genau
+die "Cast auf Nicht-Skalartyp"-Klasse von Fehlern, die MSVC oben
+bemängelt hat) – danach kamen keine weiteren Treffer dieser Art mehr.
+Für alle übrigen von `-pedantic-errors` gemeldeten Konstrukte
+(computed goto, `__int128`, Adresse eines Labels, Flexible-Array-
+Members) ist bereits bekannt und geprüft, dass sie entweder für MSVC
+schon deaktiviert sind (computed goto, `__int128` via `CONFIG_ATOMICS`/
+`JS_LIMB_BITS`) oder von MSVC ohnehin nur mit einer Warnung (nicht
+Fehler) akzeptiert werden (Flexible Array Members, `C4200`).
+
+
 
 In dieser Umgebung steht kein echter MSVC-Compiler zur Verfügung (nur
 Linux). Ich konnte daher **nicht** mit `cl.exe` gegentesten. Stattdessen

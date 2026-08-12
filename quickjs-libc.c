@@ -46,7 +46,14 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
+#if defined(_MSC_VER)
+/* MSVC's CRT ships this functionality under <sys/utime.h>; the plain
+   <utime.h> path is a MinGW-provided compatibility alias that MSVC
+   does not have. */
+#include <sys/utime.h>
+#else
 #include <utime.h>
+#endif
 #else
 #include <dlfcn.h>
 #include <termios.h>
