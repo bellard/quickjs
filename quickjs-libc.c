@@ -28,15 +28,21 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_MSC_VER)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
+#if !defined(_MSC_VER)
 #include <sys/time.h>
+#endif
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
 #include <sys/stat.h>
+#if !defined(_MSC_VER)
 #include <dirent.h>
+#endif
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
@@ -65,8 +71,17 @@ typedef sig_t sighandler_t;
 
 #endif
 
-/* enable the os.Worker API. It relies on POSIX threads */
+#if defined(_MSC_VER)
+#include "msvc_compat.h"
+#endif
+
+/* enable the os.Worker API. It relies on POSIX threads, which MSVC does
+   not provide natively (no <pthread.h>), so it is disabled for MSVC
+   builds. GCC/Clang/MinGW builds (including MinGW-w64 targeting
+   Windows) are unaffected. */
+#if !defined(_MSC_VER)
 #define USE_WORKER
+#endif
 
 #ifdef USE_WORKER
 #include <pthread.h>

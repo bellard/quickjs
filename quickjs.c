@@ -28,7 +28,9 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_MSC_VER)
 #include <sys/time.h>
+#endif
 #include <time.h>
 #include <fenv.h>
 #include <math.h>
@@ -38,6 +40,8 @@
 #include <malloc.h>
 #elif defined(__FreeBSD__)
 #include <malloc_np.h>
+#elif defined(_MSC_VER)
+#include <malloc.h>
 #endif
 
 #include "cutils.h"
@@ -46,10 +50,16 @@
 #include "libregexp.h"
 #include "libunicode.h"
 #include "dtoa.h"
+#if defined(_MSC_VER)
+#include "msvc_compat.h"
+#endif
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) || defined(_MSC_VER)
+/* MSVC does not support the GNU "goto *label" computed-goto extension
+   that the direct-dispatch interpreter loop relies on, so fall back to
+   a plain switch() statement (same as the Emscripten build). */
 #define DIRECT_DISPATCH  0
 #else
 #define DIRECT_DISPATCH  1
@@ -68,9 +78,14 @@
 
 /* define to include Atomics.* operations which depend on the OS
    threads */
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) && !defined(_MSC_VER)
 #define CONFIG_ATOMICS
 #endif
+/* MSVC has no native pthreads/stdatomic.h support (stdatomic.h is only
+   available as an experimental feature on very recent toolsets), so
+   Atomics.wait()/notify() and the cross-thread class-id mutex are
+   disabled for MSVC builds, matching the common approach used by other
+   MSVC ports of QuickJS. This only affects _MSC_VER builds. */
 
 #if !defined(__EMSCRIPTEN__)
 /* enable stack limitation */
@@ -219,7 +234,13 @@ typedef enum JSErrorEnum {
 /* rope depth at which we rebalance */
 #define JS_STRING_ROPE_MAX_DEPTH 60
 
+#if defined(_MSC_VER)
+/* MSVC C mode has no equivalent to __attribute__((warn_unused_result));
+   it is only a diagnostic aid so it is safe to drop it here. */
+#define __exception
+#else
 #define __exception __attribute__((warn_unused_result))
+#endif
 
 typedef struct JSShape JSShape;
 typedef struct JSString JSString;
@@ -276,7 +297,7 @@ typedef struct JSMallocBlockHeader {
     uint8_t gc_obj_type : 7;
     uint8_t mark : 1;
     int ref_count;
-    __attribute__((aligned(JS_MALLOC_ALIGN))) uint8_t user_data[];
+    ALIGNED_(JS_MALLOC_ALIGN) uint8_t user_data[];
 } JSMallocBlockHeader;
 
 typedef struct JSMallocLargeBlockHeader {
@@ -298,7 +319,7 @@ typedef struct {
     uint32_t bitmap[((JS_MALLOC_ARENA_SIZE / JS_MALLOC_MIN_SMALL_SIZE) + 31) / 32]; 
 #endif
     /* n_blocks memory blocks of identical size */
-    __attribute__((aligned(JS_MALLOC_ALIGN))) uint8_t blocks[];
+    ALIGNED_(JS_MALLOC_ALIGN) uint8_t blocks[];
 } JSMallocArena;
 
 typedef struct {
@@ -307,7 +328,7 @@ typedef struct {
 #ifdef JS_MALLOC_USE_ITER
     struct list_head large_block_list; /* list of JSMallocLargeBlockHeader.link */
 #endif
-    __attribute__((aligned(JS_MALLOC_ALIGN))) uint8_t zero_size_block[sizeof(JSMallocBlockHeader)];
+    ALIGNED_(JS_MALLOC_ALIGN) uint8_t zero_size_block[sizeof(JSMallocBlockHeader)];
 
     /* callbacks to the host malloc */
     JSMallocFunctions mf;
@@ -1169,7 +1190,7 @@ static __exception int JS_ToArrayLengthFree(JSContext *ctx, uint32_t *plen,
                                             JSValue val, BOOL is_array_ctor);
 static JSValue JS_EvalObject(JSContext *ctx, JSValueConst this_obj,
                              JSValueConst val, int flags, int scope_idx);
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);
+JSValue ATTRIBUTE_PRINTF(2, 3) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);
 static __maybe_unused void JS_DumpAtoms(JSRuntime *rt);
 static __maybe_unused void JS_DumpString(JSRuntime *rt, const JSString *p);
 static __maybe_unused void JS_DumpObjectHeader(JSRuntime *rt);
@@ -2053,7 +2074,15 @@ static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 /* Note: OS and CPU dependent */
 static inline uintptr_t js_get_stack_pointer(void)
 {
+#if defined(_MSC_VER)
+    /* MSVC has no __builtin_frame_address(); _AddressOfReturnAddress()
+       points at the return-address slot of this function's stack frame,
+       which is close enough (a few pointers off) for the purpose of
+       stack-overflow detection. */
+    return (uintptr_t)_AddressOfReturnAddress();
+#else
     return (uintptr_t)__builtin_frame_address(0);
+#endif
 }
 
 static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
@@ -7673,7 +7702,7 @@ static JSValue JS_ThrowError(JSContext *ctx, JSErrorEnum error_num,
     return JS_ThrowError2(ctx, error_num, fmt, ap, add_backtrace);
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowSyntaxError(JSContext *ctx, const char *fmt, ...)
+JSValue ATTRIBUTE_PRINTF(2, 3) JS_ThrowSyntaxError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -7684,7 +7713,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowSyntaxError(JSContext *ctx
     return val;
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowTypeError(JSContext *ctx, const char *fmt, ...)
+JSValue ATTRIBUTE_PRINTF(2, 3) JS_ThrowTypeError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -7695,7 +7724,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowTypeError(JSContext *ctx, 
     return val;
 }
 
-static int __attribute__((format(printf, 3, 4))) JS_ThrowTypeErrorOrFalse(JSContext *ctx, int flags, const char *fmt, ...)
+static int ATTRIBUTE_PRINTF(3, 4) JS_ThrowTypeErrorOrFalse(JSContext *ctx, int flags, const char *fmt, ...)
 {
     va_list ap;
 
@@ -7711,7 +7740,7 @@ static int __attribute__((format(printf, 3, 4))) JS_ThrowTypeErrorOrFalse(JSCont
 }
 
 /* never use it directly */
-static JSValue __attribute__((format(printf, 3, 4))) __JS_ThrowTypeErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
+static JSValue ATTRIBUTE_PRINTF(3, 4) __JS_ThrowTypeErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
 {
     char buf[ATOM_GET_STR_BUF_SIZE];
     return JS_ThrowTypeError(ctx, fmt,
@@ -7719,7 +7748,7 @@ static JSValue __attribute__((format(printf, 3, 4))) __JS_ThrowTypeErrorAtom(JSC
 }
 
 /* never use it directly */
-static JSValue __attribute__((format(printf, 3, 4))) __JS_ThrowSyntaxErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
+static JSValue ATTRIBUTE_PRINTF(3, 4) __JS_ThrowSyntaxErrorAtom(JSContext *ctx, JSAtom atom, const char *fmt, ...)
 {
     char buf[ATOM_GET_STR_BUF_SIZE];
     return JS_ThrowSyntaxError(ctx, fmt,
@@ -7742,7 +7771,7 @@ static int JS_ThrowTypeErrorReadOnly(JSContext *ctx, int flags, JSAtom atom)
     }
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowReferenceError(JSContext *ctx, const char *fmt, ...)
+JSValue ATTRIBUTE_PRINTF(2, 3) JS_ThrowReferenceError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -7753,7 +7782,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowReferenceError(JSContext *
     return val;
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowRangeError(JSContext *ctx, const char *fmt, ...)
+JSValue ATTRIBUTE_PRINTF(2, 3) JS_ThrowRangeError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -7764,7 +7793,7 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowRangeError(JSContext *ctx,
     return val;
 }
 
-JSValue __attribute__((format(printf, 2, 3))) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...)
+JSValue ATTRIBUTE_PRINTF(2, 3) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...)
 {
     JSValue val;
     va_list ap;
@@ -13699,7 +13728,7 @@ static void js_puts(JSPrintValueState *s, const char *str)
     s->write_func(s->write_opaque, str, strlen(str));
 }
 
-static void __attribute__((format(printf, 2, 3))) js_printf(JSPrintValueState *s, const char *fmt, ...)
+static void ATTRIBUTE_PRINTF(2, 3) js_printf(JSPrintValueState *s, const char *fmt, ...)
 {
     va_list ap;
     char buf[256];
@@ -22344,7 +22373,7 @@ static int js_parse_error_v(JSParseState *s, const uint8_t *ptr, const char *fmt
     return -1;
 }
 
-static __attribute__((format(printf, 3, 4))) int js_parse_error_pos(JSParseState *s, const uint8_t *ptr, const char *fmt, ...)
+static ATTRIBUTE_PRINTF(3, 4) int js_parse_error_pos(JSParseState *s, const uint8_t *ptr, const char *fmt, ...)
 {
     va_list ap;
     int ret;
@@ -22355,7 +22384,7 @@ static __attribute__((format(printf, 3, 4))) int js_parse_error_pos(JSParseState
     return ret;
 }
 
-static __attribute__((format(printf, 2, 3))) int js_parse_error(JSParseState *s, const char *fmt, ...)
+static ATTRIBUTE_PRINTF(2, 3) int js_parse_error(JSParseState *s, const char *fmt, ...)
 {
     va_list ap;
     int ret;
@@ -38380,7 +38409,7 @@ typedef struct BCReaderState {
 } BCReaderState;
 
 #ifdef DUMP_READ_OBJECT
-static void __attribute__((format(printf, 2, 3))) bc_read_trace(BCReaderState *s, const char *fmt, ...) {
+static void ATTRIBUTE_PRINTF(2, 3) bc_read_trace(BCReaderState *s, const char *fmt, ...) {
     va_list ap;
     int i, n, n0;
 
@@ -54731,7 +54760,7 @@ static int isURIReserved(int c) {
     return c < 0x100 && memchr(";/?:@&=+$,#", c, sizeof(";/?:@&=+$,#") - 1) != NULL;
 }
 
-static int __attribute__((format(printf, 2, 3))) js_throw_URIError(JSContext *ctx, const char *fmt, ...)
+static int ATTRIBUTE_PRINTF(2, 3) js_throw_URIError(JSContext *ctx, const char *fmt, ...)
 {
     va_list ap;
 

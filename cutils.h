@@ -29,11 +29,43 @@
 #include <string.h>
 #include <inttypes.h>
 
+/* ---------------------------------------------------------------------
+ * MSVC compatibility layer
+ *
+ * MSVC does not support several GNU C extensions used throughout the
+ * QuickJS sources (computed goto, __attribute__((...)), __builtin_*
+ * intrinsics, statement alignment/packing attributes, etc). Everything
+ * in this block is guarded by _MSC_VER so that GCC/Clang builds (Linux,
+ * macOS, MinGW, ...) are completely unaffected.
+ * --------------------------------------------------------------------- */
+#ifdef _MSC_VER
+#include <intrin.h>
+#include <BaseTsd.h>
+#if !defined(_SSIZE_T_DEFINED)
+typedef SSIZE_T ssize_t;
+#define _SSIZE_T_DEFINED
+#endif
+#endif /* _MSC_VER */
+
+#if defined(_MSC_VER)
+#define likely(x)       (x)
+#define unlikely(x)     (x)
+#define force_inline    __forceinline
+#define no_inline       __declspec(noinline)
+#define __maybe_unused
+/* MSVC does not understand __attribute__((format(printf, ...))); it is
+   only used for extra GCC/Clang diagnostics, so make it a no-op here. */
+#define ATTRIBUTE_PRINTF(fmt_pos, arg_pos)
+#define ALIGNED_(n) __declspec(align(n))
+#else
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 #define force_inline inline __attribute__((always_inline))
 #define no_inline __attribute__((noinline))
 #define __maybe_unused __attribute__((unused))
+#define ATTRIBUTE_PRINTF(fmt_pos, arg_pos) __attribute__((format(printf, fmt_pos, arg_pos)))
+#define ALIGNED_(n) __attribute__((aligned(n)))
+#endif
 
 #define xglue(x, y) x ## y
 #define glue(x, y) xglue(x, y)
@@ -125,6 +157,56 @@ static inline int64_t min_int64(int64_t a, int64_t b)
         return b;
 }
 
+#if defined(_MSC_VER)
+
+/* WARNING: undefined if a = 0 */
+static inline int clz32(unsigned int a)
+{
+    unsigned long idx;
+    _BitScanReverse(&idx, (unsigned long)a);
+    return 31 - (int)idx;
+}
+
+/* WARNING: undefined if a = 0 */
+static inline int clz64(uint64_t a)
+{
+    unsigned long idx;
+#if defined(_M_X64) || defined(_M_ARM64)
+    _BitScanReverse64(&idx, a);
+    return 63 - (int)idx;
+#else
+    if (_BitScanReverse(&idx, (unsigned long)(a >> 32)))
+        return 31 - (int)idx;
+    _BitScanReverse(&idx, (unsigned long)a);
+    return 63 - (int)idx;
+#endif
+}
+
+/* WARNING: undefined if a = 0 */
+static inline int ctz32(unsigned int a)
+{
+    unsigned long idx;
+    _BitScanForward(&idx, (unsigned long)a);
+    return (int)idx;
+}
+
+/* WARNING: undefined if a = 0 */
+static inline int ctz64(uint64_t a)
+{
+    unsigned long idx;
+#if defined(_M_X64) || defined(_M_ARM64)
+    _BitScanForward64(&idx, a);
+    return (int)idx;
+#else
+    if (_BitScanForward(&idx, (unsigned long)a))
+        return (int)idx;
+    _BitScanForward(&idx, (unsigned long)(a >> 32));
+    return (int)idx + 32;
+#endif
+}
+
+#else /* !_MSC_VER */
+
 /* WARNING: undefined if a = 0 */
 static inline int clz32(unsigned int a)
 {
@@ -149,6 +231,23 @@ static inline int ctz64(uint64_t a)
     return __builtin_ctzll(a);
 }
 
+#endif /* !_MSC_VER */
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+struct packed_u64 {
+    uint64_t v;
+};
+
+struct packed_u32 {
+    uint32_t v;
+};
+
+struct packed_u16 {
+    uint16_t v;
+};
+#pragma pack(pop)
+#else
 struct __attribute__((packed)) packed_u64 {
     uint64_t v;
 };
@@ -160,6 +259,7 @@ struct __attribute__((packed)) packed_u32 {
 struct __attribute__((packed)) packed_u16 {
     uint16_t v;
 };
+#endif
 
 static inline uint64_t get_u64(const uint8_t *tab)
 {
@@ -316,7 +416,7 @@ static inline int dbuf_put_u64(DynBuf *s, uint64_t val)
     }
 }
 
-int __attribute__((format(printf, 2, 3))) dbuf_printf(DynBuf *s,
+int ATTRIBUTE_PRINTF(2, 3) dbuf_printf(DynBuf *s,
                                                       const char *fmt, ...);
 void dbuf_free(DynBuf *s);
 static inline BOOL dbuf_error(DynBuf *s) {

@@ -27,7 +27,9 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_MSC_VER)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #if !defined(_WIN32)
 #include <sys/wait.h>
@@ -35,6 +37,9 @@
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#if defined(_MSC_VER)
+#include "msvc_compat.h"
+#endif
 
 typedef struct {
     char *name;

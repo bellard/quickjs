@@ -28,7 +28,9 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_MSC_VER)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
@@ -38,10 +40,15 @@
 #include <malloc.h>
 #elif defined(__FreeBSD__)
 #include <malloc_np.h>
+#elif defined(_MSC_VER)
+#include <malloc.h>
 #endif
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#if defined(_MSC_VER)
+#include "msvc_compat.h"
+#endif
 
 extern const uint8_t qjsc_repl[];
 extern const uint32_t qjsc_repl_size;
@@ -150,7 +157,9 @@ static size_t js_trace_malloc_usable_size(const void *ptr)
 }
 
 static void
-#ifdef _WIN32
+#if defined(_MSC_VER)
+/* MSVC understands neither gnu_printf nor the GCC __attribute__ syntax */
+#elif defined(_WIN32)
 /* mingw printf is used */
 __attribute__((format(gnu_printf, 2, 3)))
 #else

@@ -131,8 +131,8 @@ int test_excluded;
 _Atomic int test_count, test_failed, test_skipped;
 _Atomic int new_errors, changed_errors, fixed_errors;
 
-void warning(const char *, ...) __attribute__((__format__(__printf__, 1, 2)));
-void fatal(int, const char *, ...) __attribute__((__format__(__printf__, 2, 3)));
+void warning(const char *, ...) ATTRIBUTE_PRINTF(1, 2);
+void fatal(int, const char *, ...) ATTRIBUTE_PRINTF(2, 3);
 
 void atomic_inc(volatile _Atomic int *p)
 {
@@ -1361,7 +1361,7 @@ int longest_match(const char *str, const char *find, int pos, int *ppos, int lin
     return maxlen;
 }
 
-static __attribute__((__format__(__printf__, 1, 2))) void print_error(const char *fmt, ...)
+static ATTRIBUTE_PRINTF(1, 2) void print_error(const char *fmt, ...)
 {
     char buf[1024];
     va_list ap;
