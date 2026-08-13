@@ -28,6 +28,14 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if defined(_MSC_VER)
+/* Must be included before anything else that might pull in <windows.h>
+   (e.g. the _WIN32 block below): it sets WIN32_LEAN_AND_MEAN and
+   includes <winsock2.h> before <windows.h>, which is the only reliable
+   way to stop <windows.h> from auto-including the legacy <winsock.h>
+   and causing duplicate-definition errors against <winsock2.h> later. */
+#include "msvc_compat.h"
+#endif
 #if !defined(_MSC_VER)
 #include <unistd.h>
 #endif
@@ -76,10 +84,6 @@ typedef sig_t sighandler_t;
 #endif
 #endif /* __APPLE__ */
 
-#endif
-
-#if defined(_MSC_VER)
-#include "msvc_compat.h"
 #endif
 
 /* enable the os.Worker API. It relies on POSIX threads, which MSVC does

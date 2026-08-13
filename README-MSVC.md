@@ -159,6 +159,31 @@ Ein weiterer echter Build-Log hat drei zusätzliche Probleme aufgedeckt:
    Divisions-Trick) – betrifft u. a. `Number.POSITIVE_INFINITY`,
    `Math.max`/`Math.min` und das globale `Infinity`.
 
+## Nachträge nach drittem MSVC-Testlauf: winsock.h vs. winsock2.h
+
+Der dritte Log zeigte den klassischen Windows-Header-Konflikt zwischen
+`<winsock.h>` (alt) und `<winsock2.h>` (neu) – dutzende
+"Typneudefinition"-Fehler für `sockaddr`, `fd_set`, `timeval`,
+`hostent` usw. Ursache: In `quickjs-libc.c` gab es einen bereits
+bestehenden `#if defined(_WIN32) #include <windows.h> ...`-Block, der
+**vor** unserem `#include "msvc_compat.h"` stand. Ohne dass vorher
+`WIN32_LEAN_AND_MEAN` gesetzt war, hat dieses `<windows.h>` automatisch
+das alte `<winsock.h>` mitgezogen. Als danach `msvc_compat.h` sein
+eigenes `<winsock2.h>` einband, kollidierten beide Header miteinander.
+
+Fix: `msvc_compat.h` wird jetzt in `quickjs-libc.c` als **allererstes**
+eingebunden (noch vor `<unistd.h>`, `<windows.h>` & Co.), damit
+`WIN32_LEAN_AND_MEAN` gesetzt und `<winsock2.h>` geladen ist, bevor
+irgendetwas anderes `<windows.h>` anfassen kann. Zusätzlich habe ich
+unsere eigene, redundante `struct timeval`-Definition aus
+`msvc_compat.h` komplett entfernt – der `_TIMEVAL_DEFINED`-Guard, auf
+den ich mich beim letzten Mal verlassen hatte, existiert in der
+aktuellen Windows-11-SDK-Version (10.0.26100.0) offenbar nicht mehr in
+der erwarteten Form. Da wir `<winsock2.h>` ohnehin selbst laden, ist
+`struct timeval` dadurch bereits vorhanden – wir müssen sie nicht mehr
+selbst deklarieren, nur noch `gettimeofday()` (das WinSock nicht
+mitbringt) implementieren.
+
 In dieser Umgebung steht kein echter MSVC-Compiler zur Verfügung (nur
 Linux). Ich konnte daher **nicht** mit `cl.exe` gegentesten. Stattdessen
 habe ich:

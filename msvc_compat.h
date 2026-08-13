@@ -41,19 +41,12 @@ extern "C" {
 #endif
 
 /* ---- struct timeval / gettimeofday ------------------------------- */
-/* Both <winsock.h> and <winsock2.h> declare struct timeval themselves,
-   guarded by _TIMEVAL_DEFINED (not by their own header include-guard
-   macro) - use the same guard here so we never collide with whichever
-   one ends up included, from this header or from anywhere else in the
-   translation unit. <winsock2.h> is included above specifically so
-   that guard is already set by the time we get here. */
-#ifndef _TIMEVAL_DEFINED
-#define _TIMEVAL_DEFINED
-struct timeval {
-    long tv_sec;
-    long tv_usec;
-};
-#endif
+/* <winsock2.h> is included above (before <windows.h>, which is the
+   only reliable way to stop <windows.h> from pulling in the legacy
+   <winsock.h> and causing duplicate-definition errors) and already
+   declares struct timeval itself, unconditionally - so just use that
+   instead of trying to (re-)declare it here ourselves. gettimeofday()
+   itself is a BSD/POSIX function that WinSock does not provide. */
 
 static __inline int gettimeofday(struct timeval *tv, void *tz)
 {
