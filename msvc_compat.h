@@ -24,6 +24,7 @@
 #define _CRT_NONSTDC_NO_DEPRECATE
 #endif
 
+#include <winsock2.h>
 #include <windows.h>
 #include <stdint.h>
 #include <io.h>
@@ -40,7 +41,14 @@ extern "C" {
 #endif
 
 /* ---- struct timeval / gettimeofday ------------------------------- */
-#ifndef _WINSOCK2API_
+/* Both <winsock.h> and <winsock2.h> declare struct timeval themselves,
+   guarded by _TIMEVAL_DEFINED (not by their own header include-guard
+   macro) - use the same guard here so we never collide with whichever
+   one ends up included, from this header or from anywhere else in the
+   translation unit. <winsock2.h> is included above specifically so
+   that guard is already set by the time we get here. */
+#ifndef _TIMEVAL_DEFINED
+#define _TIMEVAL_DEFINED
 struct timeval {
     long tv_sec;
     long tv_usec;
@@ -102,6 +110,20 @@ typedef SSIZE_T ssize_t;
 #endif
 #ifndef S_ISDIR
 #define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR)
+#endif
+
+/* MSVC's <sys/stat.h> only defines S_IFMT/S_IFDIR/S_IFCHR/S_IFREG (and
+   S_IFIFO as of some SDK versions, inconsistently) - it never defines
+   S_IFBLK, S_IFSOCK, or S_IFLNK, since Windows has no block-device,
+   socket, or symlink bits in st_mode the way POSIX does. quickjs-libc.c
+   exposes these as os.S_IF* constants regardless of whether a given
+   platform can ever actually report them in practice, so provide the
+   standard POSIX values here for source compatibility. */
+#ifndef S_IFIFO
+#define S_IFIFO  0010000
+#endif
+#ifndef S_IFBLK
+#define S_IFBLK  0060000
 #endif
 
 /* ---- read()/write()/open()/close()/lseek() -------------------------

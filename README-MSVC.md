@@ -131,7 +131,33 @@ schon deaktiviert sind (computed goto, `__int128` via `CONFIG_ATOMICS`/
 `JS_LIMB_BITS`) oder von MSVC ohnehin nur mit einer Warnung (nicht
 Fehler) akzeptiert werden (Flexible Array Members, `C4200`).
 
+## Nachträge nach zweitem MSVC-Testlauf
 
+Ein weiterer echter Build-Log hat drei zusätzliche Probleme aufgedeckt:
+
+5. **`C2011: "timeval": "struct" Typneudefinition`**: Der Windows SDK
+   (`winsock.h`) deklariert `struct timeval` bereits selbst, geschützt
+   durch das Makro `_TIMEVAL_DEFINED` (nicht durch den Include-Guard
+   des Headers selbst). Unsere eigene Definition in `msvc_compat.h` war
+   nur gegen `_WINSOCK2API_` abgesichert, was hier nicht griff. Jetzt
+   wird zuerst `<winsock2.h>` eingebunden (das den korrekten Guard
+   `_TIMEVAL_DEFINED` setzt) und unsere eigene Definition greift nur
+   noch als Fallback, falls aus irgendeinem Grund kein Windows-Header
+   `struct timeval` bereits deklariert hat.
+6. **`S_IFIFO`/`S_IFBLK` nichtdeklariert** in `quickjs-libc.c`: MSVCs
+   `<sys/stat.h>` kennt (anders als POSIX) keine Bit-Konstanten für
+   Named Pipes/Block-Devices. Da diese als `os.S_IFIFO`/`os.S_IFBLK`
+   an JS exportiert werden, wurden die Standard-POSIX-Werte dafür in
+   `msvc_compat.h` ergänzt (rein als Konstanten, `stat()` wird unter
+   Windows ohnehin nie diese Bits setzen).
+7. **`C2124: Division oder Modulo durch Null`** in `quickjs.c`: An
+   vier Stellen wurde `1.0 / 0.0` als (auf GCC/Clang funktionierender)
+   Trick benutzt, um zur Compile-Zeit `+Infinity` zu erzeugen. MSVC
+   lehnt eine literale Division durch `0.0` im Quelltext ab. Alle vier
+   Stellen wurden durch das portable, standardisierte `INFINITY`-Makro
+   aus `<math.h>` ersetzt (funktional identisch, aber ohne den
+   Divisions-Trick) – betrifft u. a. `Number.POSITIVE_INFINITY`,
+   `Math.max`/`Math.min` und das globale `Infinity`.
 
 In dieser Umgebung steht kein echter MSVC-Compiler zur Verfügung (nur
 Linux). Ich konnte daher **nicht** mit `cl.exe` gegentesten. Stattdessen
