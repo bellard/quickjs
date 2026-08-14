@@ -359,7 +359,10 @@ struct JSRuntime {
     /* list of JSGCObjectHeader.link. Used during JS_FreeValueRT() */
     struct list_head gc_zero_ref_count_list;
     struct list_head tmp_obj_list; /* used during GC */
-    JSGCPhaseEnum gc_phase : 8;
+    /* uint8_t, not JSGCPhaseEnum: see the closure_type comment above
+       about MSVC's signed enum bit-fields. All values here fit well
+       within 8 bits either way, so this is precautionary. */
+    uint8_t gc_phase : 8;
     size_t malloc_gc_threshold;
     struct list_head weakref_list; /* list of JSWeakRefHeader.link */
 #ifdef DUMP_LEAKS
@@ -643,7 +646,15 @@ typedef enum {
 } JSClosureTypeEnum;
 
 typedef struct JSClosureVar {
-    JSClosureTypeEnum closure_type : 3;
+    /* Note: stored as uint8_t rather than JSClosureTypeEnum. A plain
+       'enum' bit-field's signedness is implementation-defined in C;
+       MSVC treats it as a *signed* int-based bit-field, so a 3-bit
+       field can only hold -4..3, silently corrupting the top two enum
+       values (4..7) into negative numbers and breaking every switch()
+       on closure_type. GCC/Clang happen to treat it as unsigned here,
+       which is why this only surfaced under MSVC. uint8_t sidesteps
+       the ambiguity entirely on every compiler. */
+    uint8_t closure_type : 3;
     uint8_t is_lexical : 1; /* lexical variable */
     uint8_t is_const : 1; /* const variable (is_lexical = 1 if is_const = 1 */
     uint8_t var_kind : 4; /* see JSVarKindEnum */
@@ -22053,8 +22064,11 @@ typedef struct JSFunctionDef {
     BOOL arguments_allowed; /* true if the 'arguments' identifier is allowed */
     BOOL is_derived_class_constructor;
     BOOL in_function_body;
-    JSFunctionKindEnum func_kind : 8;
-    JSParseFunctionEnum func_type : 8;
+    /* uint8_t, not the enum types: see the closure_type comment above
+       about MSVC's signed enum bit-fields (precautionary here, as all
+       current values fit in 8 bits regardless of signedness). */
+    uint8_t func_kind : 8;
+    uint8_t func_type : 8;
     uint8_t js_mode; /* bitmap of JS_MODE_x */
     JSAtom func_name; /* JS_ATOM_NULL if no name */
 
@@ -44075,7 +44089,9 @@ typedef struct JSIteratorHelperData {
     JSValue func; // predicate (filter) or mapper (flatMap, map)
     JSValue inner; // innerValue (flatMap)
     int64_t count; // limit (drop, take) or counter (filter, map, flatMap)
-    JSIteratorHelperKindEnum kind : 8;
+    /* uint8_t, not JSIteratorHelperKindEnum: see the closure_type
+       comment above about MSVC's signed enum bit-fields. */
+    uint8_t kind : 8;
     uint8_t executing : 1;
     uint8_t done : 1;
 } JSIteratorHelperData;

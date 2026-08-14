@@ -184,6 +184,46 @@ der erwarteten Form. Da wir `<winsock2.h>` ohnehin selbst laden, ist
 selbst deklarieren, nur noch `gettimeofday()` (das WinSock nicht
 mitbringt) implementieren.
 
+## Nachträge nach viertem MSVC-Testlauf: Laufzeitabsturz (kein Compile-Fehler!)
+
+Diesmal kompilierte alles fehlerfrei, aber `qjs.exe` stürzte zur
+**Laufzeit** mit `abort()` in `quickjs.c` (im `default:`-Zweig eines
+`switch` über `cv->closure_type`) ab. Ursache war ein subtiler,
+nicht-offensichtlicher Unterschied zwischen MSVC und GCC/Clang beim
+Verhalten von **Bitfeldern mit `enum`-Typ**:
+
+`JSClosureTypeEnum` hat 8 Werte (0–7), das zugehörige Bitfeld
+`JSClosureTypeEnum closure_type : 3;` nutzt also exakt 3 Bits – gerade
+genug für die Werte 0–7. Die Vorzeichenbehandlung eines
+`enum`-Bitfelds ist in C **implementation-defined**: GCC/Clang
+behandeln es hier faktisch als unsigned, MSVC dagegen behandelt es
+als **signed** (da der zugrunde liegende Typ von `enum` bei MSVC
+standardmäßig `int`, also signed, ist). Ein signed 3-Bit-Feld kann
+aber nur Werte von **-4 bis 3** speichern! Die oberen vier
+Enum-Werte (`JS_CLOSURE_GLOBAL_DECL`=4, `JS_CLOSURE_GLOBAL`=5,
+`JS_CLOSURE_MODULE_DECL`=6, `JS_CLOSURE_MODULE_IMPORT`=7) wurden
+dadurch beim Speichern in `-4, -3, -2, -1` verstümmelt. Jeder
+darauffolgende `switch(cv->closure_type)` fand dann folgerichtig
+keinen passenden `case` mehr und landete im `default: abort();`.
+
+**Fix**: Das Bitfeld wurde von `JSClosureTypeEnum closure_type : 3`
+auf `uint8_t closure_type : 3` umgestellt – ein expliziter, garantiert
+unsigned Speichertyp umgeht die implementation-defined Mehrdeutigkeit
+komplett und funktioniert identisch auf allen Compilern (Zuweisungen/
+Vergleiche mit den Enum-Konstanten funktionieren weiterhin ganz normal
+über implizite Konvertierung). Vorsichtshalber wurden noch vier
+weitere `Enum-Typ : Breite`-Bitfelder im Code auf denselben sicheren
+Musters umgestellt (`gc_phase`, `func_kind`, `func_type`, `kind` in
+`JSIteratorHelperKindEnum`) – bei denen war die Breite zwar in jedem
+Fall 8 Bit bei nur wenigen Enum-Werten, also praktisch unkritisch,
+aber besser konsistent sicher als auf implementation-defined Verhalten
+zu vertrauen.
+
+Getestet (auf gcc/Linux, da mir kein echtes MSVC zur Verfügung steht):
+Closures, verschachtelte Closures, `eval`-globale `var`/`let`-
+Deklarationen sowie ES-Modul-Import/Export (der genau die zuvor
+verstümmelten Werte 6/7 durchläuft) laufen jetzt alle korrekt durch.
+
 In dieser Umgebung steht kein echter MSVC-Compiler zur Verfügung (nur
 Linux). Ich konnte daher **nicht** mit `cl.exe` gegentesten. Stattdessen
 habe ich:
