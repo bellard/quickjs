@@ -38500,7 +38500,19 @@ static int bc_get_sleb128(BCReaderState *s, int32_t *pval)
 /* XXX: used to read an `int` with a positive value */
 static int bc_get_leb128_int(BCReaderState *s, int *pval)
 {
-    return bc_get_leb128(s, (uint32_t *)pval);
+    uint32_t val;
+
+    if (bc_get_leb128(s, &val)) {
+        *pval = 0;
+        return -1;
+    }
+    if (unlikely(val > INT_MAX)) {
+        *pval = 0;
+        JS_ThrowSyntaxError(s->ctx, "integer overflow while reading bytecode");
+        return s->error_state = -1;
+    }
+    *pval = val;
+    return 0;
 }
 
 static int bc_get_leb128_u16(BCReaderState *s, uint16_t *pval)
