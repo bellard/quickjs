@@ -45,6 +45,8 @@ static JSValue js_bjson_read(JSContext *ctx, JSValueConst this_val,
     flags = 0;
     if (JS_ToBool(ctx, argv[3]))
         flags |= JS_READ_OBJ_REFERENCE;
+    if (JS_ToBool(ctx, argv[4]))
+        flags |= JS_READ_OBJ_BYTECODE;
     obj = JS_ReadObject(ctx, buf + pos, len, flags);
     return obj;
 }
@@ -69,7 +71,7 @@ static JSValue js_bjson_write(JSContext *ctx, JSValueConst this_val,
 }
 
 static const JSCFunctionListEntry js_bjson_funcs[] = {
-    JS_CFUNC_DEF("read", 4, js_bjson_read ),
+    JS_CFUNC_DEF("read", 5, js_bjson_read ),
     JS_CFUNC_DEF("write", 2, js_bjson_write ),
 };
 
