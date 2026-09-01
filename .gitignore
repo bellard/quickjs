@@ -20,6 +20,8 @@ qjscalc.c
 repl.c
 run-test262
 run-test262.exe
+test_malloc
+test_malloc.exe
 test262
 test262_*.txt
 test262o
