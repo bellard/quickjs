@@ -213,6 +213,7 @@ endif
 endif
 
 PROGS=qjs$(EXE) qjsc$(EXE) run-test262$(EXE)
+TEST_PROGS=test_malloc$(EXE)
 
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
@@ -262,6 +263,9 @@ LIBS+=$(EXTRA_LIBS)
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR) $(OBJDIR)/examples $(OBJDIR)/tests
+
+$(OBJDIR)/tests:
+	mkdir -p $@
 
 qjs$(EXE): $(QJS_OBJS)
 	$(CC) $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS)
@@ -367,7 +371,7 @@ unicode_gen: $(OBJDIR)/unicode_gen.host.o $(OBJDIR)/cutils.host.o libunicode.c u
 
 clean:
 	rm -f repl.c out.c
-	rm -f *.a *.o *.d *~ unicode_gen regexp_test fuzz_eval fuzz_compile fuzz_regexp $(PROGS)
+	rm -f *.a *.o *.d *~ unicode_gen regexp_test fuzz_eval fuzz_compile fuzz_regexp $(PROGS) $(TEST_PROGS)
 	rm -f hello.c test_fib.c
 	rm -f examples/*.so tests/*.so
 	rm -rf $(OBJDIR)/ *.dSYM/ qjs-debug$(EXE)
@@ -452,7 +456,13 @@ ifdef CONFIG_SHARED_LIBS
 test: tests/bjson.so examples/point.so
 endif
 
-test: qjs$(EXE)
+test_malloc$(EXE): $(OBJDIR)/tests/test_malloc.o libquickjs$(LTOEXT).a
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+$(OBJDIR)/tests/test_malloc.o: | $(OBJDIR)/tests
+
+test: qjs$(EXE) $(TEST_PROGS)
+	$(WINE) ./test_malloc$(EXE)
 	$(WINE) ./qjs$(EXE) tests/test_closure.js
 	$(WINE) ./qjs$(EXE) tests/test_language.js
 	$(WINE) ./qjs$(EXE) --std tests/test_builtin.js
