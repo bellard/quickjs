@@ -14047,8 +14047,16 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
 
             len1 = min_uint32(p->u.array.count, s->options.max_item_count);
             for(i = 0; i < len1; i++) {
+                JSValue val;
+                /* the write callback may re-enter the context and
+                   modify the array: recheck the live element count and
+                   hold a reference to the element across the output */
+                if (i >= p->u.array.count)
+                    break;
+                val = JS_DupValueRT(rt, p->u.array.u.values[i]);
                 js_print_comma(s, &comma_state);
-                js_print_value(s, p->u.array.u.values[i]);
+                js_print_value(s, val);
+                JS_FreeValueRT(rt, val);
             }
             if (len1 < p->u.array.count)
                 js_print_more_items(s, &comma_state, p->u.array.count - len1);
@@ -14069,44 +14077,63 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
         is_array = TRUE;
         len1 = min_uint32(p->u.array.count, s->options.max_item_count);
         for(i = 0; i < len1; i++) {
-            const uint8_t *ptr = p->u.array.u.uint8_ptr + i * size;
-            js_print_comma(s, &comma_state);
+            const uint8_t *ptr;
+            uint64_t u;
+            double f;
+            /* the write callback may re-enter the context and detach
+               the backing buffer: recheck the live element count and
+               copy the element before emitting any output */
+            if (i >= p->u.array.count)
+                break;
+            ptr = p->u.array.u.uint8_ptr + i * size;
             switch(p->class_id) {
             case JS_CLASS_UINT8C_ARRAY:
             case JS_CLASS_UINT8_ARRAY:
                 v = *ptr;
-                goto ta_int64;
+                break;
             case JS_CLASS_INT8_ARRAY:
                 v = *(int8_t *)ptr;
-                goto ta_int64;
+                break;
             case JS_CLASS_INT16_ARRAY:
                 v = *(int16_t *)ptr;
-                goto ta_int64;
+                break;
             case JS_CLASS_UINT16_ARRAY:
                 v = *(uint16_t *)ptr;
-                goto ta_int64;
+                break;
             case JS_CLASS_INT32_ARRAY:
                 v = *(int32_t *)ptr;
-                goto ta_int64;
+                break;
             case JS_CLASS_UINT32_ARRAY:
                 v = *(uint32_t *)ptr;
-                goto ta_int64;
+                break;
             case JS_CLASS_BIG_INT64_ARRAY:
                 v = *(int64_t *)ptr;
-            ta_int64:
-                js_printf(s, "%" PRId64, v);
                 break;
             case JS_CLASS_BIG_UINT64_ARRAY:
-                js_printf(s, "%" PRIu64, *(uint64_t *)ptr);
+                u = *(uint64_t *)ptr;
                 break;
             case JS_CLASS_FLOAT16_ARRAY:
-                js_print_float64(s, fromfp16(*(uint16_t *)ptr));
+                f = fromfp16(*(uint16_t *)ptr);
                 break;
             case JS_CLASS_FLOAT32_ARRAY:
-                js_print_float64(s, *(float *)ptr);
+                f = *(float *)ptr;
                 break;
+            default: /* JS_CLASS_FLOAT64_ARRAY */
+                f = *(double *)ptr;
+                break;
+            }
+            js_print_comma(s, &comma_state);
+            switch(p->class_id) {
+            case JS_CLASS_BIG_UINT64_ARRAY:
+                js_printf(s, "%" PRIu64, u);
+                break;
+            case JS_CLASS_FLOAT16_ARRAY:
+            case JS_CLASS_FLOAT32_ARRAY:
             case JS_CLASS_FLOAT64_ARRAY:
-                js_print_float64(s, *(double *)ptr);
+                js_print_float64(s, f);
+                break;
+            default:
+                js_printf(s, "%" PRId64, v);
                 break;
             }
         }
