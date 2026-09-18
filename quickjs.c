@@ -35751,16 +35751,15 @@ static __exception int ss_check(JSContext *ctx, StackSizeState *s,
 }
 
 static __exception int compute_stack_size(JSContext *ctx,
-                                          JSFunctionDef *fd,
+                                          const uint8_t *bc_buf,
+                                          int bc_len,
                                           int *pstack_size)
 {
     StackSizeState s_s, *s = &s_s;
     int i, diff, n_pop, pos_next, stack_len, pos, op, catch_pos, catch_level;
     const JSOpCode *oi;
-    const uint8_t *bc_buf;
 
-    bc_buf = fd->byte_code.buf;
-    s->bc_len = fd->byte_code.size;
+    s->bc_len = bc_len;
     /* bc_len > 0 */
     s->stack_level_tab = js_malloc(ctx, sizeof(s->stack_level_tab[0]) *
                                    s->bc_len);
@@ -36115,7 +36114,8 @@ static JSValue js_create_function(JSContext *ctx, JSFunctionDef *fd)
     if (resolve_labels(ctx, fd))
         goto fail;
 
-    if (compute_stack_size(ctx, fd, &stack_size) < 0)
+    if (compute_stack_size(ctx, fd->byte_code.buf, fd->byte_code.size,
+                           &stack_size) < 0)
         goto fail;
 
     if (fd->strip_debug) {
@@ -38895,6 +38895,28 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         if (JS_ReadFunctionBytecode(s, b, byte_code_offset, b->byte_code_len))
             goto fail;
         bc_read_trace(s, "}\n");
+    }
+    /* JS_CallInternal() allocates the operand stack on the C stack with
+       room for exactly 'stack_size' JSValues, so deserialized bytecode
+       must not use more stack slots than declared: an undersized frame
+       would be read and written out of bounds (issue #551). Reuse the
+       compiler's bytecode graph exploration, which also rejects invalid
+       opcodes, out of bounds jump targets and stack underflows. */
+    {
+        int stack_size;
+        if (compute_stack_size(ctx, b->byte_code_buf, b->byte_code_len,
+                               &stack_size) < 0) {
+            /* malformed serialized bytecode: use SyntaxError like the
+               other read-time validation errors */
+            JS_FreeValue(ctx, JS_GetException(ctx));
+            JS_ThrowSyntaxError(ctx, "invalid bytecode (stack analysis failed)");
+            goto fail;
+        }
+        if (unlikely(stack_size > b->stack_size)) {
+            JS_ThrowSyntaxError(ctx, "stack size too small for bytecode (%d < %d)",
+                                b->stack_size, stack_size);
+            goto fail;
+        }
     }
     if (b->has_debug) {
         /* read optional debug information */

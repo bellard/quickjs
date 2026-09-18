@@ -179,6 +179,28 @@ function bjson_test_reference()
     }
 }
 
+function bjson_test_undersized_stack_frame()
+{
+    var buf, rejected;
+
+    /* serialized function bytecode using more operand stack slots than
+       the declared stack_size (issue #551): must be rejected at read
+       time instead of producing a function that overflows its
+       stack-allocated frame when executed */
+    buf = new Uint8Array([
+        0x05, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x28,
+    ]);
+    rejected = false;
+    try {
+        bjson.read(buf.buffer, 0, buf.byteLength, false, true);
+    } catch(e) {
+        rejected = e instanceof SyntaxError;
+    }
+    assert(rejected);
+}
+
 function bjson_test_all()
 {
     var obj;
@@ -219,6 +241,7 @@ function bjson_test_all()
 
     bjson_test_arraybuffer();
     bjson_test_reference();
+    bjson_test_undersized_stack_frame();
 }
 
 bjson_test_all();
