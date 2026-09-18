@@ -38648,6 +38648,19 @@ static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
         case OP_FMT_atom_label_u16:
             idx = get_u32(bc_buf + pos + 1);
             if (s->is_rom_data) {
+                /* the operand is used as a runtime atom index, so it
+                   must be validated: reject non-constant atoms which
+                   are out of the atom table bounds or in the free
+                   list */
+                if (unlikely(!__JS_AtomIsConst(idx) &&
+                             ((uint32_t)idx >= (uint32_t)s->ctx->rt->atom_size ||
+                              ((uintptr_t)s->ctx->rt->atom_array[idx] & 1)))) {
+                    JS_ThrowSyntaxError(s->ctx, "invalid atom index (pos=%u)",
+                                        (unsigned int)(s->ptr - s->buf_start));
+                    /* Note: the atoms will be freed up to this position */
+                    b->byte_code_len = pos;
+                    return s->error_state = -1;
+                }
                 /* just increment the reference count of the atom */
                 JS_DupAtom(s->ctx, (JSAtom)idx);
             } else {
@@ -38791,6 +38804,10 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         goto fail;
     if (bc_get_leb128_int(s, &bc.byte_code_len))
         goto fail;
+    if (unlikely(bc.byte_code_len <= 0)) {
+        JS_ThrowSyntaxError(ctx, "invalid bytecode length");
+        goto fail;
+    }
     if (bc_get_leb128_int(s, &local_count))
         goto fail;
 
