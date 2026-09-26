@@ -57,7 +57,7 @@ PREFIX?=/usr/local
 #CONFIG_TSAN=y
 
 # TEST262 bootstrap config: commit id and shallow "since" parameter
-TEST262_COMMIT?=5c8206929d81b2d3d727ca6aac56c18358c8d790
+TEST262_COMMIT?=7ab7fafa0003f73fc85c1b95d88094d33f7eb8bd
 TEST262_SINCE?=2025-09-01
 
 OBJDIR=.obj
@@ -493,7 +493,7 @@ test2o: run-test262
 	time ./run-test262 -t -m -c test262o.conf
 
 test2o-update: run-test262
-	./run-test262 -t -u -c test262o.conf -T 1
+	./run-test262 -t -u -c test262o.conf
 endif
 
 ifeq ($(wildcard test262/features.txt),)
