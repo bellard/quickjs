@@ -44090,32 +44090,20 @@ static JSValue js_create_iterator_helper(JSContext *ctx, JSValueConst this_val,
     case JS_ITERATOR_HELPER_KIND_DROP:
     case JS_ITERATOR_HELPER_KIND_TAKE:
         {
-            JSValue v;
             double dlimit;
-            v = JS_ToNumber(ctx, argv[0]);
-            if (JS_IsException(v))
+            if (JS_ToFloat64(ctx, &dlimit, argv[0]))
                 goto fail;
-            // Check for Infinity.
-            if (JS_ToFloat64(ctx, &dlimit, v)) {
-                JS_FreeValue(ctx, v);
-                goto fail;
-            }
-            if (isnan(dlimit)) {
-                JS_FreeValue(ctx, v);
+            if (isnan(dlimit))
                 goto range_error;
-            }
-            if (!isfinite(dlimit)) {
-                JS_FreeValue(ctx, v);
-                if (dlimit < 0)
+            if (dlimit < INT64_MIN) {
+                count = INT64_MIN;
+            } else if (dlimit > MAX_SAFE_INTEGER) {
+                if (isfinite(dlimit))
                     goto range_error;
                 else
                     count = MAX_SAFE_INTEGER;
             } else {
-                v = JS_ToIntegerFree(ctx, v);
-                if (JS_IsException(v))
-                    goto fail;
-                if (JS_ToInt64Free(ctx, &count, v))
-                    goto fail;
+                count = (int64_t)dlimit;
             }
             if (count < 0)
                 goto range_error;
