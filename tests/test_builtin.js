@@ -805,6 +805,9 @@ function test_regexp()
     a = a.exec("\u{10000}_\u{10000}");
     assert(a.indices[0][0], 0);
     assert(a.indices[0][1], 2);
+
+    /* syntax check */
+    assert(/-&&/v.test("-&&"), true);
 }
 
 function test_symbol()

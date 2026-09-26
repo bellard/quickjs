@@ -1183,7 +1183,7 @@ static int get_class_atom(REParseState *s, REStringList *cr,
     case '^':
     case '`':
     case '~':
-        if (s->unicode_sets && p[1] == c) {
+        if (inclass && s->unicode_sets && p[1] == c) {
             /* forbidden double characters */
             return re_parse_error(s, "invalid class set operation in regular expression");
         }
@@ -1198,7 +1198,7 @@ static int get_class_atom(REParseState *s, REStringList *cr,
     case '/':
     case '-':
     case '|':
-        if (s->unicode_sets) {
+        if (inclass && s->unicode_sets) {
             /* invalid characters in unicode sets */
             return re_parse_error(s, "invalid character in class in regular expression");
         }
