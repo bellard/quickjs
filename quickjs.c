@@ -56312,6 +56312,8 @@ static JSValue js_bigint_asUintN(JSContext *ctx,
 {
     uint64_t bits;
     JSValue res, a;
+    JSBigInt *p;
+    JSBigIntBuf buf;
     
     if (JS_ToIndex(ctx, &bits, argv[0]))
         return JS_EXCEPTION;
@@ -56323,13 +56325,18 @@ static JSValue js_bigint_asUintN(JSContext *ctx,
         res = __JS_NewShortBigInt(ctx, 0);
     } else if (JS_VALUE_GET_TAG(a) == JS_TAG_SHORT_BIG_INT) {
         /* fast case */
+        js_slimb_t sv = JS_VALUE_GET_SHORT_BIG_INT(a);
         if (bits >= JS_SHORT_BIG_INT_BITS) {
-            res = a;
+            if (!asIntN && sv < 0) {
+                p = js_bigint_set_short(&buf, a);
+                goto slow_case;
+            } else {
+                res = a;
+            }
         } else {
-            uint64_t v;
+            uint64_t v = sv;
             int shift;
             shift = 64 - bits;
-            v = JS_VALUE_GET_SHORT_BIG_INT(a);
             v = v << shift;
             if (asIntN)
                 v = (int64_t)v >> shift;
@@ -56338,30 +56345,49 @@ static JSValue js_bigint_asUintN(JSContext *ctx,
             res = __JS_NewShortBigInt(ctx, v);
         }
     } else {
-        JSBigInt *r, *p = JS_VALUE_GET_PTR(a);
-        if (bits >= p->len * JS_LIMB_BITS) {
+        JSBigInt *r;
+        p = JS_VALUE_GET_PTR(a);
+        if (bits >= p->len * JS_LIMB_BITS && (asIntN || !js_bigint_sign(p))) {
             res = a;
         } else {
-            int len, shift, i;
+            uint64_t len64;
+            int len, shift, i, l, is_neg;
             js_limb_t v;
-            len = (bits + JS_LIMB_BITS - 1) / JS_LIMB_BITS;
+        slow_case:
+            is_neg = js_bigint_sign(p);
+            len64 = (bits + JS_LIMB_BITS - 1) / JS_LIMB_BITS;
+            len = min_int64(len64, INT32_MAX);
             r = js_bigint_new(ctx, len);
             if (!r) {
                 JS_FreeValue(ctx, a);
                 return JS_EXCEPTION;
             }
+            /* sign extend */
             r->len = len;
-            for(i = 0; i < len - 1; i++)
+            l = min_int(len, p->len);
+            for(i = 0; i < l; i++)
                 r->tab[i] = p->tab[i];
+            for(i = l; i < len; i++)
+                r->tab[i] = -is_neg;
+
             shift = (-bits) & (JS_LIMB_BITS - 1);
             /* 0 <= shift <= JS_LIMB_BITS - 1 */
-            v = p->tab[len - 1] << shift;
+            v = r->tab[len - 1] << shift;
             if (asIntN)
                 v = (js_slimb_t)v >> shift;
             else
                 v = v >> shift;
             r->tab[len - 1] = v;
-            r = js_bigint_normalize(ctx, r);
+            
+            if (!asIntN) {
+                r = js_bigint_extend(ctx, r, 0);
+                if (!r) {
+                    JS_FreeValue(ctx, a);
+                    return JS_EXCEPTION;
+                }
+            } else {
+                r = js_bigint_normalize(ctx, r);
+            }
             JS_FreeValue(ctx, a);
             res = JS_CompactBigInt(ctx, r);
         }
