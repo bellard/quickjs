@@ -759,6 +759,8 @@ static inline const char *JS_ToCString(JSContext *ctx, JSValueConst val1)
 }
 void JS_FreeCString(JSContext *ctx, const char *ptr);
 
+JSValue JS_NewSymbol(JSContext *ctx, const char *description, JS_BOOL is_global);
+
 JSValue JS_NewObjectProtoClass(JSContext *ctx, JSValueConst proto, JSClassID class_id);
 JSValue JS_NewObjectClass(JSContext *ctx, int class_id);
 JSValue JS_NewObjectProto(JSContext *ctx, JSValueConst proto);
