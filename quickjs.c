@@ -13210,19 +13210,29 @@ int JS_ToInt32Clamp(JSContext *ctx, int *pres, JSValueConst val,
     return res;
 }
 
-static int JS_ToInt64SatFree(JSContext *ctx, int64_t *pres, JSValue val)
+#define JS_TO_INT64_SAT_INF 1 /* result was +/-Infinity */
+#define JS_TO_INT64_SAT_NAN 2 /* result was NaN */
+
+static int JS_ToInt64SatFree(JSContext *ctx, int64_t *pres, JSValue val,
+                             BOOL ret_flags)
 {
     uint32_t tag;
-
+    int ret;
+    
  redo:
     tag = JS_VALUE_GET_NORM_TAG(val);
     switch(tag) {
     case JS_TAG_INT:
     case JS_TAG_BOOL:
     case JS_TAG_NULL:
-    case JS_TAG_UNDEFINED:
         *pres = JS_VALUE_GET_INT(val);
         return 0;
+    case JS_TAG_UNDEFINED:
+        *pres = 0;
+        if (ret_flags)
+            return JS_TO_INT64_SAT_NAN;
+        else
+            return 0;
     case JS_TAG_EXCEPTION:
         *pres = 0;
         return -1;
@@ -13231,16 +13241,26 @@ static int JS_ToInt64SatFree(JSContext *ctx, int64_t *pres, JSValue val)
             double d = JS_VALUE_GET_FLOAT64(val);
             if (isnan(d)) {
                 *pres = 0;
+                ret = JS_TO_INT64_SAT_NAN;
             } else {
-                if (d < INT64_MIN)
+                ret = 0;
+                if (d < INT64_MIN) {
                     *pres = INT64_MIN;
-                else if (d >= 0x1p63) /* must use INT64_MAX + 1 because INT64_MAX cannot be exactly represented as a double */
+                    if (!isfinite(d))
+                        ret = JS_TO_INT64_SAT_INF;
+                } else if (d >= 0x1p63) { /* must use INT64_MAX + 1 because INT64_MAX cannot be exactly represented as a double */
                     *pres = INT64_MAX;
-                else
+                    if (!isfinite(d))
+                        ret = JS_TO_INT64_SAT_INF;
+                } else {
                     *pres = (int64_t)d;
+                }
             }
         }
-        return 0;
+        if (ret_flags)
+            return ret;
+        else
+            return 0;
     default:
         val = JS_ToNumberFree(ctx, val);
         if (JS_IsException(val)) {
@@ -13253,13 +13273,20 @@ static int JS_ToInt64SatFree(JSContext *ctx, int64_t *pres, JSValue val)
 
 int JS_ToInt64Sat(JSContext *ctx, int64_t *pres, JSValueConst val)
 {
-    return JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val));
+    return JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val), FALSE);
 }
+
+/* same as JS_ToInt64Sat, but return additional flags */
+static int JS_ToInt64SatF(JSContext *ctx, int64_t *pres, JSValueConst val)
+{
+    return JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val), TRUE);
+}
+
 
 int JS_ToInt64Clamp(JSContext *ctx, int64_t *pres, JSValueConst val,
                     int64_t min, int64_t max, int64_t neg_offset)
 {
-    int res = JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val));
+    int res = JS_ToInt64SatFree(ctx, pres, JS_DupValue(ctx, val), FALSE);
     if (res == 0) {
         if (*pres < 0)
             *pres += neg_offset;
@@ -44090,23 +44117,19 @@ static JSValue js_create_iterator_helper(JSContext *ctx, JSValueConst this_val,
     case JS_ITERATOR_HELPER_KIND_DROP:
     case JS_ITERATOR_HELPER_KIND_TAKE:
         {
-            double dlimit;
-            if (JS_ToFloat64(ctx, &dlimit, argv[0]))
+            int ret;
+            ret = JS_ToInt64SatF(ctx, &count, argv[0]);
+            if (ret < 0)
                 goto fail;
-            if (isnan(dlimit))
+            if (ret == JS_TO_INT64_SAT_NAN || count < 0)
                 goto range_error;
-            if (dlimit < INT64_MIN) {
-                count = INT64_MIN;
-            } else if (dlimit > MAX_SAFE_INTEGER) {
-                if (isfinite(dlimit))
+            if (count > MAX_SAFE_INTEGER) {
+                /* XXX: not strictly compliant e.g. for 2**31-1 + 0.5 */
+                if (ret != JS_TO_INT64_SAT_INF)
                     goto range_error;
                 else
                     count = MAX_SAFE_INTEGER;
-            } else {
-                count = (int64_t)dlimit;
             }
-            if (count < 0)
-                goto range_error;
         }
         break;
     case JS_ITERATOR_HELPER_KIND_FILTER:
@@ -46385,27 +46408,30 @@ static JSValue js_string_repeat(JSContext *ctx, JSValueConst this_val,
     StringBuffer b_s, *b = &b_s;
     JSString *p;
     int64_t val;
-    int n, len;
+    int n, len, ret;
 
     str = JS_ToStringCheckObject(ctx, this_val);
     if (JS_IsException(str))
         goto fail;
-    if (JS_ToInt64Sat(ctx, &val, argv[0]))
+    ret = JS_ToInt64SatF(ctx, &val, argv[0]);
+    if (ret < 0)
         goto fail;
-    if (val < 0 || val > 2147483647) {
+    if (val < 0 || ret == JS_TO_INT64_SAT_INF) {
         JS_ThrowRangeError(ctx, "invalid repeat count");
         goto fail;
     }
-    n = val;
     p = JS_VALUE_GET_STRING(str);
     len = p->len;
-    if (len == 0 || n == 1)
+    if (len == 0 || val == 1)
         return str;
-    // XXX: potential arithmetic overflow
+    if (val > INT32_MAX)
+        goto string_too_long;
     if (val * len > JS_STRING_LEN_MAX) {
-        JS_ThrowRangeError(ctx, "invalid string length");
+    string_too_long:
+        JS_ThrowRangeError(ctx, "string too long");
         goto fail;
     }
+    n = val;
     if (string_buffer_init2(ctx, b, n * len, p->is_wide_char))
         goto fail;
     if (len == 1) {
