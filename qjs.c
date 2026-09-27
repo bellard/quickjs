@@ -42,6 +42,7 @@
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#include "quickjs-bytecode.h"
 
 extern const uint8_t qjsc_repl[];
 extern const uint32_t qjsc_repl_size;
@@ -100,6 +101,37 @@ static int eval_file(JSContext *ctx, const char *filename, int module, int stric
     }
     ret = eval_buf(ctx, buf, buf_len, filename, eval_flags);
     js_free(ctx, buf);
+    return ret;
+}
+
+static int eval_bytecode_file(JSContext *ctx, const char *filename)
+{
+    JSValue obj, val;
+    int ret = -1;
+
+    obj = qjs_bytecode_read_file(ctx, filename);
+    if (JS_IsException(obj))
+        goto exception;
+
+    if (JS_VALUE_GET_TAG(obj) == JS_TAG_MODULE) {
+        if (JS_ResolveModule(ctx, obj) < 0) {
+            JS_FreeValue(ctx, obj);
+            goto exception;
+        }
+        js_module_set_import_meta(ctx, obj, FALSE, TRUE);
+        val = JS_EvalFunction(ctx, obj);
+        val = js_std_await(ctx, val);
+    } else {
+        val = JS_EvalFunction(ctx, obj);
+    }
+    if (JS_IsException(val))
+        goto exception;
+    JS_FreeValue(ctx, val);
+    ret = 0;
+    return ret;
+
+exception:
+    js_std_dump_error(ctx);
     return ret;
 }
 
@@ -297,6 +329,7 @@ void help(void)
            "-i  --interactive  go to interactive mode\n"
            "-m  --module       load as ES6 module (default=autodetect)\n"
            "    --script       load as ES6 script (default=autodetect)\n"
+           "    --bytecode file  load a checked bytecode file\n"
            "    --strict       force strict mode\n"
            "-I  --include file include an additional file\n"
            "    --std          make 'std' and 'os' available to the loaded script\n"
@@ -324,6 +357,8 @@ int main(int argc, char **argv)
     int empty_run = 0;
     int module = -1;
     int strict = 0;
+    char *bytecode_file = NULL;
+    int bytecode_arg_index = -1;
     int load_std = 0;
     int dump_unhandled_promise_rejection = 1;
     size_t memory_limit = 0;
@@ -393,6 +428,15 @@ int main(int argc, char **argv)
                 module = 0;
                 continue;
             }
+            if (!strcmp(longopt, "bytecode")) {
+                if (optind >= argc) {
+                    fprintf(stderr, "qjs: expecting bytecode filename\n");
+                    exit(1);
+                }
+                bytecode_arg_index = optind;
+                bytecode_file = argv[optind++];
+                goto done_options;
+            }
             if (!strcmp(longopt, "strict")) {
                 strict = 1;
                 continue;
@@ -449,6 +493,12 @@ int main(int argc, char **argv)
             help();
         }
     }
+ done_options:
+
+    if (bytecode_file && expr) {
+        fprintf(stderr, "qjs: --bytecode cannot be combined with -e\n");
+        exit(1);
+    }
 
     if (trace_memory) {
         js_trace_malloc_init(&trace_data);
@@ -482,7 +532,9 @@ int main(int argc, char **argv)
     }
 
     if (!empty_run) {
-        js_std_add_helpers(ctx, argc - optind, argv + optind);
+        int script_arg_index;
+        script_arg_index = bytecode_file ? bytecode_arg_index : optind;
+        js_std_add_helpers(ctx, argc - script_arg_index, argv + script_arg_index);
 
         /* make 'std' and 'os' visible to non module code */
         if (load_std) {
@@ -508,6 +560,10 @@ int main(int argc, char **argv)
                     eval_flags |= JS_EVAL_FLAG_STRICT;
             }
             if (eval_buf(ctx, expr, strlen(expr), "<cmdline>", eval_flags))
+                goto fail;
+        } else
+        if (bytecode_file) {
+            if (eval_bytecode_file(ctx, bytecode_file))
                 goto fail;
         } else
         if (optind >= argc) {

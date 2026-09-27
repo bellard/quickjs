@@ -251,7 +251,9 @@ all: $(OBJDIR) $(OBJDIR)/quickjs.check.o $(OBJDIR)/qjs.check.o $(PROGS)
 
 QJS_LIB_OBJS=$(OBJDIR)/quickjs.o $(OBJDIR)/dtoa.o $(OBJDIR)/libregexp.o $(OBJDIR)/libunicode.o $(OBJDIR)/cutils.o $(OBJDIR)/quickjs-libc.o
 
-QJS_OBJS=$(OBJDIR)/qjs.o $(OBJDIR)/repl.o $(QJS_LIB_OBJS)
+QJS_BC_OBJS=$(OBJDIR)/quickjs-bytecode.o
+
+QJS_OBJS=$(OBJDIR)/qjs.o $(OBJDIR)/repl.o $(QJS_BC_OBJS) $(QJS_LIB_OBJS)
 
 HOST_LIBS=-lm -ldl -lpthread
 LIBS=-lm -lpthread
@@ -269,7 +271,7 @@ qjs$(EXE): $(QJS_OBJS)
 qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS))
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
+qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_BC_OBJS) $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 fuzz_eval: $(OBJDIR)/fuzz_eval.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
@@ -286,7 +288,7 @@ libfuzzer: fuzz_eval fuzz_compile fuzz_regexp
 ifneq ($(CROSS_PREFIX),)
 
 $(QJSC): $(OBJDIR)/qjsc.host.o \
-    $(patsubst %.o, %.host.o, $(QJS_LIB_OBJS))
+    $(patsubst %.o, %.host.o, $(QJS_BC_OBJS) $(QJS_LIB_OBJS))
 	$(HOST_CC) $(LDFLAGS) -o $@ $^ $(HOST_LIBS)
 
 endif #CROSS_PREFIX
@@ -369,7 +371,7 @@ clean:
 	rm -f repl.c out.c
 	rm -f *.a *.o *.d *~ unicode_gen regexp_test fuzz_eval fuzz_compile fuzz_regexp $(PROGS)
 	rm -f hello.c test_fib.c
-	rm -f examples/*.so tests/*.so
+	rm -f examples/*.so tests/*.so tests/*.qbc examples/*.qbc
 	rm -rf $(OBJDIR)/ *.dSYM/ qjs-debug$(EXE)
 	rm -rf run-test262-debug$(EXE)
 	rm -f run_octane run_sunspider_like
@@ -452,21 +454,44 @@ ifdef CONFIG_SHARED_LIBS
 test: tests/bjson.so examples/point.so
 endif
 
-test: qjs$(EXE)
+test: qjs$(EXE) qjsc$(EXE)
 	$(WINE) ./qjs$(EXE) tests/test_closure.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_closure.qbc tests/test_closure.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_closure.qbc
 	$(WINE) ./qjs$(EXE) tests/test_language.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_language.qbc tests/test_language.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_language.qbc
 	$(WINE) ./qjs$(EXE) --std tests/test_builtin.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_builtin.qbc tests/test_builtin.js
+	$(WINE) ./qjs$(EXE) --std --bytecode tests/test_builtin.qbc
 	$(WINE) ./qjs$(EXE) tests/test_loop.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_loop.qbc tests/test_loop.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_loop.qbc
 	$(WINE) ./qjs$(EXE) tests/test_bigint.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_bigint.qbc tests/test_bigint.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_bigint.qbc
 	$(WINE) ./qjs$(EXE) tests/test_cyclic_import.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_cyclic_import.qbc tests/test_cyclic_import.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_cyclic_import.qbc
 	$(WINE) ./qjs$(EXE) tests/test_worker.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_worker.qbc tests/test_worker.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_worker.qbc
 ifndef CONFIG_WIN32
 	$(WINE) ./qjs$(EXE) tests/test_std.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_std.qbc tests/test_std.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_std.qbc
 	$(WINE) ./qjs$(EXE) tests/test_rw_handler.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_rw_handler.qbc tests/test_rw_handler.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_rw_handler.qbc
+	./tests/test_bytecode_file.sh
 endif
 ifdef CONFIG_SHARED_LIBS
 	$(WINE) ./qjs$(EXE) tests/test_bjson.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o tests/test_bjson.qbc tests/test_bjson.js
+	$(WINE) ./qjs$(EXE) --bytecode tests/test_bjson.qbc
 	$(WINE) ./qjs$(EXE) examples/test_point.js
+	$(WINE) ./qjsc$(EXE) --bytecode -o examples/test_point.qbc examples/test_point.js
+	$(WINE) ./qjs$(EXE) --bytecode examples/test_point.qbc
 endif
 
 stats: qjs$(EXE)
