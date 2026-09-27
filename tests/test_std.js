@@ -322,6 +322,17 @@ function test_async_promise_rejection()
     os.setTimeout(() => { assert(counter, 3) }, 10);
 }
 
+/* a dynamically imported module that throws at top level must not leak
+   an unhandled rejection when the import() rejection is handled.
+   https://github.com/quickjs-ng/quickjs/pull/1554 */
+function test_module_rejection_handled()
+{
+    var handled = false;
+    import("./fixture_throwing_module.js").then(() => assert(false),
+                                                () => { handled = true; });
+    os.setTimeout(() => { assert(handled, true) }, 10);
+}
+
 test_printf();
 test_file1();
 test_file2();
@@ -333,4 +344,5 @@ test_timer();
 test_ext_json();
 test_async_gc();
 test_async_promise_rejection();
+test_module_rejection_handled();
 
