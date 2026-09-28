@@ -14752,8 +14752,11 @@ static int JS_ToBigInt64Free(JSContext *ctx, int64_t *pres, JSValue val)
         /* return the value mod 2^64 */
         res = p->tab[0];
 #if JS_LIMB_BITS == 32
-        if (p->len >= 2)
+        if (p->len >= 2) {
             res |= (uint64_t)p->tab[1] << 32;
+        } else {
+            res = (js_slimb_t)res;
+        }
 #endif
         JS_FreeValue(ctx, val);
     }
