@@ -48,4 +48,3 @@ test262/test/staging/sm/object/defineProperties-order.js:11: Test262Error: Expec
 test262/test/staging/sm/regress/regress-602621.js:13: Test262Error: function sub-statement must override arguments Expected SameValue(«"function"», «"object"») to be true
 test262/test/staging/sm/regress/regress-1383630.js:28: Test262Error: proxy must report the same value for the non-writable, non-configurable property Expected a TypeError to be thrown but no exception was thrown at all
 test262/test/staging/sm/statements/arrow-function-in-for-statement-head.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
-test262/test/staging/sm/statements/try-completion.js:11: Test262Error: Expected SameValue(«"try"», «undefined») to be true
