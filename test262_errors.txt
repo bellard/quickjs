@@ -13,7 +13,6 @@ test262/test/language/expressions/compound-assignment/S11.13.2_A6.8_T1.js:24: Te
 test262/test/language/expressions/compound-assignment/S11.13.2_A6.9_T1.js:24: Test262Error: #1: innerX === 2. Actual: 1
 test262/test/language/expressions/compound-assignment/S11.13.2_A6.10_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
 test262/test/language/expressions/compound-assignment/S11.13.2_A6.11_T1.js:24: Test262Error: #1: innerX === 2. Actual: 5
-test262/test/language/identifier-resolution/assign-to-global-undefined.js:20: strict mode: expected error
 test262/test/language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js:75: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js' is ambiguous
 test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js:74: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js' is ambiguous
 test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js:75: SyntaxError: export 'foo' in module 'test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js' is ambiguous
