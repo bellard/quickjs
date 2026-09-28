@@ -14736,6 +14736,7 @@ static JSValue JS_ToBigInt(JSContext *ctx, JSValueConst val)
 }
 
 /* XXX: merge with JS_ToInt64Free with a specific flag ? */
+/* return the value mod 2^64 */
 static int JS_ToBigInt64Free(JSContext *ctx, int64_t *pres, JSValue val)
 {
     uint64_t res;
@@ -14749,7 +14750,6 @@ static int JS_ToBigInt64Free(JSContext *ctx, int64_t *pres, JSValue val)
         res = JS_VALUE_GET_SHORT_BIG_INT(val);
     } else {
         JSBigInt *p = JS_VALUE_GET_PTR(val);
-        /* return the value mod 2^64 */
         res = p->tab[0];
 #if JS_LIMB_BITS == 32
         if (p->len >= 2) {
@@ -14767,6 +14767,107 @@ static int JS_ToBigInt64Free(JSContext *ctx, int64_t *pres, JSValue val)
 int JS_ToBigInt64(JSContext *ctx, int64_t *pres, JSValueConst val)
 {
     return JS_ToBigInt64Free(ctx, pres, JS_DupValue(ctx, val));
+}
+
+static int JS_ToBigInt128SatFree(JSContext *ctx, uint64_t *plow, uint64_t *phigh, JSValue val)
+{
+    uint64_t r0, r1;
+    int ret;
+    val = JS_ToBigIntFree(ctx, val);
+    if (JS_IsException(val)) {
+        *plow = 0;
+        *phigh = 0;
+        return -1;
+    }
+    if (JS_VALUE_GET_TAG(val) == JS_TAG_SHORT_BIG_INT) {
+        r0 = JS_VALUE_GET_SHORT_BIG_INT(val);
+        r1 = -((int64_t)r0 < 0);
+        ret = 0;
+    } else {
+        JSBigInt *p = JS_VALUE_GET_PTR(val);
+        if (p->len > 128 / JS_LIMB_BITS) {
+            /* overflow */
+            int is_neg = js_bigint_sign(p);
+            r0 = is_neg - 1;
+            r1 = 0x7fffffffffffffff + is_neg;
+            ret = 1;
+        } else {
+#if JS_LIMB_BITS == 32
+            {
+                js_limb_t tab[4];
+                int i, l;
+                ret = 0;
+                l = p->len;
+                for(i = 0; i < l; i++)
+                    tab[i] = p->tab[i];
+                if (l < 4) {
+                    int is_neg = js_bigint_sign(p);
+                    for(i = l; i < 4; i++) {
+                        tab[i] = -is_neg;
+                    }
+                }
+                r0 = tab[0] | ((uint64_t)tab[1] << 32);
+                r1 = tab[2] | ((uint64_t)tab[3] << 32);
+            }
+#else
+            r0 = p->tab[0];
+            if (p->len >= 2) {
+                r1 = p->tab[1];
+            } else {
+                r1 = -((int64_t)r0 < 0);
+            }
+#endif
+            ret = 0;
+        }
+        JS_FreeValue(ctx, val);
+    }
+    *plow = r0;
+    *phigh = r1;
+    return ret;
+}
+
+/* return an exception if the result does not fit in 128 bits */
+int JS_ToBigInt128(JSContext *ctx, uint64_t *plow, uint64_t *phigh, JSValueConst val)
+{
+    int ret;
+    ret = JS_ToBigInt128SatFree(ctx, plow, phigh, JS_DupValue(ctx, val));
+    if (ret == 1) {
+        JS_ThrowRangeError(ctx, "BigInt does not fit in 128 bits");
+        return -1;
+    }
+    return ret;
+}
+
+/* Convert a bigint to a 128 bit signed integer with
+   saturation. Return -1 if exception, 0 if OK, 1 if the value was
+   clamped to 128 bits. */
+int JS_ToBigInt128Sat(JSContext *ctx, uint64_t *plow, uint64_t *phigh, JSValueConst val)
+{
+    return JS_ToBigInt128SatFree(ctx, plow, phigh, JS_DupValue(ctx, val));
+}
+
+JSValue JS_NewBigInt128(JSContext *ctx, uint64_t low, uint64_t high)
+{
+    if (high == -(low >> 63)) {
+        /* fits on 64 bits */
+        return JS_NewBigInt64(ctx, low);
+    } else {
+        JSBigInt *r;
+        r = js_bigint_new(ctx, 128 / JS_LIMB_BITS);
+        if (!r)
+            return JS_EXCEPTION;
+#if JS_LIMB_BITS == 32
+        r->tab[0] = low;
+        r->tab[1] = low >> 32;
+        r->tab[2] = high;
+        r->tab[3] = high >> 32;
+#else
+        r->tab[0] = low;
+        r->tab[1] = high;
+#endif
+        r = js_bigint_normalize(ctx, r);
+        return JS_CompactBigInt(ctx, r);
+    }
 }
 
 static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
