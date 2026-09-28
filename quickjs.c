@@ -44200,6 +44200,7 @@ typedef struct JSIteratorHelperData {
     JSValue next;
     JSValue func; // predicate (filter) or mapper (flatMap, map)
     JSValue inner; // innerValue (flatMap)
+    JSValue inner_next; // innerValue next method (flatMap)
     int64_t count; // limit (drop, take) or counter (filter, map, flatMap)
     JSIteratorHelperKindEnum kind : 8;
     uint8_t executing : 1;
@@ -44271,6 +44272,7 @@ static JSValue js_create_iterator_helper(JSContext *ctx, JSValueConst this_val,
     it->func = JS_DupValue(ctx, func);
     it->next = method;
     it->inner = JS_UNDEFINED;
+    it->inner_next = JS_UNDEFINED;
     it->count = count;
     it->executing = 0;
     it->done = 0;
@@ -44582,6 +44584,7 @@ static void js_iterator_helper_finalizer(JSRuntime *rt, JSValue val)
         JS_FreeValueRT(rt, it->func);
         JS_FreeValueRT(rt, it->next);
         JS_FreeValueRT(rt, it->inner);
+        JS_FreeValueRT(rt, it->inner_next);
         js_free_rt(rt, it);
     }
 }
@@ -44596,6 +44599,7 @@ static void js_iterator_helper_mark(JSRuntime *rt, JSValueConst val,
         JS_MarkValue(rt, it->func, mark_func);
         JS_MarkValue(rt, it->next, mark_func);
         JS_MarkValue(rt, it->inner, mark_func);
+        JS_MarkValue(rt, it->inner_next, mark_func);
     }
 }
 
@@ -44620,183 +44624,154 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
 
     it->executing = 1;
 
+    if (magic == GEN_MAGIC_RETURN) {
+        *pdone = TRUE;
+        ret = JS_UNDEFINED;
+        
+        if (!JS_IsUndefined(it->inner)) {
+            if (JS_IteratorClose(ctx, it->inner, FALSE))
+                ret = JS_EXCEPTION;
+            JS_FreeValue(ctx, it->inner);
+            JS_FreeValue(ctx, it->inner_next);
+            it->inner = JS_UNDEFINED;
+            it->inner_next = JS_UNDEFINED;
+        }
+        if (JS_IteratorClose(ctx, it->obj, JS_IsException(ret)))
+            ret = JS_EXCEPTION;
+        goto done;
+    }
+
     switch (it->kind) {
     case JS_ITERATOR_HELPER_KIND_DROP:
         {
-            JSValue item, method;
-            if (magic == GEN_MAGIC_NEXT) {
-                method = JS_DupValue(ctx, it->next);
-            } else {
-                method = JS_GetProperty(ctx, it->obj, JS_ATOM_return);
-                if (JS_IsException(method))
-                    goto fail;
-            }
+            JSValue item;
             while (it->count > 0) {
                 it->count--;
-                item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
-                if (JS_IsException(item)) {
-                    JS_FreeValue(ctx, method);
+                item = JS_IteratorNext(ctx, it->obj, it->next, 0, NULL, pdone);
+                if (JS_IsException(item))
                     goto fail_no_close;
-                }
                 JS_FreeValue(ctx, item);
-                if (magic == GEN_MAGIC_RETURN)
-                    *pdone = TRUE;
                 if (*pdone) {
-                    JS_FreeValue(ctx, method);
                     ret = JS_UNDEFINED;
                     goto done;
                 }
             }
 
-            item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
-            JS_FreeValue(ctx, method);
+            item = JS_IteratorNext(ctx, it->obj, it->next, 0, NULL, pdone);
             if (JS_IsException(item))
                 goto fail_no_close;
             ret = item;
-            goto done;
         }
         break;
     case JS_ITERATOR_HELPER_KIND_FILTER:
         {
-            JSValue item, method, selected, index_val;
+            JSValue item, selected, index_val;
             JSValueConst args[2];
-            if (magic == GEN_MAGIC_NEXT) {
-                method = JS_DupValue(ctx, it->next);
-            } else {
-                method = JS_GetProperty(ctx, it->obj, JS_ATOM_return);
-                if (JS_IsException(method))
+            for(;;) {
+                item = JS_IteratorNext(ctx, it->obj, it->next, 0, NULL, pdone);
+                if (JS_IsException(item))
+                    goto fail_no_close;
+                if (*pdone) {
+                    ret = item;
+                    break;
+                }
+                index_val = JS_NewInt64(ctx, it->count++);
+                args[0] = item;
+                args[1] = index_val;
+                selected = JS_Call(ctx, it->func, JS_UNDEFINED, countof(args), args);
+                JS_FreeValue(ctx, index_val);
+                if (JS_IsException(selected)) {
+                    JS_FreeValue(ctx, item);
                     goto fail;
-            }
-        filter_again:
-            item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
-            if (JS_IsException(item)) {
-                JS_FreeValue(ctx, method);
-                goto fail_no_close;
-            }
-            if (*pdone || magic == GEN_MAGIC_RETURN) {
-                JS_FreeValue(ctx, method);
-                ret = item;
-                goto done;
-            }
-            index_val = JS_NewInt64(ctx, it->count++);
-            args[0] = item;
-            args[1] = index_val;
-            selected = JS_Call(ctx, it->func, JS_UNDEFINED, countof(args), args);
-            JS_FreeValue(ctx, index_val);
-            if (JS_IsException(selected)) {
+                }
+                if (JS_ToBoolFree(ctx, selected)) {
+                    ret = item;
+                    break;
+                }
                 JS_FreeValue(ctx, item);
-                JS_FreeValue(ctx, method);
-                goto fail;
             }
-            if (JS_ToBoolFree(ctx, selected)) {
-                JS_FreeValue(ctx, method);
-                ret = item;
-                goto done;
-            }
-            JS_FreeValue(ctx, item);
-            goto filter_again;
         }
         break;
     case JS_ITERATOR_HELPER_KIND_FLAT_MAP:
         {
             JSValue item, method, index_val, iter;
             JSValueConst args[2];
-        flat_map_again:
-            if (JS_IsUndefined(it->inner)) {
-                if (magic == GEN_MAGIC_NEXT) {
-                    method = JS_DupValue(ctx, it->next);
-                } else {
-                    method = JS_GetProperty(ctx, it->obj, JS_ATOM_return);
+            for(;;) {
+                if (JS_IsUndefined(it->inner)) {
+                    item = JS_IteratorNext(ctx, it->obj, it->next, 0, NULL, pdone);
+                    if (JS_IsException(item))
+                        goto fail_no_close;
+                    if (*pdone) {
+                        ret = item;
+                        break;
+                    }
+                    index_val = JS_NewInt64(ctx, it->count++);
+                    args[0] = item;
+                    args[1] = index_val;
+                    ret = JS_Call(ctx, it->func, JS_UNDEFINED, countof(args), args);
+                    JS_FreeValue(ctx, item);
+                    JS_FreeValue(ctx, index_val);
+                    if (JS_IsException(ret))
+                        goto fail;
+                    if (!JS_IsObject(ret)) {
+                        JS_FreeValue(ctx, ret);
+                        JS_ThrowTypeError(ctx, "not an object");
+                        goto fail;
+                    }
+                    method = JS_GetProperty(ctx, ret, JS_ATOM_Symbol_iterator);
+                    if (JS_IsException(method)) {
+                        JS_FreeValue(ctx, ret);
+                        goto fail;
+                    }
+                    if (JS_IsNull(method) || JS_IsUndefined(method)) {
+                        JS_FreeValue(ctx, method);
+                        iter = ret;
+                    } else {
+                        iter = JS_GetIterator2(ctx, ret, method);
+                        JS_FreeValue(ctx, method);
+                        JS_FreeValue(ctx, ret);
+                        if (JS_IsException(iter))
+                            goto fail;
+                    }
+
+                    it->inner = iter;
+                    method = JS_GetProperty(ctx, it->inner, JS_ATOM_next);
                     if (JS_IsException(method))
-                        goto fail;
+                        goto inner_fail;
+                    it->inner_next = method;
                 }
-                item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
-                JS_FreeValue(ctx, method);
-                if (JS_IsException(item))
-                    goto fail_no_close;
-                if (*pdone || magic == GEN_MAGIC_RETURN) {
+
+                item = JS_IteratorNext(ctx, it->inner, it->inner_next, 0, NULL, pdone);
+                if (JS_IsException(item)) {
+                inner_fail:
+                    JS_IteratorClose(ctx, it->inner, FALSE);
+                    JS_FreeValue(ctx, it->inner);
+                    JS_FreeValue(ctx, it->inner_next);
+                    it->inner = JS_UNDEFINED;
+                    it->inner_next = JS_UNDEFINED;
+                    goto fail;
+                }
+                if (!*pdone) {
                     ret = item;
-                    goto done;
+                    break;
                 }
-                index_val = JS_NewInt64(ctx, it->count++);
-                args[0] = item;
-                args[1] = index_val;
-                ret = JS_Call(ctx, it->func, JS_UNDEFINED, countof(args), args);
-                JS_FreeValue(ctx, item);
-                JS_FreeValue(ctx, index_val);
-                if (JS_IsException(ret))
-                    goto fail;
-                if (!JS_IsObject(ret)) {
-                    JS_FreeValue(ctx, ret);
-                    JS_ThrowTypeError(ctx, "not an object");
-                    goto fail;
-                }
-                method = JS_GetProperty(ctx, ret, JS_ATOM_Symbol_iterator);
-                if (JS_IsException(method)) {
-                    JS_FreeValue(ctx, ret);
-                    goto fail;
-                }
-                if (JS_IsNull(method) || JS_IsUndefined(method)) {
-                    JS_FreeValue(ctx, method);
-                    iter = ret;
-                } else {
-                    iter = JS_GetIterator2(ctx, ret, method);
-                    JS_FreeValue(ctx, method);
-                    JS_FreeValue(ctx, ret);
-                    if (JS_IsException(iter))
-                        goto fail;
-                }
-
-                it->inner = iter;
-            }
-
-            if (magic == GEN_MAGIC_NEXT)
-                method = JS_GetProperty(ctx, it->inner, JS_ATOM_next);
-            else
-                method = JS_GetProperty(ctx, it->inner, JS_ATOM_return);
-            if (JS_IsException(method)) {
-            inner_fail:
-                JS_IteratorClose(ctx, it->inner, FALSE);
-                JS_FreeValue(ctx, it->inner);
-                it->inner = JS_UNDEFINED;
-                goto fail;
-            }
-            if (magic == GEN_MAGIC_RETURN && (JS_IsUndefined(method) || JS_IsNull(method))) {
-                goto inner_end;
-            } else {
-                item = JS_IteratorNext(ctx, it->inner, method, 0, NULL, pdone);
-                JS_FreeValue(ctx, method);
-                if (JS_IsException(item))
-                    goto inner_fail;
-            }
-            if (*pdone) {
-            inner_end:
                 *pdone = FALSE; // The outer iterator must continue.
                 JS_IteratorClose(ctx, it->inner, FALSE);
                 JS_FreeValue(ctx, it->inner);
+                JS_FreeValue(ctx, it->inner_next);
                 it->inner = JS_UNDEFINED;
-                goto flat_map_again;
+                it->inner_next = JS_UNDEFINED;
             }
-            ret = item;
-            goto done;
         }
         break;
     case JS_ITERATOR_HELPER_KIND_MAP:
         {
-            JSValue item, method, index_val;
+            JSValue item, index_val;
             JSValueConst args[2];
-            if (magic == GEN_MAGIC_NEXT) {
-                method = JS_DupValue(ctx, it->next);
-            } else {
-                method = JS_GetProperty(ctx, it->obj, JS_ATOM_return);
-                if (JS_IsException(method))
-                    goto fail;
-            }
-            item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
-            JS_FreeValue(ctx, method);
+            item = JS_IteratorNext(ctx, it->obj, it->next, 0, NULL, pdone);
             if (JS_IsException(item))
                 goto fail_no_close;
-            if (*pdone || magic == GEN_MAGIC_RETURN) {
+            if (*pdone) {
                 ret = item;
                 goto done;
             }
@@ -44808,35 +44783,24 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
             JS_FreeValue(ctx, item);
             if (JS_IsException(ret))
                 goto fail;
-            goto done;
         }
         break;
     case JS_ITERATOR_HELPER_KIND_TAKE:
         {
-            JSValue item, method;
+            JSValue item;
             if (it->count > 0) {
-                if (magic == GEN_MAGIC_NEXT) {
-                    method = JS_DupValue(ctx, it->next);
-                } else {
-                    method = JS_GetProperty(ctx, it->obj, JS_ATOM_return);
-                    if (JS_IsException(method))
-                        goto fail;
-                }
                 it->count--;
-                item = JS_IteratorNext(ctx, it->obj, method, 0, NULL, pdone);
-                JS_FreeValue(ctx, method);
+                item = JS_IteratorNext(ctx, it->obj, it->next, 0, NULL, pdone);
                 if (JS_IsException(item))
                     goto fail_no_close;
                 ret = item;
-                goto done;
+            } else {
+                *pdone = TRUE;
+                if (JS_IteratorClose(ctx, it->obj, FALSE))
+                    ret = JS_EXCEPTION;
+                else
+                    ret = JS_UNDEFINED;
             }
-
-            *pdone = TRUE;
-            if (JS_IteratorClose(ctx, it->obj, FALSE))
-                ret = JS_EXCEPTION;
-            else
-                ret = JS_UNDEFINED;
-            goto done;
         }
         break;
     default:
@@ -44844,7 +44808,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
     }
 
  done:
-    it->done = magic == GEN_MAGIC_NEXT ? *pdone : 1;
+    it->done = *pdone;
     it->executing = 0;
     return ret;
  fail:
