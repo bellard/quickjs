@@ -18490,6 +18490,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 #define JS_THROW_VAR_UNINITIALIZED  2
 #define JS_THROW_ERROR_DELETE_SUPER   3
 #define JS_THROW_ERROR_ITERATOR_THROW 4
+#define JS_THROW_ERROR_INVALID_LVALUE_CALL 5
             {
                 JSAtom atom;
                 int type;
@@ -18510,6 +18511,9 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 else
                 if (type == JS_THROW_ERROR_ITERATOR_THROW)
                     JS_ThrowTypeError(ctx, "iterator does not have a throw method");
+                else
+                if (type == JS_THROW_ERROR_INVALID_LVALUE_CALL)
+                    JS_ThrowReferenceError(ctx, "invalid assignment left-hand side");
                 else
                     JS_ThrowInternalError(ctx, "invalid throw var type %d", type);
             }
@@ -26110,7 +26114,6 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
     scope = 0;
     name = JS_ATOM_NULL;
     label = -1;
-    depth = 0;
     switch(opcode = get_prev_opcode(fd)) {
     case OP_scope_get_var:
         name = get_u32(fd->byte_code.buf + fd->last_opcode_pos + 1);
@@ -26142,6 +26145,22 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
     case OP_get_super_value:
         depth = 3;
         break;
+    case OP_call:
+    case OP_call_method:
+        /* Annex B: allow call expression as assignment target in
+           non-strict mode, but throw ReferenceError at runtime. */
+        if ((fd->js_mode & JS_MODE_STRICT) ||
+            tok == TOK_LAND_ASSIGN || tok == TOK_LOR_ASSIGN ||
+            tok == TOK_DOUBLE_QUESTION_MARK_ASSIGN ||
+            tok == '[' || tok == '{') {
+            goto invalid_lvalue;
+        }
+        emit_op(s, OP_throw_error);
+        emit_u32(s, JS_ATOM_NULL);
+        emit_u8(s, JS_THROW_ERROR_INVALID_LVALUE_CALL);
+        opcode = OP_call;
+        depth = 0;
+        break;
     default:
     invalid_lvalue:
         if (tok == TOK_FOR) {
@@ -26155,9 +26174,11 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
         }
     }
     /* remove the last opcode */
-    fd->byte_code.size = fd->last_opcode_pos;
-    fd->last_opcode_pos = -1;
-
+    if (opcode != OP_call) {
+        fd->byte_code.size = fd->last_opcode_pos;
+        fd->last_opcode_pos = -1;
+    }
+    
     if (keep) {
         /* get the value but keep the object/fields on the stack */
         switch(opcode) {
@@ -26195,6 +26216,8 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
             emit_op(s, OP_to_propkey);
             emit_op(s, OP_dup3);
             emit_op(s, OP_get_super_value);
+            break;
+        case OP_call:
             break;
         default:
             abort();
@@ -26326,6 +26349,7 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             abort();
         }
         break;
+    case OP_call:
     default:
         break;
     }
@@ -26353,6 +26377,8 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
         break;
     case OP_get_super_value:
         emit_op(s, OP_put_super_value);
+        break;
+    case OP_call:
         break;
     default:
         abort();
@@ -27577,6 +27603,10 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
                         emit_u16(s, arg_count);
                     }
                     break;
+                }
+                if (call_type == FUNC_CALL_TEMPLATE) {
+                    /* annex B: syntax error if used as lvalue */
+                    s->cur_func->last_opcode_pos = -1;
                 }
             }
             call_type = FUNC_CALL_NORMAL;
