@@ -57384,12 +57384,12 @@ static JSValue js_array_buffer_resize(JSContext *ctx, JSValueConst this_val,
 {
     JSArrayBuffer *abuf;
     uint8_t *data;
-    int64_t len;
+    uint64_t len;
 
     abuf = JS_GetOpaque2(ctx, this_val, class_id);
     if (!abuf)
         return JS_EXCEPTION;
-    if (JS_ToInt64(ctx, &len, argv[0]))
+    if (JS_ToIndex(ctx, &len, argv[0]))
         return JS_EXCEPTION;
     if (abuf->detached)
         return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -57398,7 +57398,7 @@ static JSValue js_array_buffer_resize(JSContext *ctx, JSValueConst this_val,
     // TODO(bnoordhuis) support externally managed RABs
     if (abuf->free_func != js_array_buffer_free)
         return JS_ThrowTypeError(ctx, "external array buffer is not resizable");
-    if (len < 0 || len > abuf->max_byte_length) {
+    if (len > abuf->max_byte_length) {
     bad_length:
         return JS_ThrowRangeError(ctx, "invalid array buffer length");
     }
