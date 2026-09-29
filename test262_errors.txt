@@ -14,7 +14,6 @@ test262/test/language/expressions/compound-assignment/S11.13.2_A6.11_T1.js:24: T
 test262/test/staging/sm/Function/arguments-parameter-shadowing.js:14: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Function/constructor-binding.js:11: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
 test262/test/staging/sm/Function/function-bind.js:24: Test262Error: Conforms to NativeFunction Syntax: "function bound unbound() {\n    [native code]\n}"
-test262/test/staging/sm/Function/function-name-for.js:13: Test262Error: Expected SameValue(«""», «"forInHead"») to be true
 test262/test/staging/sm/Function/implicit-this-in-parameter-expression.js:12: Test262Error: Expected SameValue(«[object Object]», «undefined») to be true
 test262/test/staging/sm/Function/invalid-parameter-list.js:13: Test262Error: Expected a SyntaxError to be thrown but no exception was thrown at all
 test262/test/staging/sm/class/boundFunctionSubclassing.js:9: Test262Error: Expected SameValue(«false», «true») to be true

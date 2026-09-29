@@ -28964,6 +28964,7 @@ static __exception int js_parse_for_in_of(JSParseState *s, int label_name,
     pos_expr = s->cur_func->byte_code.size;
     emit_label(s, label_expr);
     if (s->token.val == '=') {
+        const uint8_t *source_ptr = s->token.ptr;
         /* XXX: potential scoping issue if inside `with` statement */
         has_initializer = TRUE;
         /* parse and evaluate initializer prior to evaluating the
@@ -28973,6 +28974,8 @@ static __exception int js_parse_for_in_of(JSParseState *s, int label_name,
             JS_FreeAtom(ctx, var_name);
             return -1;
         }
+        set_object_name(s, var_name);
+        emit_source_pos(s, source_ptr);
         if (var_name != JS_ATOM_NULL) {
             emit_op(s, OP_scope_put_var);
             emit_atom(s, var_name);
