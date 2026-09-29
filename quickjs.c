@@ -30382,8 +30382,16 @@ static JSResolveResultEnum js_resolve_export1(JSContext *ctx,
                     return ret;
                 } else if (ret == JS_RESOLVE_RES_FOUND) {
                     if (*pme != NULL) {
-                        if (*pmodule != res_m ||
-                            res_me->local_name != (*pme)->local_name) {
+                        if (res_me->local_name != (*pme)->local_name)
+                            goto ambiguous_result;
+                        if ((*pme)->local_name == JS_ATOM__star_) {
+                            /* namespace exports: compare target modules */
+                            JSModuleDef *target_m1 = (*pmodule)->req_module_entries[(*pme)->u.req_module_idx].module;
+                            JSModuleDef *target_m2 = res_m->req_module_entries[res_me->u.req_module_idx].module;
+                            if (target_m1 != target_m2)
+                                goto ambiguous_result;
+                        } else if (*pmodule != res_m) {
+                        ambiguous_result:
                             *pmodule = NULL;
                             *pme = NULL;
                             return JS_RESOLVE_RES_AMBIGUOUS;
@@ -36149,11 +36157,20 @@ static __exception int compute_stack_size(JSContext *ctx,
     return -1;
 }
 
+static int find_import_local(JSFunctionDef *fd, JSModuleDef *m, JSAtom name)
+{
+    int i;
+    for(i = 0; i < m->import_entries_count; i++) {
+        JSImportEntry *mi = &m->import_entries[i];
+        if (fd->closure_var[mi->var_idx].var_name == name)
+            return i;
+    }
+    return -1;
+}
+
 static int add_global_variables(JSContext *ctx, JSFunctionDef *fd)
 {
     int i, idx;
-    JSModuleDef *m = fd->module;
-    JSExportEntry *me;
     JSGlobalVar *hf;
     BOOL need_global_closures;
     
@@ -36199,6 +36216,32 @@ static int add_global_variables(JSContext *ctx, JSFunctionDef *fd)
     }
 
     if (fd->module) {
+        JSModuleDef *m = fd->module;
+        JSExportEntry *me;
+
+        /* Convert local exports to indirect if the local name was imported */
+        for(i = 0; i < m->export_entries_count; i++) {
+            me = &m->export_entries[i];
+            if (me->export_type == JS_EXPORT_TYPE_LOCAL) {
+                JSImportEntry *mi;
+                int import_idx;
+                import_idx = find_import_local(fd, m, me->local_name);
+                if (import_idx >= 0) {
+                    mi = &m->import_entries[import_idx];
+                    me->export_type = JS_EXPORT_TYPE_INDIRECT;
+                    me->u.req_module_idx = mi->req_module_idx;
+                    JS_FreeAtom(ctx, me->local_name);
+                    if (mi->is_star) {
+                        /* namespace import re-exported */
+                        me->local_name = JS_DupAtom(ctx, JS_ATOM__star_);
+                    } else {
+                        /* XXX: check */
+                        me->local_name = JS_DupAtom(ctx, mi->import_name);
+                    }
+                }
+            }
+        }
+        
         /* resolve the variable names of the local exports */
         for(i = 0; i < m->export_entries_count; i++) {
             me = &m->export_entries[i];
