@@ -41494,15 +41494,19 @@ static JSValue js_function_bind(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
     JSBoundFunction *bf;
-    JSValue func_obj, name1, len_val;
+    JSValue func_obj, name1, len_val, proto;
     JSObject *p;
     int arg_count, i, ret;
 
     if (check_function(ctx, this_val))
         return JS_EXCEPTION;
 
-    func_obj = JS_NewObjectProtoClass(ctx, ctx->function_proto,
+    proto = JS_GetPrototype(ctx, this_val);
+    if (JS_IsException(proto))
+        return JS_EXCEPTION;
+    func_obj = JS_NewObjectProtoClass(ctx, proto,
                                  JS_CLASS_BOUND_FUNCTION);
+    JS_FreeValue(ctx, proto);
     if (JS_IsException(func_obj))
         return JS_EXCEPTION;
     p = JS_VALUE_GET_OBJ(func_obj);
