@@ -53999,28 +53999,20 @@ exception:
 static JSValue js_promise_try(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv)
 {
-    JSValue result_promise, resolving_funcs[2], ret, ret2;
-    BOOL is_reject = 0;
-
+    JSValue result_promise, ret;
+    int is_reject;
+    
     if (!JS_IsObject(this_val))
         return JS_ThrowTypeErrorNotAnObject(ctx);
-    result_promise = js_new_promise_capability(ctx, resolving_funcs, this_val);
-    if (JS_IsException(result_promise))
-        return result_promise;
     ret = JS_Call(ctx, argv[0], JS_UNDEFINED, argc - 1, argv + 1);
     if (JS_IsException(ret)) {
         is_reject = 1;
         ret = JS_GetException(ctx);
+    } else {
+        is_reject = 0;
     }
-    ret2 = JS_Call(ctx, resolving_funcs[is_reject], JS_UNDEFINED, 1, (JSValueConst *)&ret);
-    JS_FreeValue(ctx, resolving_funcs[0]);
-    JS_FreeValue(ctx, resolving_funcs[1]);
+    result_promise = js_promise_resolve(ctx, this_val, 1, (JSValueConst *)&ret, is_reject);
     JS_FreeValue(ctx, ret);
-    if (JS_IsException(ret2)) {
-        JS_FreeValue(ctx, result_promise);
-        return ret2;
-    }
-    JS_FreeValue(ctx, ret2);
     return result_promise;
 }
 

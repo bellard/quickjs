@@ -1,5 +1,3 @@
-test262/test/built-ins/Promise/try/avoids-wrap-for-subclass.js:10: Test262Error: Expected SameValue(«[object Promise]», «[object Promise]») to be true
-test262/test/built-ins/Promise/try/avoids-wrap.js:10: Test262Error: Expected SameValue(«[object Promise]», «[object Promise]») to be true
 test262/test/language/expressions/assignment/S11.13.1_A6_T1.js:23: Test262Error: #1: innerX === undefined. Actual: 1
 test262/test/language/expressions/assignment/S11.13.1_A6_T2.js:23: Test262Error: #1: innerX === 2. Actual: 1
 test262/test/language/expressions/compound-assignment/S11.13.2_A6.1_T1.js:24: Test262Error: #1: innerX === 2. Actual: 12
