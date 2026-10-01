@@ -1546,6 +1546,13 @@ static no_inline void *js_malloc_large(JSMallocContext *s, size_t size)
     return b->header.user_data;
 }
 
+static inline BOOL js_malloc_array_size_is_valid(uint64_t count, size_t elem_size)
+{
+    size_t max_size = SIZE_MAX - (JS_MALLOC_ALIGN - 1) -
+        sizeof(JSMallocLargeBlockHeader);
+    return elem_size != 0 && count <= max_size / elem_size;
+}
+
 static void *__js_malloc(JSMallocContext *s, size_t size)
 {
     size_t total_size;
@@ -8727,14 +8734,14 @@ static int __exception JS_GetOwnPropertyNamesInternal(JSContext *ctx,
     if (atom_count < sym_keys_count)
         goto add_overflow;
     atom_count += exotic_keys_count;
-    if (atom_count < exotic_keys_count || atom_count > INT32_MAX) {
+    if (atom_count < exotic_keys_count || atom_count > INT32_MAX ||
+        !js_malloc_array_size_is_valid(max_int(atom_count, 1),
+                                       sizeof(tab_atom[0]))) {
     add_overflow:
         JS_ThrowOutOfMemory(ctx);
         JS_FreePropertyEnum(ctx, tab_exotic, exotic_count);
         return -1;
     }
-    /* XXX: need generic way to test for js_malloc(ctx, a * b) overflow */
-    
     /* avoid allocating 0 bytes */
     tab_atom = js_malloc(ctx, sizeof(tab_atom[0]) * max_int(atom_count, 1));
     if (!tab_atom) {
@@ -9545,15 +9552,22 @@ static int set_array_length(JSContext *ctx, JSObject *p, JSValue val,
 /* return -1 if exception */
 static int expand_fast_array(JSContext *ctx, JSObject *p, uint32_t new_len)
 {
-    uint32_t new_size;
+    uint64_t new_size;
     size_t slack;
     JSValue *new_array_prop;
-    /* XXX: potential arithmetic overflow */
-    new_size = max_int(new_len, p->u.array.u1.size * 3 / 2);
-    new_array_prop = js_realloc2(ctx, p->u.array.u.values, sizeof(JSValue) * new_size, &slack);
+    new_size = max_int64(new_len, (uint64_t)p->u.array.u1.size * 3 / 2);
+    if (new_size > UINT32_MAX ||
+        !js_malloc_array_size_is_valid(new_size, sizeof(JSValue))) {
+        JS_ThrowOutOfMemory(ctx);
+        return -1;
+    }
+    new_array_prop = js_realloc2(ctx, p->u.array.u.values,
+                                 sizeof(JSValue) * (size_t)new_size, &slack);
     if (!new_array_prop)
         return -1;
     new_size += slack / sizeof(*new_array_prop);
+    if (new_size > UINT32_MAX)
+        new_size = UINT32_MAX;
     p->u.array.u.values = new_array_prop;
     p->u.array.u1.size = new_size;
     return 0;
@@ -51329,7 +51343,7 @@ static int js_proxy_get_own_property_names(JSContext *ctx,
 {
     JSProxyData *s;
     JSValue method, prop_array, val;
-    uint32_t len, i, len2;
+    uint32_t len, target_len, tab_size, i, len2;
     JSPropertyEnum *tab, *tab2;
     JSAtom atom;
     JSPropertyDescriptor desc;
@@ -51348,16 +51362,12 @@ static int js_proxy_get_own_property_names(JSContext *ctx,
         return -1;
     tab = NULL;
     len = 0;
+    tab_size = 0;
     tab2 = NULL;
     len2 = 0;
-    if (js_get_length32(ctx, &len, prop_array))
+    if (js_get_length32(ctx, &target_len, prop_array))
         goto fail;
-    if (len > 0) {
-        tab = js_mallocz(ctx, sizeof(tab[0]) * len);
-        if (!tab)
-            goto fail;
-    }
-    for(i = 0; i < len; i++) {
+    for(i = 0; i < target_len; i++) {
         val = JS_GetPropertyUint32(ctx, prop_array, i);
         if (JS_IsException(val))
             goto fail;
@@ -51370,8 +51380,28 @@ static int js_proxy_get_own_property_names(JSContext *ctx,
         JS_FreeValue(ctx, val);
         if (atom == JS_ATOM_NULL)
             goto fail;
-        tab[i].atom = atom;
-        tab[i].is_enumerable = FALSE; /* XXX: redundant? */
+        if (len == tab_size) {
+            uint64_t new_size;
+            JSPropertyEnum *new_tab;
+
+            new_size = max_int64(8, (uint64_t)tab_size + tab_size / 2);
+            new_size = min_int64(new_size, target_len);
+            if (!js_malloc_array_size_is_valid(new_size, sizeof(tab[0]))) {
+                JS_FreeAtom(ctx, atom);
+                JS_ThrowOutOfMemory(ctx);
+                goto fail;
+            }
+            new_tab = js_realloc(ctx, tab, sizeof(tab[0]) * (size_t)new_size);
+            if (!new_tab) {
+                JS_FreeAtom(ctx, atom);
+                goto fail;
+            }
+            tab = new_tab;
+            tab_size = new_size;
+        }
+        tab[len].atom = atom;
+        tab[len].is_enumerable = FALSE; /* XXX: redundant? */
+        len++;
     }
 
     /* check duplicate properties (XXX: inefficient, could store the
@@ -59009,6 +59039,9 @@ static JSValue js_typed_array_sort(JSContext *ctx, JSValueConst this_val,
             uint32_t *array_idx;
             void *array;
             size_t i, j;
+
+            if (!js_malloc_array_size_is_valid(len, sizeof(array_idx[0])))
+                return JS_ThrowOutOfMemory(ctx);
 
             /* the array must be copied because the comparison
                function may modify it */
