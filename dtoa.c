@@ -1505,8 +1505,10 @@ double js_atod(const char *str, const char **pnext, int radix, int flags,
     }
     
     /* Use the extra digits for rounding if the base is a power of
-       two. Otherwise they are just truncated. */
-    if (radix_bits != 0 && extra_digits != 0) {
+       two. Otherwise use them as a sticky bit so that round-half-to-even
+       rounds correctly when there are non-zero digits beyond the
+       precision we kept. */
+    if (extra_digits != 0) {
         tmp0->tab[0] |= 1;
     }
     

@@ -398,6 +398,12 @@ function test_number()
 
     assert((1.3).toString(7), "1.2046204620462046205");
     assert((1.3).toString(35), "1.ahhhhhhhhhm");
+
+    /* parsing must use digits beyond max_digits as a sticky bit so
+       that round-half-to-even rounds in the correct direction.
+       https://github.com/bellard/quickjs/issues/452 */
+    assert(+"100000000000000000000000.000000000000001",
+           1.0000000000000001e+23);
 }
 
 function test_eval2()
