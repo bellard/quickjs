@@ -456,6 +456,7 @@ test: qjs$(EXE)
 	$(WINE) ./qjs$(EXE) tests/test_closure.js
 	$(WINE) ./qjs$(EXE) tests/test_language.js
 	$(WINE) ./qjs$(EXE) --std tests/test_builtin.js
+	$(WINE) ./qjs$(EXE) --memory-limit 16M tests/test_size_overflow.js
 	$(WINE) ./qjs$(EXE) tests/test_loop.js
 	$(WINE) ./qjs$(EXE) tests/test_bigint.js
 	$(WINE) ./qjs$(EXE) tests/test_cyclic_import.js
