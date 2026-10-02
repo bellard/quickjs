@@ -2089,6 +2089,27 @@ static int re_parse_term(REParseState *s, BOOL is_backward_dir)
                 p = p1;
             }
             break;
+        case 'A':
+            if (s->is_unicode) {
+                p += 2;
+                re_emit_op(s, REOP_line_start);
+                break;
+            }
+            goto parse_class_atom;
+        case 'z':
+            if (s->is_unicode) {
+                p += 2;
+                re_emit_op(s, REOP_line_end);
+                break;
+            }
+            goto parse_class_atom;
+        case 'Z':
+            if (s->is_unicode) {
+                p += 2;
+                re_emit_op(s, REOP_line_end_z);
+                break;
+            }
+            goto parse_class_atom;
         case '0':
             p += 2;
             c = 0;
@@ -2994,13 +3015,28 @@ static intptr_t lre_exec_backtrack(REExecContext *s, uint8_t **capture,
             break;
         case REOP_line_end:
         case REOP_line_end_m:
-            if (cptr == cbuf_end)
-                break;
-            if (opcode == REOP_line_end)
-                goto no_match;
-            PEEK_CHAR(c, cptr, cbuf_end, cbuf_type);
-            if (!is_line_terminator(c))
-                goto no_match;
+        case REOP_line_end_z:
+            {
+                const uint8_t *cptr1 = cptr;
+                if (cptr1 == cbuf_end)
+                    break;
+                if (opcode == REOP_line_end)
+                    goto no_match;
+                GET_CHAR(c, cptr1, cbuf_end, cbuf_type);
+                if (!is_line_terminator(c))
+                    goto no_match;
+                if (opcode == REOP_line_end_z && cptr1 != cbuf_end) {
+                    if (c == '\r') {
+                        /* allow "\r\n" at end of buffer */
+                        GET_CHAR(c, cptr1, cbuf_end, cbuf_type);
+                        if (c != '\n' || cptr1 != cbuf_end) {
+                            goto no_match;
+                        }
+                    } else {
+                        goto no_match;
+                    }
+                }
+            }
             break;
         case REOP_dot:
             if (cptr == cbuf_end)
