@@ -714,7 +714,8 @@ function test_date()
 
 function test_regexp()
 {
-    var a, str;
+    var a, str, re, calls, callback_args, seed, i, j, s, fast, generic;
+    var compile_cases, compile_case, other_re;
     str = "abbbbbc";
     a = /(b+)c/.exec(str);
     assert(a[0], "bbbbbc");
@@ -788,6 +789,295 @@ function test_regexp()
     /* Note: SpiderMonkey and v8 may not be correct */
     assert("abcAbC".replace(/[\q{BC|A}]/gvi,"X"), "XXXX");
     assert("abcAbC".replace(/[\q{BC|A}--a]/gvi,"X"), "aXAX");
+
+    /* fast replacement and substitution semantics */
+    assert("abc abc".replace(/abc/g, "x"), "x x");
+    assert("abc abc".replace(/abc/g, ""), " ");
+    assert("abc".replace(/z/g, "x"), "abc");
+    assert("abc".replace(/(b)/, "<$1>"), "a<b>c");
+    assert("abc".replace(/b/, "$$"), "a$c");
+    assert("abc".replace(/b/, "[$&]"), "a[b]c");
+    assert("abc".replace(/b/, "[$`][$']"), "a[a][c]c");
+    assert("abc".replace(/b/, "$"), "a$c");
+    assert("abc".replace(/(?<letter>b)/, "<$<letter>>"), "a<b>c");
+
+    callback_args = undefined;
+    assert("abc".replace(/(b)/, function() {
+        callback_args = Array.prototype.slice.call(arguments);
+        return "X";
+    }), "aXc");
+    assert(callback_args, ["b", "b", 1, "abc"]);
+
+    re = /b/g;
+    calls = 0;
+    re.exec = function(str) {
+        calls++;
+        return RegExp.prototype.exec.call(this, str);
+    };
+    assert("abc".replace(re, "X"), "aXc");
+    assert(calls, 2);
+
+    /* raw literal atom candidates */
+    a = /quick/.exec("the quick brown fox");
+    assert(a[0], "quick");
+    assert(a.index, 4);
+    re = /quick/g;
+    assert(re.flags, "g");
+    assert(re.toString(), "/quick/g");
+    assert(/missing/.exec("the quick brown fox"), null);
+    a = /ᶠᵒˣ/.exec("the quick brown ᶠᵒˣ");
+    assert(a[0], "ᶠᵒˣ");
+    assert(a.index, 16);
+    a = /abc/.exec("\u0100abc");
+    assert(a[0], "abc");
+    assert(a.index, 1);
+    a = /ᶠ/.exec("xᶠ");
+    assert(a[0], "ᶠ");
+    assert(a.index, 1);
+    assert("abc abc".replace(/abc/g, "X"), "X X");
+
+    re = /abc/g;
+    re.lastIndex = 1;
+    a = re.exec("xabcabc");
+    assert(a.index, 1);
+    assert(re.lastIndex, 4);
+    a = re.exec("xabcabc");
+    assert(a.index, 4);
+    assert(re.lastIndex, 7);
+    assert(re.exec("xabcabc"), null);
+    assert(re.lastIndex, 0);
+
+    a = /abc/d.exec("zabc");
+    assert(a.indices[0], [1, 4]);
+    a = /(?:)/d.exec("abc");
+    assert(a[0], "");
+    assert(a.indices[0], [0, 0]);
+    a = /(a)(b)/d.exec("zab");
+    assert(a.indices, [[1, 3], [1, 2], [2, 3]]);
+
+    /* decoded literal metadata */
+    a = /\x61bc/d.exec("zabc");
+    assert(a[0], "abc");
+    assert(a.index, 1);
+    assert(a.indices[0], [1, 4]);
+    assert(/\u0061bc/.exec("zabc")[0], "abc");
+    assert(/a\.b/.exec("za.b")[0], "a.b");
+    assert(/\u1234x/.exec("z\u1234x")[0], "\u1234x");
+    assert(/\x61bc/.exec("\u0100abc").index, 1);
+    assert(/\u1234x/.exec("a\u1234x").index, 1);
+    assert(/\x61bc/.exec("missing"), null);
+    assert("abc abc".replace(/\x61bc/g, "X"), "X X");
+    assert("za.b".replace(/a\.b/, "[$&]"), "z[a.b]");
+
+    /* required-prefix candidate execution */
+    a = /abcdef[0-9]+/.exec("abcdefX---abcdef123");
+    assert(a[0], "abcdef123");
+    assert(a.index, 10);
+    assert(/abcdef[0-9]+/.exec("abcdefX"), null);
+    assert(/abcdef|abcxyz/.exec("zabcxyz")[0], "abcxyz");
+    a = /abc(def)?/.exec("zabcdef");
+    assert(a[0], "abcdef");
+    assert(a[1], "def");
+    assert("abcdef1 abcdef2".replace(/abcdef[0-9]+/g, "X"), "X X");
+    assert(/^abcdef[0-9]+/.exec("zabcdef1"), null);
+
+    /* multi-code-unit quick checks */
+    a = /[a-z]bcdef/.exec("000000xbcdef");
+    assert(a[0], "xbcdef");
+    assert(a.index, 6);
+    assert(/[a-z]bcdef/.exec("000000xbcdeg"), null);
+    assert(/[a-z]bcdef/.exec("0000000"), null);
+    assert("xbcdef ybcdef".replace(/[a-z]bcdef/g, "X"), "X X");
+
+    /* RegExp.prototype.compile() must refresh bytecode-owned metadata. */
+    compile_cases = [
+        ["abcdef[0-9]+", "(a|b)+", undefined, "bbbb", ["bbbb", "b"], 0],
+        ["[a-z]bcdef", "abc", undefined, "zabc", ["abc"], 1],
+        ["abcdef[0-9]+", "uvwxyz[0-9]+", undefined,
+         "--uvwxyz42", ["uvwxyz42"], 2],
+        ["abc", "\\x78yz", undefined, "-xyz", ["xyz"], 1],
+        ["(a|b)+", "abcdef[0-9]+", undefined,
+         "-abcdef7", ["abcdef7"], 1],
+        ["(a|b)+", "[a-z]bcdef", undefined, "-xbcdef", ["xbcdef"], 1],
+        ["(a|b)+", "abc", undefined, "-abc", ["abc"], 1],
+    ];
+    for (i = 0; i < compile_cases.length; i++) {
+        compile_case = compile_cases[i];
+        re = new RegExp(compile_case[0]);
+        re.compile(compile_case[1], compile_case[2]);
+        a = re.exec(compile_case[3]);
+        assert(Array.prototype.slice.call(a), compile_case[4]);
+        assert(a.index, compile_case[5]);
+        assert(a.input, compile_case[3]);
+    }
+
+    re = new RegExp("abcdef[0-9]+");
+    other_re = new RegExp("[a-z]bcdef");
+    re.compile(other_re);
+    a = re.exec("-xbcdef");
+    assert(Array.prototype.slice.call(a), ["xbcdef"]);
+    assert(a.index, 1);
+    re.compile(re);
+    assert(re.exec("-xbcdef")[0], "xbcdef");
+
+    re = new RegExp("abcdef[0-9]+");
+    re.lastIndex = 42;
+    re.compile("abc", "g");
+    assert(re.lastIndex, 0);
+    a = re.exec("-abcabc");
+    assert(a[0], "abc");
+    assert(a.index, 1);
+    assert(re.lastIndex, 4);
+    a = re.exec("-abcabc");
+    assert(a.index, 4);
+    assert(re.lastIndex, 7);
+    assert(re.exec("-abcabc"), null);
+    assert(re.lastIndex, 0);
+
+    re = new RegExp("abcdef[0-9]+");
+    re.compile("abc", "y");
+    re.lastIndex = 1;
+    assert(re.exec("-abc")[0], "abc");
+    assert(re.lastIndex, 4);
+    re.lastIndex = 0;
+    assert(re.exec("-abc"), null);
+    assert(re.lastIndex, 0);
+
+    re = new RegExp("abcdef[0-9]+");
+    re.compile("abc", "i");
+    assert(re.exec("-ABC")[0], "ABC");
+    re.compile("abc", "u");
+    assert(re.exec("-abc")[0], "abc");
+    re.compile("abc", "v");
+    assert(re.exec("-abc")[0], "abc");
+    re.compile("abc", "d");
+    a = re.exec("-abc");
+    assert(a[0], "abc");
+    assert(a.indices[0], [1, 4]);
+
+    re = new RegExp("abcdef[0-9]+");
+    re.compile("abc", "g");
+    assert("abc abc".replace(re, "X"), "X X");
+    re.compile("(a|b)+");
+    assert("--abba--".replace(re, "<$1>"), "--<a>--");
+    re.compile("abc");
+    assert(re.test("-abc"), true);
+
+    re = new RegExp("abcdef[0-9]+");
+    assert_throws(SyntaxError, function() { re.compile("abc", "gg"); });
+    assert(re.exec("-abcdef7")[0], "abcdef7");
+
+    re = new RegExp("abcdef[0-9]+");
+    Object.defineProperty(re, "lastIndex", { writable: false });
+    assert_throws(TypeError, function() { re.compile("(a|b)+"); });
+    assert(re.exec("bbbb")[0], "bbbb");
+
+    re = new RegExp("abcdef[0-9]+");
+    for (i = 0; i < 1000; i++) {
+        re.compile((i & 1) ? "abcdef[0-9]+" : "(a|b)+");
+        if ((i & 63) == 0 && typeof std !== "undefined")
+            std.gc();
+    }
+    re.compile("(a|b)+");
+    assert(re.exec("bbbb")[0], "bbbb");
+
+    /* generic candidate scanning outside the backtracking stack */
+    a = /(a|ab)c/.exec("xxabc");
+    assert(a[0], "abc");
+    assert(a[1], "ab");
+    assert(a.index, 2);
+    a = /(a)?b/.exec("aaab");
+    assert(a[0], "ab");
+    assert(a[1], "a");
+    assert(a.index, 2);
+    assert(/(?=(ab))ab/.exec("xxab"), ["ab", "ab"]);
+    assert(/(?<=a)b/.exec("zzab").index, 3);
+    assert(/$/.exec("abc").index, 3);
+    assert(/^b/m.exec("a\nb").index, 2);
+    assert(/\u{1f431}/u.exec("x🐱").index, 1);
+    assert("ab12 cd34".replace(/([a-z]+)([0-9]+)/g, "$2:$1"),
+           "12:ab 34:cd");
+
+    /* bounded leading alternation candidate filtering */
+    a = /(^|[^\\])"x"/.exec('00"x"');
+    assert(a[0], '0"x"');
+    assert(a[1], "0");
+    assert(a.index, 1);
+    assert(/(^|[^\\])"x"/.exec('\\"x"'), null);
+    a = /(^|[^\\])"x"/.exec('"x"');
+    assert(a[0], '"x"');
+    assert(a.index, 0);
+    a = /(^|[^\\])"x"/.exec('Ω"x"');
+    assert(a[0], 'Ω"x"');
+    assert(a.index, 0);
+    assert('00"x" \\"x"'.replace(/(^|[^\\])"x"/g, "X"),
+           "0X \\\"x\"");
+    assert(/(^|[^\\])"x"/m.exec('\n"x"').index, 0);
+    a = /(?:^|.)abcd/.exec("abcXzabcd");
+    assert(a[0], "zabcd");
+    assert(a.index, 4);
+    assert(/(^|x)abc/.exec("00xabc").index, 2);
+    assert(/(^|\s)abc/.exec("00 abc").index, 2);
+    assert(/(^|x)abc/i.exec("00XABC").index, 2);
+    re = /(^|x)abc/y;
+    re.lastIndex = 2;
+    assert(re.exec("00xabc")[0], "xabc");
+
+    re = /(a|ab)c/y;
+    re.lastIndex = 2;
+    a = re.exec("xxabc");
+    assert(a[0], "abc");
+    assert(a[1], "ab");
+    assert(re.lastIndex, 5);
+
+    seed = 0x12345678;
+    for (i = 0; i < 200; i++) {
+        s = "";
+        for (j = 0; j < 40; j++) {
+            seed = (seed * 1103515245 + 12345) | 0;
+            s += "abcde0123456789X"[(seed >>> 16) % 16];
+        }
+        if ((i % 4) == 0)
+            s = s.slice(0, 7) + "abcdefX---abcdef123" + s.slice(26);
+        else if ((i % 4) == 1)
+            s = s.slice(0, 19) + "xbcdef" + s.slice(25);
+
+        fast = /abcdef([0-9]+)/.exec(s);
+        generic = /(?=a)abcdef([0-9]+)/.exec(s);
+        assert(fast === null, generic === null);
+        if (fast) {
+            assert(fast[0], generic[0]);
+            assert(fast[1], generic[1]);
+            assert(fast.index, generic.index);
+        }
+
+        fast = /[a-z]bcdef/.exec(s);
+        generic = /(?=[a-z])[a-z]bcdef/.exec(s);
+        assert(fast === null, generic === null);
+        if (fast) {
+            assert(fast[0], generic[0]);
+            assert(fast.index, generic.index);
+        }
+    }
+
+    /* patterns excluded from literal metadata */
+    assert(/abc/i.exec("zABC").index, 1);
+    assert(/abc/u.exec("zabc").index, 1);
+    assert(/abc/v.exec("zabc").index, 1);
+    assert(/(abc)/.exec("zabc")[1], "abc");
+    assert(/a.c/.exec("za-c")[0], "a-c");
+
+    re = /abc/y;
+    re.lastIndex = 1;
+    assert(re.exec("xabc")[0], "abc");
+    assert(re.lastIndex, 4);
+    re.lastIndex = 0;
+    assert(re.exec("xabc"), null);
+    assert(re.lastIndex, 0);
+
+    assert("abcdefghi".replace(/(a)(b)(c)(d)(e)(f)(g)(h)(i)/,
+                               "$9$1"), "ia");
+    assert("abc".replace(/(a)(b)(c)/, "$3$2$1"), "cba");
 
     /* case where lastIndex points to the second element of a
        surrogate pair */
