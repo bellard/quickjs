@@ -1546,10 +1546,17 @@ static no_inline void *js_malloc_large(JSMallocContext *s, size_t size)
     return b->header.user_data;
 }
 
+static inline BOOL js_malloc_size_is_valid(size_t size)
+{
+    return size <= SIZE_MAX - (JS_MALLOC_ALIGN - 1) - sizeof(JSMallocLargeBlockHeader);
+}
+
 static void *__js_malloc(JSMallocContext *s, size_t size)
 {
     size_t total_size;
-    if (unlikely(size == 0)) {
+    if (unlikely(!js_malloc_size_is_valid(size))) {
+        return NULL;
+    } else if (unlikely(size == 0)) {
         JSMallocBlockHeader *b = get_zero_size_block(s);
         return b->user_data;
     } else {
@@ -1636,7 +1643,9 @@ static void __js_free(JSMallocContext *s, void *ptr)
 static void *__js_realloc(JSMallocContext *s, void *ptr, size_t size)
 {
     JSMallocBlockHeader *b;
-    if (ptr == NULL) {
+    if (unlikely(!js_malloc_size_is_valid(size))) {
+        return NULL;
+    } else if (ptr == NULL) {
         return __js_malloc(s, size);
     } else if (size == 0) {
         __js_free(s, ptr);
@@ -2157,7 +2166,8 @@ static void *js_def_malloc(JSMallocState *s, size_t size)
     /* Do not allocate zero bytes: behavior is platform dependent */
     assert(size != 0);
 
-    if (unlikely(s->malloc_size + size > s->malloc_limit))
+    if (unlikely(s->malloc_size > s->malloc_limit ||
+                 size > s->malloc_limit - s->malloc_size))
         return NULL;
 
     ptr = malloc(size);
@@ -2195,7 +2205,9 @@ static void *js_def_realloc(JSMallocState *s, void *ptr, size_t size)
         free(ptr);
         return NULL;
     }
-    if (s->malloc_size + size - old_size > s->malloc_limit)
+    if (s->malloc_size < old_size ||
+        s->malloc_size - old_size > s->malloc_limit ||
+        size > s->malloc_limit - (s->malloc_size - old_size))
         return NULL;
 
     ptr = realloc(ptr, size);
