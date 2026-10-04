@@ -460,6 +460,7 @@ test: qjs$(EXE)
 	$(WINE) ./qjs$(EXE) tests/test_bigint.js
 	$(WINE) ./qjs$(EXE) tests/test_cyclic_import.js
 	$(WINE) ./qjs$(EXE) tests/test_worker.js
+	$(WINE) ./qjs$(EXE) --memory-limit 4194304 tests/test_oom_backtrace.mjs
 ifndef CONFIG_WIN32
 	$(WINE) ./qjs$(EXE) tests/test_std.js
 	$(WINE) ./qjs$(EXE) tests/test_rw_handler.js

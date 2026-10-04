@@ -7562,7 +7562,7 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
                             int backtrace_flags)
 {
     JSStackFrame *sf;
-    JSValue str;
+    JSValue str, obj;
     DynBuf dbuf;
     const char *func_name_str;
     const char *str1;
@@ -7570,7 +7570,10 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
 
     if (!JS_IsObject(error_obj))
         return; /* protection in the out of memory case */
-    
+    /* hold a reference: the allocations below can raise an out of memory,
+       which frees the current exception, aliased by error_obj in the call
+       sites passing rt->current_exception (issue #529) */
+    obj = JS_DupValue(ctx, error_obj);
     js_dbuf_init(ctx, &dbuf);
     if (filename) {
         dbuf_printf(&dbuf, "    at %s", filename);
@@ -7579,15 +7582,15 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
         dbuf_putc(&dbuf, '\n');
         str = JS_NewString(ctx, filename);
         if (JS_IsException(str))
-            return;
+            goto out;
         /* Note: SpiderMonkey does that, could update once there is a standard */
-        if (JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_fileName, str,
+        if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_fileName, str,
                                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0 ||
-            JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_lineNumber, JS_NewInt32(ctx, line_num),
+            JS_DefinePropertyValue(ctx, obj, JS_ATOM_lineNumber, JS_NewInt32(ctx, line_num),
                                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0 ||
-            JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_columnNumber, JS_NewInt32(ctx, col_num),
+            JS_DefinePropertyValue(ctx, obj, JS_ATOM_columnNumber, JS_NewInt32(ctx, col_num),
                                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
-            return;
+            goto out;
         }
     }
     for(sf = ctx->rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
@@ -7634,8 +7637,10 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
     else
         str = JS_NewString(ctx, (char *)dbuf.buf);
     dbuf_free(&dbuf);
-    JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_stack, str,
+    JS_DefinePropertyValue(ctx, obj, JS_ATOM_stack, str,
                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+ out:
+    JS_FreeValue(ctx, obj);
 }
 
 /* Note: it is important that no exception is returned by this function */
