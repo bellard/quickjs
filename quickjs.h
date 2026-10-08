@@ -743,6 +743,13 @@ JSValue JS_NewBigInt128(JSContext *ctx, uint64_t low, uint64_t high);
 int JS_ToBigInt128(JSContext *ctx, uint64_t *plow, uint64_t *phigh, JSValueConst val);
 int JS_ToBigInt128Sat(JSContext *ctx, uint64_t *plow, uint64_t *phigh, JSValueConst val);
 
+static inline JSValue JS_ToBoolean(JSContext *ctx, JSValueConst val)
+{
+    return JS_NewBool(ctx, JS_ToBool(ctx, val));
+}
+JSValue JS_ToNumber(JSContext *ctx, JSValueConst val);
+JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
+
 JSValue JS_NewStringLen(JSContext *ctx, const char *str1, size_t len1);
 static inline JSValue JS_NewString(JSContext *ctx, const char *str)
 {
