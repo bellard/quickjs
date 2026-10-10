@@ -537,6 +537,7 @@ struct JSContext {
     JSValue array_proto_values;
     JSValue throw_type_error;
     JSValue eval_obj;
+    JSValue user_values[JS_CONTEXT_VALUE_COUNT];
 
     JSValue global_obj; /* global object */
     JSValue global_var_obj; /* contains the global let/const definitions */
@@ -555,6 +556,7 @@ struct JSContext {
     JSValue (*eval_internal)(JSContext *ctx, JSValueConst this_obj,
                              const char *input, size_t input_len,
                              const char *filename, int flags, int scope_idx);
+    const JSLocaleCallbacks *locale_callbacks;
     void *user_opaque;
 };
 
@@ -2235,6 +2237,28 @@ void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque)
     rt->interrupt_opaque = opaque;
 }
 
+void JS_SetLocaleCallbacks(JSContext *ctx, const JSLocaleCallbacks *callbacks)
+{
+    ctx->locale_callbacks = callbacks;
+}
+
+void JS_SetContextValue(JSContext *ctx, int idx, JSValue val)
+{
+    if (idx >= 0 && idx < JS_CONTEXT_VALUE_COUNT) {
+        JS_FreeValue(ctx, ctx->user_values[idx]);
+        ctx->user_values[idx] = val;
+    } else {
+        JS_FreeValue(ctx, val);
+    }
+}
+
+JSValue JS_GetContextValue(JSContext *ctx, int idx)
+{
+    if (idx >= 0 && idx < JS_CONTEXT_VALUE_COUNT)
+        return JS_DupValue(ctx, ctx->user_values[idx]);
+    return JS_UNDEFINED;
+}
+
 void JS_SetCanBlock(JSRuntime *rt, BOOL can_block)
 {
     rt->can_block = can_block;
@@ -2611,6 +2635,8 @@ JSContext *JS_NewContextRaw(JSRuntime *rt)
     ctx->iterator_ctor = JS_NULL;
     ctx->regexp_ctor = JS_NULL;
     ctx->promise_ctor = JS_NULL;
+    for(i = 0; i < JS_CONTEXT_VALUE_COUNT; i++)
+        ctx->user_values[i] = JS_NULL;
     init_list_head(&ctx->loaded_modules);
 
     if (JS_AddIntrinsicBasicObjects(ctx)) {
@@ -2728,6 +2754,9 @@ static void JS_MarkContext(JSRuntime *rt, JSContext *ctx,
     JS_MarkValue(rt, ctx->eval_obj, mark_func);
 
     JS_MarkValue(rt, ctx->array_proto_values, mark_func);
+    for(i = 0; i < JS_CONTEXT_VALUE_COUNT; i++) {
+        JS_MarkValue(rt, ctx->user_values[i], mark_func);
+    }
     for(i = 0; i < JS_NATIVE_ERROR_COUNT; i++) {
         JS_MarkValue(rt, ctx->native_error_proto[i], mark_func);
     }
@@ -2803,6 +2832,9 @@ void JS_FreeContext(JSContext *ctx)
     JS_FreeValue(ctx, ctx->eval_obj);
 
     JS_FreeValue(ctx, ctx->array_proto_values);
+    for(i = 0; i < JS_CONTEXT_VALUE_COUNT; i++) {
+        JS_FreeValue(ctx, ctx->user_values[i]);
+    }
     for(i = 0; i < JS_NATIVE_ERROR_COUNT; i++) {
         JS_FreeValue(ctx, ctx->native_error_proto[i]);
     }
@@ -4208,6 +4240,22 @@ static int string_getc(const JSString *p, int *pidx)
     }
     *pidx = idx;
     return c;
+}
+
+/* exported string helpers: caller must ensure val is a string */
+int js_string_get_len(JSValueConst val)
+{
+    return JS_VALUE_GET_STRING(val)->len;
+}
+
+int js_string_getc(JSValueConst val, int *pidx)
+{
+    return string_getc(JS_VALUE_GET_STRING(val), pidx);
+}
+
+JSValue js_sub_string_val(JSContext *ctx, JSValueConst val, int start, int end)
+{
+    return js_sub_string(ctx, JS_VALUE_GET_STRING(val), start, end);
 }
 
 static int string_buffer_write8(StringBuffer *s, const uint8_t *p, int len)
@@ -13718,11 +13766,12 @@ static JSValue JS_ToStringFree(JSContext *ctx, JSValue val)
     return ret;
 }
 
-static JSValue JS_ToLocaleStringFree(JSContext *ctx, JSValue val)
+static JSValue JS_ToLocaleStringFree(JSContext *ctx, JSValue val,
+                                     int argc, JSValueConst *argv)
 {
     if (JS_IsUndefined(val) || JS_IsNull(val))
         return JS_ToStringFree(ctx, val);
-    return JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, 0, NULL);
+    return JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, argc, argv);
 }
 
 JSValue JS_ToPropertyKey(JSContext *ctx, JSValueConst val)
@@ -42967,7 +43016,10 @@ static JSValue js_array_join(JSContext *ctx, JSValueConst this_val,
             goto fail;
         if (!JS_IsNull(el) && !JS_IsUndefined(el)) {
             if (toLocaleString) {
-                el = JS_ToLocaleStringFree(ctx, el);
+                JSValueConst locale_argv[2];
+                locale_argv[0] = (argc > 0) ? argv[0] : JS_UNDEFINED;
+                locale_argv[1] = (argc > 1) ? argv[1] : JS_UNDEFINED;
+                el = JS_ToLocaleStringFree(ctx, el, 2, locale_argv);
             }
             if (string_buffer_concat_value_free(b, el))
                 goto fail;
@@ -45197,7 +45249,12 @@ static JSValue js_number_toString(JSContext *ctx, JSValueConst this_val,
     val = js_thisNumberValue(ctx, this_val);
     if (JS_IsException(val))
         return val;
-    if (magic || JS_IsUndefined(argv[0])) {
+    if (magic && ctx->locale_callbacks && ctx->locale_callbacks->number_toLocaleString) {
+        JSValue ret;
+        ret = ctx->locale_callbacks->number_toLocaleString(ctx, val, argc, argv);
+        JS_FreeValue(ctx, val);
+        return ret;
+    } else if (magic || JS_IsUndefined(argv[0])) {
         base = 10;
     } else {
         base = js_get_radix(ctx, argv[0]);
@@ -46723,6 +46780,14 @@ static BOOL test_final_sigma(JSString *p, int sigma_pos)
     return !lre_is_cased(c1);
 }
 
+static int js_get_locale_lang(JSContext *ctx, int argc, JSValueConst *argv)
+{
+    const JSLocaleCallbacks *lc = ctx->locale_callbacks;
+    if (lc && lc->get_string_locale_lang)
+        return lc->get_string_locale_lang(ctx, argc, argv);
+    return 0;
+}
+
 static JSValue js_string_toLowerCase(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv, int to_lower)
 {
@@ -46730,7 +46795,16 @@ static JSValue js_string_toLowerCase(JSContext *ctx, JSValueConst this_val,
     StringBuffer b_s, *b = &b_s;
     JSString *p;
     int i, c, j, l;
+    int is_locale = to_lower >= 2;
+    int case_dir = to_lower & 1;
+    int locale_lang = 0;
     uint32_t res[LRE_CC_RES_LEN_MAX];
+
+    if (is_locale) {
+        locale_lang = js_get_locale_lang(ctx, argc, argv);
+        if (locale_lang < 0)
+            return JS_EXCEPTION;
+    }
 
     val = JS_ToStringCheckObject(ctx, this_val);
     if (JS_IsException(val))
@@ -46742,11 +46816,134 @@ static JSValue js_string_toLowerCase(JSContext *ctx, JSValueConst this_val,
         goto fail;
     for(i = 0; i < p->len;) {
         c = string_getc(p, &i);
-        if (c == 0x3a3 && to_lower && test_final_sigma(p, i - 1)) {
+        if (c == 0x3a3 && case_dir && test_final_sigma(p, i - 1)) {
             res[0] = 0x3c2; /* final sigma */
             l = 1;
+        } else if (locale_lang == 1 && case_dir) {
+            /* Turkish/Azeri lowercase */
+            if (c == 0x0130) { /* İ → i */
+                res[0] = 'i'; l = 1;
+            } else if (c == 'I') {
+                /* I → i if followed by COMBINING DOT ABOVE (U+0307) that can be removed */
+                int k = i, has_dot = 0, blocked = 0;
+                while (k < p->len) {
+                    int c2 = string_getc(p, &k);
+                    if (!lre_is_case_ignorable(c2))
+                        break;
+                    if (c2 == 0x0307) {
+                        has_dot = 1;
+                        break;
+                    }
+                    if (unicode_get_cc(c2) == 230)
+                        blocked = 1;
+                }
+                if (has_dot && !blocked) {
+                    /* output 'i' first, then intermediate case-ignorable chars, skip U+0307 */
+                    string_buffer_putc(b, 'i');
+                    l = 0;
+                    while (i < p->len) {
+                        int k2 = i;
+                        int c2 = string_getc(p, &k2);
+                        if (c2 == 0x0307) {
+                            i = k2;
+                            break;
+                        }
+                        if (!lre_is_case_ignorable(c2))
+                            break;
+                        string_buffer_putc(b, c2);
+                        i = k2;
+                    }
+                } else {
+                    res[0] = 0x0131; l = 1; /* I → ı */
+                }
+            } else {
+                l = lre_case_conv(res, c, case_dir);
+            }
+        } else if (locale_lang == 1 && !case_dir) {
+            /* Turkish/Azeri uppercase */
+            if (c == 'i') { /* i → İ */
+                res[0] = 0x0130; l = 1;
+            } else if (c == 0x0131) { /* ı → I */
+                res[0] = 'I'; l = 1;
+            } else {
+                l = lre_case_conv(res, c, case_dir);
+            }
+        } else if (locale_lang == 2 && case_dir) {
+            /* Lithuanian lowercase */
+            if (c == 'I' || c == 'J' || c == 0x012E) {
+                /* Check if followed by class-230 combining mark */
+                int k = i, has_cc230 = 0;
+                while (k < p->len) {
+                    int c2 = string_getc(p, &k);
+                    if (!lre_is_case_ignorable(c2)) {
+                        break;
+                    }
+                    if (unicode_get_cc(c2) == 230) {
+                        has_cc230 = 1;
+                        break;
+                    }
+                }
+                if (has_cc230) {
+                    l = lre_case_conv(res, c, case_dir);
+                    for(j = 0; j < l; j++) {
+                        if (string_buffer_putc(b, res[j]))
+                            goto fail;
+                    }
+                    if (string_buffer_putc(b, 0x0307))
+                        goto fail;
+                    l = 0;
+                } else {
+                    l = lre_case_conv(res, c, case_dir);
+                }
+            } else if (c == 0x00CC) {
+                /* I with grave → i + dot_above + grave */
+                if (string_buffer_putc(b, 'i')) goto fail;
+                if (string_buffer_putc(b, 0x0307)) goto fail;
+                if (string_buffer_putc(b, 0x0300)) goto fail;
+                l = 0;
+            } else if (c == 0x00CD) {
+                /* I with acute → i + dot_above + acute */
+                if (string_buffer_putc(b, 'i')) goto fail;
+                if (string_buffer_putc(b, 0x0307)) goto fail;
+                if (string_buffer_putc(b, 0x0301)) goto fail;
+                l = 0;
+            } else if (c == 0x0128) {
+                /* I with tilde → i + dot_above + tilde */
+                if (string_buffer_putc(b, 'i')) goto fail;
+                if (string_buffer_putc(b, 0x0307)) goto fail;
+                if (string_buffer_putc(b, 0x0303)) goto fail;
+                l = 0;
+            } else {
+                l = lre_case_conv(res, c, case_dir);
+            }
+        } else if (locale_lang == 2 && !case_dir) {
+            /* Lithuanian uppercase */
+            if (lre_is_soft_dotted(c)) {
+                l = lre_case_conv(res, c, case_dir);
+                for(j = 0; j < l; j++) {
+                    if (string_buffer_putc(b, res[j]))
+                        goto fail;
+                }
+                /* Look ahead for dot_above to consume */
+                while (i < p->len) {
+                    int k = i;
+                    int c2 = string_getc(p, &k);
+                    if (c2 == 0x0307) {
+                        i = k; /* skip dot_above */
+                        break;
+                    }
+                    if (!lre_is_case_ignorable(c2))
+                        break;
+                    if (string_buffer_putc(b, c2))
+                        goto fail;
+                    i = k;
+                }
+                l = 0;
+            } else {
+                l = lre_case_conv(res, c, case_dir);
+            }
         } else {
-            l = lre_case_conv(res, c, to_lower);
+            l = lre_case_conv(res, c, case_dir);
         }
         for(j = 0; j < l; j++) {
             if (string_buffer_putc(b, res[j]))
@@ -46908,6 +47105,9 @@ static JSValue js_string_localeCompare(JSContext *ctx, JSValueConst this_val,
     int cmp, a_len, b_len;
     uint32_t *a_buf, *b_buf;
 
+    if (ctx->locale_callbacks && ctx->locale_callbacks->string_localeCompare)
+        return ctx->locale_callbacks->string_localeCompare(ctx, this_val, argc, argv);
+    
     a = JS_ToStringCheckObject(ctx, this_val);
     if (JS_IsException(a))
         return JS_EXCEPTION;
@@ -46940,6 +47140,9 @@ static JSValue js_string_localeCompare(JSContext *ctx, JSValueConst this_val,
 {
     JSValue a, b;
     int cmp;
+
+    if (ctx->locale_callbacks && ctx->locale_callbacks->string_localeCompare)
+        return ctx->locale_callbacks->string_localeCompare(ctx, this_val, argc, argv);
 
     a = JS_ToStringCheckObject(ctx, this_val);
     if (JS_IsException(a))
@@ -47113,8 +47316,8 @@ static const JSCFunctionListEntry js_string_proto_funcs[] = {
     JS_CFUNC_DEF("valueOf", 0, js_string_toString ),
     JS_CFUNC_MAGIC_DEF("toLowerCase", 0, js_string_toLowerCase, 1 ),
     JS_CFUNC_MAGIC_DEF("toUpperCase", 0, js_string_toLowerCase, 0 ),
-    JS_CFUNC_MAGIC_DEF("toLocaleLowerCase", 0, js_string_toLowerCase, 1 ),
-    JS_CFUNC_MAGIC_DEF("toLocaleUpperCase", 0, js_string_toLowerCase, 0 ),
+    JS_CFUNC_MAGIC_DEF("toLocaleLowerCase", 0, js_string_toLowerCase, 3 ),
+    JS_CFUNC_MAGIC_DEF("toLocaleUpperCase", 0, js_string_toLowerCase, 2 ),
     JS_CFUNC_MAGIC_DEF("[Symbol.iterator]", 0, js_create_array_iterator, JS_ITERATOR_KIND_VALUE | 4 ),
     /* ES6 Annex B 2.3.2 etc. */
     JS_CFUNC_MAGIC_DEF("anchor", 1, js_string_CreateHTML, magic_string_anchor ),
@@ -55543,6 +55746,12 @@ static JSValue get_date_string(JSContext *ctx, JSValueConst this_val,
     fmt = (magic >> 4) & 0x0F;
     part = magic & 0x0F;
 
+    if (fmt == 3) {
+        const JSLocaleCallbacks *lc = ctx->locale_callbacks;
+        if (lc && lc->date_toLocaleString)
+            return lc->date_toLocaleString(ctx, this_val, argc, argv, part);
+    }
+
     res = get_date_fields(ctx, this_val, fields, fmt & 1, 0);
     if (res < 0)
         return JS_EXCEPTION;
@@ -56522,6 +56731,23 @@ static JSValue js_bigint_toString(JSContext *ctx, JSValueConst this_val,
     return JS_EXCEPTION;
 }
 
+static JSValue js_bigint_toLocaleString(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv)
+{
+    if (ctx->locale_callbacks && ctx->locale_callbacks->bigint_toLocaleString) {
+        JSValue val, ret;
+
+        val = js_thisBigIntValue(ctx, this_val);
+        if (JS_IsException(val))
+            return val;
+        ret = ctx->locale_callbacks->bigint_toLocaleString(ctx, val, argc, argv);
+        JS_FreeValue(ctx, val);
+        return ret;
+    }
+    
+    return js_bigint_toString(ctx, this_val, argc, argv);
+}
+
 static JSValue js_bigint_valueOf(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv)
 {
@@ -56624,6 +56850,7 @@ static const JSCFunctionListEntry js_bigint_funcs[] = {
 
 static const JSCFunctionListEntry js_bigint_proto_funcs[] = {
     JS_CFUNC_DEF("toString", 0, js_bigint_toString ),
+    JS_CFUNC_DEF("toLocaleString", 0, js_bigint_toLocaleString ),
     JS_CFUNC_DEF("valueOf", 0, js_bigint_valueOf ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "BigInt", JS_PROP_CONFIGURABLE ),
 };
@@ -58675,7 +58902,10 @@ static JSValue js_typed_array_join(JSContext *ctx, JSValueConst this_val,
             if (JS_IsException(el))
                 goto fail;
             if (toLocaleString) {
-                el = JS_ToLocaleStringFree(ctx, el);
+                JSValueConst locale_argv[2];
+                locale_argv[0] = (argc > 0) ? argv[0] : JS_UNDEFINED;
+                locale_argv[1] = (argc > 1) ? argv[1] : JS_UNDEFINED;
+                el = JS_ToLocaleStringFree(ctx, el, 2, locale_argv);
             }
             if (string_buffer_concat_value_free(b, el))
                 goto fail;

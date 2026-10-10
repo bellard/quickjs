@@ -936,6 +936,11 @@ static JSValue add_helpers1(JSContext *ctx)
 
     JS_SetPropertyStr(ctx, global_obj, "$262", JS_DupValue(ctx, obj262));
 
+#ifdef CONFIG_TEMPORAL_INTL
+    JS_AddIntrinsicTemporal(ctx);
+    JS_AddIntrinsicIntl(ctx);
+#endif
+
     JS_FreeValue(ctx, global_obj);
     return obj262;
 }

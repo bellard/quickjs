@@ -394,6 +394,20 @@ JSRuntime *JS_GetRuntime(JSContext *ctx);
 void JS_SetClassProto(JSContext *ctx, JSClassID class_id, JSValue obj);
 JSValue JS_GetClassProto(JSContext *ctx, JSClassID class_id);
 
+enum {
+    JS_INTL_CTOR_NUMBERFORMAT = 0,
+    JS_INTL_CTOR_DATETIMEFORMAT,
+    JS_INTL_CTOR_COLLATOR,
+    JS_INTL_CTOR_LISTFORMAT,
+    JS_INTL_CTOR_LOCALE,
+    JS_INTL_CTOR_DURATIONFORMAT,
+    JS_INTL_FALLBACK_SYMBOL,
+    JS_CONTEXT_VALUE_COUNT,
+};
+
+void JS_SetContextValue(JSContext *ctx, int idx, JSValue val);
+JSValue JS_GetContextValue(JSContext *ctx, int idx);
+
 /* the following functions are used to select the intrinsic object to
    save memory */
 JSContext *JS_NewContextRaw(JSRuntime *rt);
@@ -409,6 +423,10 @@ int JS_AddIntrinsicMapSet(JSContext *ctx);
 int JS_AddIntrinsicTypedArrays(JSContext *ctx);
 int JS_AddIntrinsicPromise(JSContext *ctx);
 int JS_AddIntrinsicWeakRef(JSContext *ctx);
+#ifdef CONFIG_TEMPORAL_INTL
+int JS_AddIntrinsicTemporal(JSContext *ctx);
+int JS_AddIntrinsicIntl(JSContext *ctx);
+#endif
 
 JSValue js_string_codePointRange(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv);
@@ -1171,6 +1189,17 @@ JSValue JS_IteratorNext(JSContext *ctx, JSValueConst enum_obj,
 int JS_IteratorClose(JSContext *ctx, JSValueConst enum_obj,
                      JS_BOOL is_exception_pending);
 
+#ifdef CONFIG_TEMPORAL_INTL
+/*
+ * Internal string helpers: caller must ensure 'val' is a JS_TAG_STRING
+ * (use JS_ToString() which never returns a rope). We may later export
+ * an opaque struct JSString and use it as parameter instead.
+ */
+int js_string_get_len(JSValueConst val);
+int js_string_getc(JSValueConst val, int *pidx);
+JSValue js_sub_string_val(JSContext *ctx, JSValueConst val, int start, int end);
+#endif /* CONFIG_TEMPORAL_INTL */
+
 /* C module definition */
 
 typedef int JSModuleInitFunc(JSContext *ctx, JSModuleDef *m);
@@ -1190,6 +1219,21 @@ int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
 int JS_SetModulePrivateValue(JSContext *ctx, JSModuleDef *m, JSValue val);
 JSValue JS_GetModulePrivateValue(JSContext *ctx, JSModuleDef *m);
                         
+/* locale specific callbacks to override the default functions */
+typedef struct JSLocaleCallbacks {
+    JSValue (*number_toLocaleString)(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv);
+    JSValue (*date_toLocaleString)(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv, int part);
+    JSValue (*string_localeCompare)(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv);
+    JSValue (*bigint_toLocaleString)(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv);
+    int (*get_string_locale_lang)(JSContext *ctx, int argc, JSValueConst *argv);
+} JSLocaleCallbacks;
+
+void JS_SetLocaleCallbacks(JSContext *ctx, const JSLocaleCallbacks *callbacks);
+
 /* debug value output */
 
 typedef struct {

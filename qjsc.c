@@ -60,6 +60,9 @@ static uint64_t feature_bitmap;
 static FILE *outfile;
 static BOOL byte_swap;
 static BOOL dynamic_export;
+#ifdef CONFIG_TEMPORAL_INTL
+static BOOL enable_experimental;
+#endif
 static const char *c_ident_prefix = "qjsc_";
 
 #define FE_ALL (-1)
@@ -406,9 +409,12 @@ void help(void)
            "-x          byte swapped output\n"
            "-p prefix   set the prefix of the generated C names\n"
            "-S n        set the maximum stack size to 'n' bytes (default=%d)\n"
-           "-s            strip all the debug info\n"
-           "--keep-source keep the source code\n",
-           JS_DEFAULT_STACK_SIZE);
+           "-s             strip all the debug info\n"
+           "--keep-source  keep the source code\n"
+#ifdef CONFIG_TEMPORAL_INTL
+           "--experimental enable experimental Temporal and Intl support\n"
+#endif
+           , JS_DEFAULT_STACK_SIZE);
 #ifdef CONFIG_LTO
     {
         int i;
@@ -491,6 +497,12 @@ static int output_executable(const char *out_filename, const char *cfilename,
        libraries */
     *arg++ = "-D";
     *arg++ = "_GNU_SOURCE";
+#ifdef CONFIG_TEMPORAL_INTL
+    if (enable_experimental) {
+        *arg++ = "-D";
+        *arg++ = "CONFIG_TEMPORAL_INTL";
+    }
+#endif
     *arg++ = "-I";
     *arg++ = inc_dir;
     *arg++ = "-o";
@@ -717,6 +729,12 @@ int main(int argc, char **argv)
                 strip_flags = 0;
                 continue;
             }
+#ifdef CONFIG_TEMPORAL_INTL
+            if (!strcmp(longopt, "experimental")) {
+                enable_experimental = TRUE;
+                continue;
+            }
+#endif            
             if (opt) {
                 fprintf(stderr, "qjsc: unknown option '-%c'\n", opt);
             } else {
@@ -807,6 +825,13 @@ int main(int argc, char **argv)
                         feature_list[i].init_name);
             }
         }
+        
+#ifdef CONFIG_TEMPORAL_INTL
+        if (enable_experimental) {
+            fprintf(fo, "  JS_AddIntrinsicTemporal(ctx);\n");
+            fprintf(fo, "  JS_AddIntrinsicIntl(ctx);\n");
+        }
+#endif
         /* add the precompiled modules (XXX: could modify the module
            loader instead) */
         for(i = 0; i < init_module_list.count; i++) {
