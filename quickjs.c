@@ -5997,7 +5997,8 @@ static JSValue JS_NewCFunction3(JSContext *ctx, JSCFunction *func,
     p->is_constructor = (cproto == JS_CFUNC_constructor ||
                          cproto == JS_CFUNC_constructor_magic ||
                          cproto == JS_CFUNC_constructor_or_func ||
-                         cproto == JS_CFUNC_constructor_or_func_magic);
+                         cproto == JS_CFUNC_constructor_or_func_magic ||
+                         cproto == JS_CFUNC_constructor_or_func_flags);
     if (!name)
         name = "";
     name_atom = JS_NewAtom(ctx, name);
@@ -17784,6 +17785,9 @@ static JSValue js_call_c_function(JSContext *ctx, JSValueConst func_obj,
         /* fall thru */
     case JS_CFUNC_generic:
         ret_val = func.generic(ctx, this_obj, argc, arg_buf);
+        break;
+    case JS_CFUNC_constructor_or_func_flags:
+        ret_val = func.constructor_or_func_flags(ctx, func_obj, this_obj, argc, arg_buf, flags);
         break;
     case JS_CFUNC_constructor_magic:
     case JS_CFUNC_constructor_or_func_magic:
