@@ -4569,6 +4569,19 @@ const char *JS_ToCStringLen2(JSContext *ctx, size_t *plen, JSValueConst val1, BO
     return NULL;
 }
 
+/* return an exception if the string contains a '\0' character */
+const char *JS_ToCStringNZ(JSContext *ctx, JSValueConst val1)
+{
+    size_t len;
+    const char *str = JS_ToCStringLen(ctx, &len, val1);
+    if (str && strlen(str) != len) {
+        JS_FreeCString(ctx, str);
+        JS_ThrowRangeError(ctx, "string contains embedded null character");
+        return NULL;
+    }
+    return str;
+}
+
 void JS_FreeCString(JSContext *ctx, const char *ptr)
 {
     JSString *p;
@@ -46752,7 +46765,7 @@ static JSValue js_string_toLowerCase(JSContext *ctx, JSValueConst this_val,
 #ifdef CONFIG_ALL_UNICODE
 
 /* return (-1, NULL) if exception, otherwise (len, buf) */
-static int JS_ToUTF32String(JSContext *ctx, uint32_t **pbuf, JSValueConst val1)
+int JS_ToUTF32String(JSContext *ctx, uint32_t **pbuf, JSValueConst val1)
 {
     JSValue val;
     JSString *p;

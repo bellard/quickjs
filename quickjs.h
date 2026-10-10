@@ -766,7 +766,9 @@ static inline const char *JS_ToCString(JSContext *ctx, JSValueConst val1)
 {
     return JS_ToCStringLen2(ctx, NULL, val1, 0);
 }
+const char *JS_ToCStringNZ(JSContext *ctx, JSValueConst val1);
 void JS_FreeCString(JSContext *ctx, const char *ptr);
+int JS_ToUTF32String(JSContext *ctx, uint32_t **pbuf, JSValueConst val);
 
 JSValue JS_NewSymbol(JSContext *ctx, const char *description, JS_BOOL is_global);
 
