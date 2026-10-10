@@ -1957,6 +1957,7 @@ void build_flags_tables(FILE *f)
     build_prop_table(f, "Case_Ignorable", PROP_Case_Ignorable, TRUE);
     build_prop_table(f, "ID_Start", PROP_ID_Start, TRUE);
     build_prop_table(f, "ID_Continue1", PROP_ID_Continue1, TRUE);
+    build_prop_table(f, "Soft_Dotted", PROP_Soft_Dotted, TRUE);
 }
 
 void dump_name_table(FILE *f, const char *cname, const char **tab_name, int len,
@@ -2211,7 +2212,8 @@ void build_prop_list_table(FILE *f)
     for(i = 0; i < PROP_TABLE_COUNT; i++) {
         if (i == PROP_ID_Start ||
             i == PROP_Case_Ignorable ||
-            i == PROP_ID_Continue1) {
+            i == PROP_ID_Continue1 ||
+            i == PROP_Soft_Dotted) {
             /* already generated */
         } else {
             build_prop_table(f, unicode_prop_name[i], i, FALSE);

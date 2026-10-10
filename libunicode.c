@@ -376,6 +376,13 @@ BOOL lre_is_case_ignorable(uint32_t c)
                            sizeof(unicode_prop_Case_Ignorable_index) / 3);
 }
 
+BOOL lre_is_soft_dotted(uint32_t c)
+{
+    return lre_is_in_table(c, unicode_prop_Soft_Dotted_table,
+                           unicode_prop_Soft_Dotted_index,
+                           sizeof(unicode_prop_Soft_Dotted_index) / 3);
+}
+
 /* character range */
 
 static __maybe_unused void cr_dump(CharRange *cr)
@@ -1030,7 +1037,7 @@ static int unicode_compose_pair(uint32_t c0, uint32_t c1)
 }
 
 /* return the combining class of character c (between 0 and 255) */
-static int unicode_get_cc(uint32_t c)
+int unicode_get_cc(uint32_t c)
 {
     uint32_t code, n, type, cc, c1, b;
     int pos;

@@ -134,6 +134,8 @@ extern uint8_t const lre_ctype_bits[256];
 /* zero or non-zero return value */
 int lre_is_cased(uint32_t c);
 int lre_is_case_ignorable(uint32_t c);
+int lre_is_soft_dotted(uint32_t c);
+int unicode_get_cc(uint32_t c);
 int lre_is_id_start(uint32_t c);
 int lre_is_id_continue(uint32_t c);
 
