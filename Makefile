@@ -38,7 +38,7 @@ endif
 # consider warnings as errors (for development)
 #CONFIG_WERROR=y
 # force 32 bit build on x86_64
-CONFIG_M32=y
+#CONFIG_M32=y
 # cosmopolitan build (see https://github.com/jart/cosmopolitan)
 #CONFIG_COSMO=y
 # experimental Temporal and Intl support
