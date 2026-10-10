@@ -726,12 +726,18 @@ JS_BOOL JS_StrictEq(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 JS_BOOL JS_SameValue(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 JS_BOOL JS_SameValueZero(JSContext *ctx, JSValueConst op1, JSValueConst op2);
 
+JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
+#define JS_HINT_STRING  0
+#define JS_HINT_NUMBER  1
+#define JS_HINT_NONE    2
+JSValue JS_ToPrimitive(JSContext *ctx, JSValueConst val, int hint);
 int JS_ToBool(JSContext *ctx, JSValueConst val); /* return -1 for JS_EXCEPTION */
 int JS_ToInt32(JSContext *ctx, int32_t *pres, JSValueConst val);
 static inline int JS_ToUint32(JSContext *ctx, uint32_t *pres, JSValueConst val)
 {
     return JS_ToInt32(ctx, (int32_t*)pres, val);
 }
+int JS_ToInt32Sat(JSContext *ctx, int *pres, JSValueConst val);
 int JS_ToInt64(JSContext *ctx, int64_t *pres, JSValueConst val);
 int JS_ToIndex(JSContext *ctx, uint64_t *plen, JSValueConst val);
 int JS_ToFloat64(JSContext *ctx, double *pres, JSValueConst val);
