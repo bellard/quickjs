@@ -40054,21 +40054,16 @@ int JS_SetConstructor(JSContext *ctx, JSValueConst func_obj,
                               0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
 }
 
-#define JS_NEW_CTOR_NO_GLOBAL   (1 << 0) /* don't create a global binding */
-#define JS_NEW_CTOR_PROTO_CLASS (1 << 1) /* the prototype class is 'class_id' instead of JS_CLASS_OBJECT */
-#define JS_NEW_CTOR_PROTO_EXIST (1 << 2) /* the prototype is already defined */
-#define JS_NEW_CTOR_READONLY    (1 << 3) /* read-only constructor field */
-
 /* Return the constructor and. Define it as a global variable unless
    JS_NEW_CTOR_NO_GLOBAL is set. The new class inherit from
    parent_ctor if it is not JS_UNDEFINED. if class_id is != -1,
    class_proto[class_id] is set. */
-static JSValue JS_NewCConstructor(JSContext *ctx, int class_id, const char *name,
-                                  JSCFunction *func, int length, JSCFunctionEnum cproto, int magic,
-                                  JSValueConst parent_ctor,
-                                  const JSCFunctionListEntry *ctor_fields, int n_ctor_fields,
-                                  const JSCFunctionListEntry *proto_fields, int n_proto_fields,
-                                  int flags)
+JSValue JS_NewCConstructor(JSContext *ctx, int class_id, const char *name,
+                           JSCFunction *func, int length, JSCFunctionEnum cproto, int magic,
+                           JSValueConst parent_ctor,
+                           const JSCFunctionListEntry *ctor_fields, int n_ctor_fields,
+                           const JSCFunctionListEntry *proto_fields, int n_proto_fields,
+                           int flags)
 {
     JSValue ctor = JS_UNDEFINED, proto, parent_proto;
     int proto_class_id, proto_flags, ctor_flags;
