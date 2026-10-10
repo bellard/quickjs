@@ -55272,7 +55272,7 @@ static int64_t floor_div(int64_t a, int64_t b) {
 static JSValue js_Date_parse(JSContext *ctx, JSValueConst this_val,
                              int argc, JSValueConst *argv);
 
-static __exception int JS_ThisTimeValue(JSContext *ctx, double *valp, JSValueConst this_val)
+__exception int JS_ThisDateValue(JSContext *ctx, double *valp, JSValueConst this_val)
 {
     if (JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT) {
         JSObject *p = JS_VALUE_GET_OBJ(this_val);
@@ -55283,7 +55283,7 @@ static __exception int JS_ThisTimeValue(JSContext *ctx, double *valp, JSValueCon
     return -1;
 }
 
-static JSValue JS_SetThisTimeValue(JSContext *ctx, JSValueConst this_val, double v)
+static JSValue JS_SetThisDateValue(JSContext *ctx, JSValueConst this_val, double v)
 {
     if (JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT) {
         JSObject *p = JS_VALUE_GET_OBJ(this_val);
@@ -55338,7 +55338,7 @@ static __exception int get_date_fields(JSContext *ctx, JSValueConst obj,
     double dval;
     int64_t d, days, wd, y, i, md, h, m, s, ms, tz = 0;
 
-    if (JS_ThisTimeValue(ctx, &dval, obj))
+    if (JS_ThisDateValue(ctx, &dval, obj))
         return -1;
 
     if (isnan(dval)) {
@@ -55521,7 +55521,7 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
     if (res && argc > 0)
         d = set_date_fields(fields, is_local);
 
-    return JS_SetThisTimeValue(ctx, this_val, d);
+    return JS_SetThisDateValue(ctx, this_val, d);
 }
 
 /* fmt:
@@ -56244,7 +56244,7 @@ static JSValue js_date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val,
     // getTimezoneOffset()
     double v;
 
-    if (JS_ThisTimeValue(ctx, &v, this_val))
+    if (JS_ThisDateValue(ctx, &v, this_val))
         return JS_EXCEPTION;
     if (isnan(v))
         return JS_NAN;
@@ -56259,7 +56259,7 @@ static JSValue js_date_getTime(JSContext *ctx, JSValueConst this_val,
     // getTime()
     double v;
 
-    if (JS_ThisTimeValue(ctx, &v, this_val))
+    if (JS_ThisDateValue(ctx, &v, this_val))
         return JS_EXCEPTION;
     return JS_NewFloat64(ctx, v);
 }
@@ -56270,9 +56270,9 @@ static JSValue js_date_setTime(JSContext *ctx, JSValueConst this_val,
     // setTime(v)
     double v;
 
-    if (JS_ThisTimeValue(ctx, &v, this_val) || JS_ToFloat64(ctx, &v, argv[0]))
+    if (JS_ThisDateValue(ctx, &v, this_val) || JS_ToFloat64(ctx, &v, argv[0]))
         return JS_EXCEPTION;
-    return JS_SetThisTimeValue(ctx, this_val, time_clip(v));
+    return JS_SetThisDateValue(ctx, this_val, time_clip(v));
 }
 
 static JSValue js_date_setYear(JSContext *ctx, JSValueConst this_val,
@@ -56282,7 +56282,7 @@ static JSValue js_date_setYear(JSContext *ctx, JSValueConst this_val,
     double y;
     JSValueConst args[1];
 
-    if (JS_ThisTimeValue(ctx, &y, this_val) || JS_ToFloat64(ctx, &y, argv[0]))
+    if (JS_ThisDateValue(ctx, &y, this_val) || JS_ToFloat64(ctx, &y, argv[0]))
         return JS_EXCEPTION;
     y = +y;
     if (isfinite(y)) {

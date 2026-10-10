@@ -787,6 +787,7 @@ JSValue JS_NewArray(JSContext *ctx);
 int JS_IsArray(JSContext *ctx, JSValueConst val);
 
 JSValue JS_NewDate(JSContext *ctx, double epoch_ms);
+int JS_ThisDateValue(JSContext *ctx, double *valp, JSValueConst this_val);
 
 JSValue JS_GetPropertyInternal(JSContext *ctx, JSValueConst obj,
                                JSAtom prop, JSValueConst receiver,
