@@ -2969,7 +2969,7 @@ static JSValue js_datetimeformat_bound_format(JSContext *ctx, JSValueConst this_
             JS_GetOpaque(argv[0], js_plainyearmonth_class_id) ||
             JS_GetOpaque(argv[0], js_plainmonthday_class_id) ||
             JS_GetOpaque(argv[0], js_plaindatetime_class_id)) {
-            s_copy.timeZone = "+00:00";
+            s_copy.timeZone = (char *)"+00:00";
             s_copy.timeZoneName = DTF_TIMEZONE_UNSET;
         }
         dtf_resolve_style_for_temporal(&s_copy, argv[0]);
@@ -3032,7 +3032,7 @@ static JSValue js_datetimeformat_formatToParts(JSContext *ctx, JSValueConst this
             JS_GetOpaque(argv[0], js_plainyearmonth_class_id) ||
             JS_GetOpaque(argv[0], js_plainmonthday_class_id) ||
             JS_GetOpaque(argv[0], js_plaindatetime_class_id)) {
-            s_copy.timeZone = "+00:00";
+            s_copy.timeZone = (char *)"+00:00";
             s_copy.timeZoneName = DTF_TIMEZONE_UNSET;
         }
         dtf_resolve_style_for_temporal(&s_copy, argv[0]);
@@ -3155,7 +3155,7 @@ static JSValue js_datetimeformat_formatRange(JSContext *ctx, JSValueConst this_v
                 JS_GetOpaque(argv[0], js_plainmonthday_class_id) ||
                 JS_GetOpaque(argv[0], js_plaindatetime_class_id)) {
                 s_copy = *s;
-                s_copy.timeZone = "+00:00";
+                s_copy.timeZone = (char *)"+00:00";
                 s_copy.timeZoneName = DTF_TIMEZONE_UNSET;
                 s_use = &s_copy;
             }
@@ -3394,7 +3394,7 @@ static JSValue js_datetimeformat_formatRangeToParts(JSContext *ctx, JSValueConst
     JSDateTimeFormatData *s = JS_GetOpaque2(ctx, unwrapped, js_datetimeformat_class_id);
     JSDateTimeFormatData *s_use = s;
     JSDateTimeFormatData s_copy;
-    JSValue start_arr, end_arr, ret;
+    JSValue start_arr, end_arr, ret = JS_UNDEFINED;
     double x, y;
     int i, start_len, end_len;
     uint32_t idx;
@@ -3441,7 +3441,7 @@ static JSValue js_datetimeformat_formatRangeToParts(JSContext *ctx, JSValueConst
                 JS_GetOpaque(argv[0], js_plainmonthday_class_id) ||
                 JS_GetOpaque(argv[0], js_plaindatetime_class_id)) {
                 s_copy = *s;
-                s_copy.timeZone = "+00:00";
+                s_copy.timeZone = (char *)"+00:00";
                 s_copy.timeZoneName = DTF_TIMEZONE_UNSET;
                 s_use = &s_copy;
             }
@@ -3552,17 +3552,17 @@ static JSValue js_datetimeformat_formatRangeToParts(JSContext *ctx, JSValueConst
 
             {
                 JSValue len_val = JS_GetPropertyStr(ctx, start_arr, "length");
-                if (!JS_IsException(len_val)) {
-                    JS_ToInt32(ctx, &start_len, len_val);
-                    JS_FreeValue(ctx, len_val);
-                }
+                if (JS_IsException(len_val))
+                    goto fail;
+                JS_ToInt32(ctx, &start_len, len_val);
+                JS_FreeValue(ctx, len_val);
             }
             {
                 JSValue len_val = JS_GetPropertyStr(ctx, end_arr, "length");
-                if (!JS_IsException(len_val)) {
-                    JS_ToInt32(ctx, &end_len, len_val);
-                    JS_FreeValue(ctx, len_val);
-                }
+                if (JS_IsException(len_val))
+                    goto fail;
+                JS_ToInt32(ctx, &end_len, len_val);
+                JS_FreeValue(ctx, len_val);
             }
 
             for (j = 0; j < start_len && j < end_len; j++) {
@@ -3904,10 +3904,12 @@ int js_add_datetimeformat(JSContext *ctx, JSValue intl_obj)
     JS_NewClassID(&js_datetimeformat_class_id);
     JS_NewClass(JS_GetRuntime(ctx), js_datetimeformat_class_id, &js_datetimeformat_class);
 
+    JSCFunctionType ft = { .constructor_or_func_flags = js_datetimeformat_constructor };
+
     if (JS_IsException(js_intl_new_constructor(ctx, intl_obj,
                                                 JS_INTL_CTOR_DATETIMEFORMAT,
                                                 js_datetimeformat_class_id, "DateTimeFormat",
-                                                (JSCFunction *)js_datetimeformat_constructor, 0,
+                                                ft.generic, 0,
                                                 JS_CFUNC_constructor_or_func_flags, 0,
                                                 js_datetimeformat_static_funcs, countof(js_datetimeformat_static_funcs),
                                                 js_datetimeformat_proto_funcs, countof(js_datetimeformat_proto_funcs))))

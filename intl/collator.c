@@ -802,10 +802,12 @@ int js_add_collator(JSContext *ctx, JSValue intl_obj)
     JS_NewClassID(&js_collator_class_id);
     JS_NewClass(JS_GetRuntime(ctx), js_collator_class_id, &js_collator_class);
 
+    JSCFunctionType ft = { .constructor_or_func_flags = js_collator_constructor };
+    
     if (JS_IsException(js_intl_new_constructor(ctx, intl_obj,
                                                 JS_INTL_CTOR_COLLATOR,
                                                 js_collator_class_id, "Collator",
-                                                (JSCFunction *)js_collator_constructor, 0,
+                                                ft.generic, 0,
                                                 JS_CFUNC_constructor_or_func_flags, 0,
                                                 js_collator_static_funcs, countof(js_collator_static_funcs),
                                                 js_collator_proto_funcs, countof(js_collator_proto_funcs))))

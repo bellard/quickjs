@@ -260,6 +260,7 @@ void ti_get_default_timezone(char *buf, size_t buf_size)
         pstrcpy(buf, buf_size, tz);
         return;
     }
+#if !defined(_WIN32)
     {
         char linkbuf[512];
         ssize_t len = readlink("/etc/localtime", linkbuf, sizeof(linkbuf) - 1);
@@ -290,6 +291,7 @@ void ti_get_default_timezone(char *buf, size_t buf_size)
             fclose(f);
         }
     }
+#endif    
     /* fallback: compute offset from localtime */
     {
         time_t t = time(NULL);

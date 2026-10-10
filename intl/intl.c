@@ -801,11 +801,11 @@ char *canonicalize_locale(JSContext *ctx, const char *locale)
                 break;
             }
         }
-        subtags[0] = "sr";
+        subtags[0] = (char *)"sr";
         if (!found_script) {
             if (n > 1)
                 memmove(&subtags[2], &subtags[1], (size_t)(n - 1) * sizeof(char *));
-            subtags[1] = "Latn";
+            subtags[1] = (char *)"Latn";
             n++;
         }
     } else if (!strcasecmp(subtags[0], "cnr")) {
@@ -820,11 +820,11 @@ char *canonicalize_locale(JSContext *ctx, const char *locale)
                 break;
             }
         }
-        subtags[0] = "sr";
+        subtags[0] = (char *)"sr";
         if (!found_region) {
             if (insert_pos < n)
                 memmove(&subtags[insert_pos + 1], &subtags[insert_pos], (size_t)(n - insert_pos) * sizeof(char *));
-            subtags[insert_pos] = "ME";
+            subtags[insert_pos] = (char *)"ME";
             n++;
         }
     } else if (n == 2 && !strcasecmp(subtags[0], "hy") && !strcasecmp(subtags[1], "arevela")) {
@@ -994,7 +994,7 @@ char *canonicalize_locale(JSContext *ctx, const char *locale)
         if (has_alalc97 && has_hepburn) {
             for (i = 0; i < base_end; i++) {
                 if (!strcmp(subtags[i], "hepburn")) {
-                    subtags[i] = "";
+                    subtags[i] = (char *)"";
                 }
             }
         }
@@ -1038,18 +1038,18 @@ char *canonicalize_locale(JSContext *ctx, const char *locale)
         }
         if (gf_variant >= 0) {
             if (!strcasecmp(subtags[0], "art")) {
-                subtags[0] = "jbo";
+                subtags[0] = (char *)"jbo";
             } else if (!strcasecmp(subtags[0], "cel")) {
-                subtags[0] = "xtg";
+                subtags[0] = (char *)"xtg";
             } else if (!strcasecmp(subtags[0], "zh")) {
                 if (!strcasecmp(subtags[gf_variant], "guoyu"))
-                    subtags[0] = "zh";
+                    subtags[0] = (char *)"zh";
                 else if (!strcasecmp(subtags[gf_variant], "hakka"))
-                    subtags[0] = "hak";
+                    subtags[0] = (char *)"hak";
                 else if (!strcasecmp(subtags[gf_variant], "xiang"))
-                    subtags[0] = "hsn";
+                    subtags[0] = (char *)"hsn";
             }
-            subtags[gf_variant] = "";
+            subtags[gf_variant] = (char *)"";
             /* compact empty slots */
             {
                 int j, k = 0;
@@ -1121,7 +1121,7 @@ char *canonicalize_locale(JSContext *ctx, const char *locale)
                     if (var_start < tlang_end && tlang_end - var_start > 1)
                         qsort(&subtags[t_start + var_start], (size_t)(tlang_end - var_start), sizeof(char *), cmp_str);
                     if (!strcmp(subtags[t_start], "iw"))
-                        subtags[t_start] = "he";
+                        subtags[t_start] = (char *)"he";
                 }
                 {
                     typedef struct { const char *key; int nvalues; const char *values[4]; } TFieldEntry;

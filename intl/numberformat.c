@@ -3722,10 +3722,12 @@ int js_add_numberformat(JSContext *ctx, JSValue intl_obj)
     JS_NewClassID(&js_numberformat_class_id);
     JS_NewClass(JS_GetRuntime(ctx), js_numberformat_class_id, &js_numberformat_class);
 
+    JSCFunctionType ft = { .constructor_or_func_flags = js_numberformat_constructor };
+    
     if (JS_IsException(js_intl_new_constructor(ctx, intl_obj,
                                                 JS_INTL_CTOR_NUMBERFORMAT,
                                                 js_numberformat_class_id, "NumberFormat",
-                                                (JSCFunction *)js_numberformat_constructor, 0,
+                                                ft.generic, 0,
                                                 JS_CFUNC_constructor_or_func_flags, 0,
                                                 js_numberformat_static_funcs, countof(js_numberformat_static_funcs),
                                                 js_numberformat_proto_funcs, countof(js_numberformat_proto_funcs))))
