@@ -776,6 +776,8 @@ JSValue JS_NewObjectProtoClass(JSContext *ctx, JSValueConst proto, JSClassID cla
 JSValue JS_NewObjectClass(JSContext *ctx, int class_id);
 JSValue JS_NewObjectProto(JSContext *ctx, JSValueConst proto);
 JSValue JS_NewObject(JSContext *ctx);
+JSValue JS_CreateFromConstructor(JSContext *ctx, JSValueConst ctor, 
+                                 int class_id);
 
 JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_IsConstructor(JSContext* ctx, JSValueConst val);
