@@ -16679,7 +16679,7 @@ static JSValue JS_GetIterator2(JSContext *ctx, JSValueConst obj,
     return enum_obj;
 }
 
-static JSValue JS_GetIterator(JSContext *ctx, JSValueConst obj, BOOL is_async)
+JSValue JS_GetIterator(JSContext *ctx, JSValueConst obj, BOOL is_async)
 {
     JSValue method, ret, sync_iter;
 
@@ -16755,8 +16755,8 @@ static JSValue JS_IteratorNext2(JSContext *ctx, JSValueConst enum_obj,
 }
 
 /* Note: always return JS_UNDEFINED when *pdone = TRUE. */
-static JSValue JS_IteratorNext(JSContext *ctx, JSValueConst enum_obj,
-                               JSValueConst method, BOOL *pdone)
+JSValue JS_IteratorNext(JSContext *ctx, JSValueConst enum_obj,
+                        JSValueConst method, BOOL *pdone)
 {
     JSValue obj, value, done_val;
     int done;
@@ -16790,8 +16790,8 @@ static JSValue JS_IteratorNext(JSContext *ctx, JSValueConst enum_obj,
 }
 
 /* return < 0 in case of exception */
-static int JS_IteratorClose(JSContext *ctx, JSValueConst enum_obj,
-                            BOOL is_exception_pending)
+int JS_IteratorClose(JSContext *ctx, JSValueConst enum_obj,
+                     BOOL is_exception_pending)
 {
     JSValue method, ret, ex_obj;
     int res;
