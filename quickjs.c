@@ -47883,6 +47883,8 @@ static const JSCFunctionListEntry js_math_obj[] = {
 
 /* Date */
 
+static int64_t days_from_year(int64_t y);
+
 /* OS dependent. d = argv[0] is in ms from 1970. Return the difference
    between UTC time and local time 'd' in minutes */
 static int getTimezoneOffset(int64_t time)
@@ -47914,20 +47916,25 @@ static int getTimezoneOffset(int64_t time)
     ti = time;
 #if defined(_WIN32)
     {
-        struct tm *tm;
-        time_t gm_ti, loc_ti;
+        struct tm gm_tm, *tm;
+        int64_t days;
 
         tm = gmtime(&ti);
         if (!tm)
             return 0;
-        gm_ti = mktime(tm);
+        /* gmtime() and localtime() may use the same static buffer. */
+        gm_tm = *tm;
 
         tm = localtime(&ti);
         if (!tm)
             return 0;
-        loc_ti = mktime(tm);
-
-        res = (gm_ti - loc_ti) / 60;
+        /* Compare the calendar fields for the same instant. Passing the UTC
+           fields to mktime() interprets them as local standard time because
+           gmtime() sets tm_isdst to zero, losing the actual DST offset. */
+        days = days_from_year(gm_tm.tm_year + 1900) -
+            days_from_year(tm->tm_year + 1900) + gm_tm.tm_yday - tm->tm_yday;
+        res = days * 1440 + (gm_tm.tm_hour - tm->tm_hour) * 60 +
+            gm_tm.tm_min - tm->tm_min;
     }
 #else
     {
