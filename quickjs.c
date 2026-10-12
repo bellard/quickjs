@@ -57271,26 +57271,27 @@ static JSValue js_promise_withResolvers(JSContext *ctx,
         return result_promise;
     obj = JS_NewObject(ctx);
     if (JS_IsException(obj))
-        goto exception;
+        goto exception1;
     if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_promise, result_promise,
                                JS_PROP_C_W_E) < 0) {
-        goto exception;
+        goto exception2;
     }
-    result_promise = JS_UNDEFINED;
     if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_resolve, resolving_funcs[0],
                                JS_PROP_C_W_E) < 0) {
-        goto exception;
+        goto exception3;
     }
-    resolving_funcs[0] = JS_UNDEFINED;
     if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_reject, resolving_funcs[1],
                                JS_PROP_C_W_E) < 0) {
-        goto exception;
+        goto exception4;
     }
     return obj;
-exception:
-    JS_FreeValue(ctx, resolving_funcs[0]);
-    JS_FreeValue(ctx, resolving_funcs[1]);
+exception1:
     JS_FreeValue(ctx, result_promise);
+exception2:
+    JS_FreeValue(ctx, resolving_funcs[0]);
+exception3:
+    JS_FreeValue(ctx, resolving_funcs[1]);
+exception4:
     JS_FreeValue(ctx, obj);
     return JS_EXCEPTION;
 }
