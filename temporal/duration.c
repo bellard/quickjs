@@ -1323,31 +1323,37 @@ static js_uint128_t shr_rnd128(js_uint128_t a, int n)
 }
 
 /* Divide a by b as a correctly-rounded double. */
-static double duration_total_div(js_int128_t a, uint64_t b)
+static double duration_total_div(js_int128_t a, int64_t b)
 {
     int a_exp, b_exp, q_exp, r_exp, sgn, shift;
     js_uint128_t a1, q, r;
-    uint64_t m, res;
+    uint64_t b1, m, res;
 
     if (a > -((int64_t)1 << 53) && a < ((int64_t)1 << 53) &&
-        b < ((uint64_t)1 << 53)) {
+        b > -((int64_t)1 << 53) && b < ((int64_t)1 << 53)) {
         /* fast case */
-        return (double)(int64_t)a / (double)(int64_t)b;
+        return (double)(int64_t)a / (double)b;
     }
 
     if (a == 0)
         return 0;
-
-    if (a < 0) {
+    if (b < 0) {
         sgn = 1;
-        a1 = -a;
+        b1 = -b;
     } else {
         sgn = 0;
+        b1 = b;
+    }
+
+    if (a < 0) {
+        sgn ^= 1;
+        a1 = -a;
+    } else {
         a1 = a;
     }
 
     a_exp = 127 - clz128(a1); /* 2^a_exp <= a < 2^(a_exp + 1) */
-    b_exp = 63 - clz64(b); /* 2^b_exp <= b < 2^(b_exp + 1) */
+    b_exp = 63 - clz64(b1); /* 2^b_exp <= b < 2^(b_exp + 1) */
 
     /* Ensure that the quotient is >= 2^54: 
        2^(a_exp - b_exp - 1) < a/b < 2^(a_exp - b_exp + 1) */
@@ -1355,8 +1361,8 @@ static double duration_total_div(js_int128_t a, uint64_t b)
     a1 <<= shift;
     r_exp = -shift;
     
-    q = a1 / b;
-    r = a1 % b;
+    q = a1 / b1;
+    r = a1 % b1;
     q |= (r != 0);
     q_exp = 127 - clz128(q);
     assert(q_exp >= 54);
@@ -1630,13 +1636,8 @@ static double ti_iso_total_in_unit(int rel_year, int rel_month, int rel_day,
         if (end_ord == start_ord) end_ord = start_ord + sign; /* shouldn't happen */
         js_int128_t num = (js_int128_t)years * (end_ord - start_ord) * DAY_NS
                      + ((js_int128_t)(target_ord - start_ord) * DAY_NS + (target_time_ns - rel_time_ns)) * sign;
-        js_int128_t den = (js_int128_t)(end_ord - start_ord) * DAY_NS;
-        js_int128_t q = num / den;
-        js_int128_t r = num % den;
-        if (q <= 1 && q >= -1)
-            return (double)num / (double)den;
-        else
-            return (double)q + (double)r / (double)den;
+        int64_t den = (end_ord - start_ord) * DAY_NS;
+        return duration_total_div(num, den);
     } else if (unit == TI_UNIT_MONTH) {
         ti_iso_calendar_date_until(rel_year, rel_month, rel_day,
                                     target_year, target_month, target_day,
@@ -1671,13 +1672,8 @@ static double ti_iso_total_in_unit(int rel_year, int rel_month, int rel_day,
 
         js_int128_t num = (js_int128_t)r1 * (end_ord - start_ord) * DAY_NS
                      + ((js_int128_t)(target_ord - start_ord) * DAY_NS + (target_time_ns - rel_time_ns)) * sign;
-        js_int128_t den = (js_int128_t)(end_ord - start_ord) * DAY_NS;
-        js_int128_t q = num / den;
-        js_int128_t r = num % den;
-        if (q <= 1 && q >= -1)
-            return (double)num / (double)den;
-        else
-            return (double)q + (double)r / (double)den;
+        int64_t den = (end_ord - start_ord) * DAY_NS;
+        return duration_total_div(num, den);
     } else if (unit == TI_UNIT_WEEK) {
         ti_iso_calendar_date_until(rel_year, rel_month, rel_day,
                                     target_year, target_month, target_day,
@@ -1690,13 +1686,8 @@ static double ti_iso_total_in_unit(int rel_year, int rel_month, int rel_day,
         if (end_ord == start_ord) end_ord = start_ord + sign; /* shouldn't happen */
         js_int128_t num = (js_int128_t)weeks * (end_ord - start_ord) * DAY_NS
                      + ((js_int128_t)(target_ord - start_ord) * DAY_NS + (target_time_ns - rel_time_ns)) * sign;
-        js_int128_t den = (js_int128_t)(end_ord - start_ord) * DAY_NS;
-        js_int128_t q = num / den;
-        js_int128_t r = num % den;
-        if (q <= 1 && q >= -1)
-            return (double)num / (double)den;
-        else
-            return (double)q + (double)r / (double)den;
+        int64_t den = (end_ord - start_ord) * DAY_NS;
+        return duration_total_div(num, den);
     }
     return 0.0;
 }
