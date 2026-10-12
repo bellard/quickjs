@@ -18,7 +18,22 @@
 
 static int nbinterrupts = 0;
 
-int lre_check_stack_overflow(void *opaque, size_t alloca_size) { return 0; }
+/* same check as js_check_stack_overflow() in quickjs.c: the regexp parser
+   is recursive, so deeply nested patterns must fail instead of crashing */
+#define FUZZ_STACK_SIZE (1024 * 1024)
+
+static uintptr_t stack_limit;
+
+/* Note: OS and CPU dependent */
+static inline uintptr_t get_stack_pointer(void)
+{
+    return (uintptr_t)__builtin_frame_address(0);
+}
+
+int lre_check_stack_overflow(void *opaque, size_t alloca_size)
+{
+    return get_stack_pointer() - alloca_size < stack_limit;
+}
 
 void *lre_realloc(void *opaque, void *ptr, size_t size)
 {
@@ -36,8 +51,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     uint8_t *bc;
     char error_msg[64];
     const uint8_t *input;
-    uint8_t *capture[255 * 2];
+    /* lre_exec() needs lre_get_alloc_count() entries: 2 per capture plus
+       the registers, each count being at most 255 */
+    uint8_t *capture[255 * 3];
     size_t size1 = size;
+
+    stack_limit = get_stack_pointer() - FUZZ_STACK_SIZE;
 
     //Splits buffer into 2 sub buffers delimited by null character
     for (i = 0; i < size; i++) {
