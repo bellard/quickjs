@@ -86,7 +86,7 @@ static int to_integer_if_integral(JSContext *ctx, JSValueConst val, int64_t *pre
         JS_ThrowRangeError(ctx, "value must be an integer");
         return -1;
     }
-    if (d > (double)INT64_MAX || d < (double)INT64_MIN) {
+    if (d >= 0x1p63 || d < -0x1p63) {
         JS_ThrowRangeError(ctx, "value out of range");
         return -1;
     }
@@ -107,7 +107,7 @@ static int to_integer_if_integral128(JSContext *ctx, JSValueConst val, js_int128
         JS_ThrowRangeError(ctx, "value must be an integer");
         return -1;
     }
-    if (d > 0x1p127 || d < -0x1p127) {
+    if (d >= 0x1p127 || d < -0x1p127) {
         JS_ThrowRangeError(ctx, "value out of range");
         return -1;
     }
@@ -1516,14 +1516,13 @@ static int duration_total_nudge(const char *timeZone, CalendarType calendar,
     }
 
     js_int128_t numerator = dest_ns - start_ns;
-    js_int128_t denominator = end_ns - start_ns;
+    int64_t denominator = end_ns - start_ns;
 
     if (denominator == 0) {
         *out = (double)r1;
-        return 0;
+    } else {
+        *out = duration_total_div((js_int128_t)r1 * denominator + sign * numerator, denominator);
     }
-
-    *out = (double)((long double)(r1 * denominator + sign * numerator) / (long double)denominator);
     return 0;
 }
 
