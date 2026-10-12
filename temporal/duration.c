@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
+#include <assert.h>
 
 #include "../quickjs.h"
 #include "../cutils.h"
@@ -106,11 +107,11 @@ static int to_integer_if_integral128(JSContext *ctx, JSValueConst val, js_int128
         JS_ThrowRangeError(ctx, "value must be an integer");
         return -1;
     }
-    *pres = (js_int128_t)d;
-    if (d != 0 && *pres == 0) {
+    if (d > 0x1p127 || d < -0x1p127) {
         JS_ThrowRangeError(ctx, "value out of range");
         return -1;
     }
+    *pres = (js_int128_t)d;
     return 0;
 }
 
@@ -1306,26 +1307,66 @@ static void duration_format_time_ns(js_int128_t total_ns, TIUnit largestUnit, JS
     }
 }
 
-/* Divide total_ns by divisor as a correctly-rounded double.
-   |total_ns| < ~2^86 (from DURATION_MAX_SECONDS * 1e9 + subsecond parts).
-   divisor is a uint64_t unit in nanoseconds, always < 2^53.
-   The simplest correct method uses __float128 division. */
-static double duration_total_div(js_int128_t total_ns, uint64_t divisor)
+static int clz128(js_uint128_t a)
 {
-    /* Fast path: both total_ns and divisor are exactly representable as doubles,
-       and IEEE 754 division is correctly rounded. */
-    if (total_ns < (1LL << 53) && total_ns > -(1LL << 53)) {
-        return (double)total_ns / (double)divisor;
+    if ((a >> 64) != 0)
+        return clz64(a >> 64);
+    else
+        return clz64(a) + 64;
+}
+
+static js_uint128_t shr_rnd128(js_uint128_t a, int n)
+{
+    js_uint128_t addend;
+    addend = ((js_uint128_t)1 << (n - 1)) - 1 + ((a >> n) & 1);
+    return (a + addend) >> n;
+}
+
+/* Divide a by b as a correctly-rounded double. */
+static double duration_total_div(js_int128_t a, uint64_t b)
+{
+    int a_exp, b_exp, q_exp, r_exp, sgn, shift;
+    js_uint128_t a1, q, r;
+    uint64_t m, res;
+
+    if (a > -((int64_t)1 << 53) && a < ((int64_t)1 << 53) &&
+        b < ((uint64_t)1 << 53)) {
+        /* fast case */
+        return (double)(int64_t)a / (double)(int64_t)b;
     }
-#ifdef __SIZEOF_FLOAT128__
-    return (double)((__float128)total_ns / (__float128)divisor);
-#else
-    {
-        js_int128_t q = total_ns / (js_int128_t)divisor;
-        js_int128_t r = total_ns % (js_int128_t)divisor;
-        return (double)q + (double)r / (double)divisor;
+
+    if (a == 0)
+        return 0;
+
+    if (a < 0) {
+        sgn = 1;
+        a1 = -a;
+    } else {
+        sgn = 0;
+        a1 = a;
     }
-#endif
+
+    a_exp = 127 - clz128(a1); /* 2^a_exp <= a < 2^(a_exp + 1) */
+    b_exp = 63 - clz64(b); /* 2^b_exp <= b < 2^(b_exp + 1) */
+
+    /* Ensure that the quotient is >= 2^54: 
+       2^(a_exp - b_exp - 1) < a/b < 2^(a_exp - b_exp + 1) */
+    shift = max_int(54 - (a_exp - b_exp - 1), 0);
+    a1 <<= shift;
+    r_exp = -shift;
+    
+    q = a1 / b;
+    r = a1 % b;
+    q |= (r != 0);
+    q_exp = 127 - clz128(q);
+    assert(q_exp >= 54);
+    r_exp += q_exp - 1;
+    shift = q_exp - 52;
+    m = shr_rnd128(q, shift);
+    if (m >= ((uint64_t)1 << 53))
+        r_exp++;
+    res = ((uint64_t)sgn << 63) | ((uint64_t )(r_exp + 1024) << 52) | (m & (((uint64_t)1 << 52) - 1));
+    return uint64_as_float64(res);
 }
 
 /* NudgeToCalendarUnit-style total for ZonedDateTime relativeTo.

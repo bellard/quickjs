@@ -3879,14 +3879,13 @@ int is_valid_epoch_timespec(const JSTimeSpec *ts)
 
 JSValue ti_timespec_to_bigint(JSContext *ctx, const JSTimeSpec *ts)
 {
-    js_int128_t total_ns = (js_int128_t)ts->secs * 1000000000LL + ts->nsecs;
+    js_int128_t total_ns = ti_timespec_to_ns(ts);
     return JS_NewBigInt128(ctx, (uint64_t)total_ns, (uint64_t)(total_ns >> 64));
 }
 
 int ti_bigint_to_timespec(JSContext *ctx, JSValueConst val, JSTimeSpec *ts)
 {
     uint64_t low, high;
-    int32_t nsecs;
     int ret;
     js_int128_t total_ns;
 
@@ -3903,12 +3902,6 @@ int ti_bigint_to_timespec(JSContext *ctx, JSValueConst val, JSTimeSpec *ts)
         JS_ThrowRangeError(ctx, "epochNanoseconds out of range");
         return -1;
     }
-    ts->secs = (int64_t)(total_ns / 1000000000LL);
-    nsecs = (int32_t)(total_ns % 1000000000LL);
-    if (nsecs < 0) {
-        ts->secs -= 1;
-        nsecs += 1000000000;
-    }
-    ts->nsecs = (uint32_t)nsecs;
+    ti_ns_to_timespec(total_ns, ts);
     return 0;
 }

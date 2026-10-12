@@ -11,8 +11,10 @@
 /* 128-bit integer type: __int128 on 64-bit, _BitInt(128) on 32-bit */
 #ifdef __SIZEOF_INT128__
 typedef __int128 js_int128_t;
+typedef unsigned __int128 js_uint128_t;
 #else
 typedef _BitInt(128) js_int128_t;
+typedef unsigned _BitInt(128) js_uint128_t;
 #endif
 
 /* Temporal limits */
@@ -232,12 +234,14 @@ static inline js_int128_t ti_duration_time_fields_to_ns(const JSDurationData *d)
 
 static inline void ti_ns_to_timespec(js_int128_t ns, JSTimeSpec *ts)
 {
+    int32_t nsecs;
     ts->secs = (int64_t)(ns / 1000000000LL);
-    ts->nsecs = (uint32_t)(ns % 1000000000LL);
-    if (ts->nsecs != 0 && ns < 0) {
-        ts->nsecs += 1000000000;
+    nsecs = ns % 1000000000LL;
+    if (nsecs < 0) {
+        nsecs += 1000000000;
         ts->secs -= 1;
     }
+    ts->nsecs = nsecs;
 }
 
 

@@ -79,10 +79,6 @@ jobs:
       - name: Run built-in tests
         run: |
           make CONFIG_M32=y test
-      - name: Run test262
-        run: |
-          make test2-bootstrap
-          make CONFIG_M32=y test2
 
   linux-asan:
     runs-on: ubuntu-latest

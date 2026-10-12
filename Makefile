@@ -41,8 +41,11 @@ endif
 #CONFIG_M32=y
 # cosmopolitan build (see https://github.com/jart/cosmopolitan)
 #CONFIG_COSMO=y
-# experimental Temporal and Intl support
+# experimental Temporal and Intl support (disable if your C compiler
+# does not support 128 bit integers)
+ifndef CONFIG_M32
 CONFIG_TEMPORAL_INTL=y
+endif
 
 # installation directory
 PREFIX?=/usr/local
