@@ -163,6 +163,7 @@ enum {
     JS_CLASS_ITERATOR_CONCAT,   /* u.iterator_concat_data */
     JS_CLASS_ITERATOR_HELPER,   /* u.iterator_helper_data */
     JS_CLASS_ITERATOR_WRAP,     /* u.iterator_wrap_data */
+    JS_CLASS_ITERATOR_ZIP,      /* u.iterator_zip_data */
     JS_CLASS_MAP_ITERATOR,      /* u.map_iterator_data */
     JS_CLASS_SET_ITERATOR,      /* u.map_iterator_data */
     JS_CLASS_ARRAY_ITERATOR,    /* u.array_iterator_data */
@@ -1029,6 +1030,7 @@ struct JSObject {
         struct JSIteratorConcatData *iterator_concat_data; /* JS_CLASS_ITERATOR_CONCAT */
         struct JSIteratorHelperData *iterator_helper_data; /* JS_CLASS_ITERATOR_HELPER */
         struct JSIteratorWrapData *iterator_wrap_data; /* JS_CLASS_ITERATOR_WRAP */
+        struct JSIteratorZipData *iterator_zip_data; /* JS_CLASS_ITERATOR_ZIP */
         struct JSProxyData *proxy_data; /* JS_CLASS_PROXY */
         struct JSPromiseData *promise_data; /* JS_CLASS_PROMISE */
         struct JSPromiseFunctionData *promise_function_data; /* JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROMISE_REJECT_FUNCTION */
@@ -1227,6 +1229,9 @@ static void js_iterator_helper_mark(JSRuntime *rt, JSValueConst val,
 static void js_iterator_wrap_finalizer(JSRuntime *rt, JSValue val);
 static void js_iterator_wrap_mark(JSRuntime *rt, JSValueConst val,
                                   JS_MarkFunc *mark_func);
+static void js_iterator_zip_finalizer(JSRuntime *rt, JSValue val);
+static void js_iterator_zip_mark(JSRuntime *rt, JSValueConst val,
+                                 JS_MarkFunc *mark_func);
 static void js_regexp_string_iterator_finalizer(JSRuntime *rt, JSValue val);
 static void js_regexp_string_iterator_mark(JSRuntime *rt, JSValueConst val,
                                 JS_MarkFunc *mark_func);
@@ -2009,6 +2014,7 @@ static JSClassShortDef const js_std_class_def[] = {
     { JS_ATOM_IteratorConcat, js_iterator_concat_finalizer, js_iterator_concat_mark }, /* JS_CLASS_ITERATOR_CONCAT */
     { JS_ATOM_IteratorHelper, js_iterator_helper_finalizer, js_iterator_helper_mark }, /* JS_CLASS_ITERATOR_HELPER */
     { JS_ATOM_IteratorWrap, js_iterator_wrap_finalizer, js_iterator_wrap_mark }, /* JS_CLASS_ITERATOR_WRAP */
+    { JS_ATOM_IteratorZip, js_iterator_zip_finalizer, js_iterator_zip_mark }, /* JS_CLASS_ITERATOR_ZIP */
     { JS_ATOM_Map_Iterator, js_map_iterator_finalizer, js_map_iterator_mark }, /* JS_CLASS_MAP_ITERATOR */
     { JS_ATOM_Set_Iterator, js_map_iterator_finalizer, js_map_iterator_mark }, /* JS_CLASS_SET_ITERATOR */
     { JS_ATOM_Array_Iterator, js_array_iterator_finalizer, js_array_iterator_mark }, /* JS_CLASS_ARRAY_ITERATOR */
@@ -44305,6 +44311,40 @@ fail:
     return JS_EXCEPTION;
 }
 
+/* GetIteratorFlattenable: return the iterator object and its next
+   method in *pnext. */
+static JSValue js_get_iterator_flattenable(JSContext *ctx, JSValueConst obj,
+                                           JSValue *pnext, BOOL allow_string)
+{
+    JSValue method, iterator, next;
+
+    *pnext = JS_UNDEFINED;
+    if (!JS_IsObject(obj)) {
+        if (!allow_string || !JS_IsString(obj)) {
+            return JS_ThrowTypeErrorNotAnObject(ctx);
+        }
+    }
+    method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
+    if (JS_IsException(method))
+        return JS_EXCEPTION;
+    if (JS_IsUndefined(method) || JS_IsNull(method)) {
+        iterator = JS_DupValue(ctx, obj);
+        JS_FreeValue(ctx, method);
+    } else {
+        iterator = JS_GetIterator2(ctx, obj, method);
+        JS_FreeValue(ctx, method);
+    }
+    if (JS_IsException(iterator))
+        return JS_EXCEPTION;
+    next = JS_GetProperty(ctx, iterator, JS_ATOM_next);
+    if (JS_IsException(next)) {
+        JS_FreeValue(ctx, iterator);
+        return JS_EXCEPTION;
+    }
+    *pnext = next;
+    return iterator;
+}
+
 static JSValue js_iterator_from(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
@@ -44313,26 +44353,11 @@ static JSValue js_iterator_from(JSContext *ctx, JSValueConst this_val,
     JSIteratorWrapData *it;
     int ret;
 
-    if (!JS_IsObject(obj)) {
-        if (!JS_IsString(obj))
-            return JS_ThrowTypeError(ctx, "Iterator.from called on non-object");
-    }
-    method = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
-    if (JS_IsException(method))
+    iter = js_get_iterator_flattenable(ctx, obj, &method, TRUE);
+    if (JS_IsException(iter))
         return JS_EXCEPTION;
-    if (JS_IsNull(method) || JS_IsUndefined(method)) {
-        iter = JS_DupValue(ctx, obj);
-    } else {
-        iter = JS_GetIterator2(ctx, obj, method);
-        JS_FreeValue(ctx, method);
-        if (JS_IsException(iter))
-            return JS_EXCEPTION;
-    }
 
     wrapper = JS_UNDEFINED;
-    method = JS_GetProperty(ctx, iter, JS_ATOM_next);
-    if (JS_IsException(method))
-        goto fail;
 
     ret = JS_OrdinaryIsInstanceOf(ctx, iter, ctx->iterator_ctor);
     if (ret < 0)
@@ -44357,6 +44382,598 @@ static JSValue js_iterator_from(JSContext *ctx, JSValueConst this_val,
     JS_FreeValue(ctx, method);
     JS_FreeValue(ctx, iter);
     JS_FreeValue(ctx, wrapper);
+    return JS_EXCEPTION;
+}
+
+/* Iterator.zip and Iterator.zipKeyed 
+
+   A zip iterator holds a list of Iterator Records. On each call to
+   its 'next' method one value is pulled from each of the open
+   iterators and the values are combined into an array (zip) or into
+   an object with a null prototype (zipKeyed).  
+*/
+
+enum {
+    ZIP_MODE_SHORTEST = 0,
+    ZIP_MODE_LONGEST,
+    ZIP_MODE_STRICT,
+};
+
+/* state of one of the zipped iterators */
+enum {
+    ZIP_OPEN = 0,   /* the iterator is open and must be closed */
+    ZIP_CLOSED,     /* closed or completed */
+    ZIP_EXHAUSTED,  /* completed: the padding value is used instead */
+};
+
+typedef struct JSIteratorZipData {
+    JSValue *iters;   /* [count] iterator objects */
+    JSValue *nexts;   /* [count] captured next methods */
+    JSValue *padding; /* [count] padding values */
+    JSAtom *keys;      /* [count] property keys or NULL */
+    uint8_t *state;   /* [count] ZIP_xxx */
+    int count;
+    int mode;
+    BOOL keyed;
+    BOOL running;
+    BOOL done;
+    BOOL started;  /* at least one value was yielded */
+} JSIteratorZipData;
+
+static void js_iterator_zip_finalizer(JSRuntime *rt, JSValue val)
+{
+    JSIteratorZipData *it = JS_VALUE_GET_OBJ(val)->u.iterator_zip_data;
+    int i;
+
+    if (!it)
+        return;
+    for (i = 0; i < it->count; i++) {
+        JS_FreeValueRT(rt, it->iters[i]);
+        JS_FreeValueRT(rt, it->nexts[i]);
+        JS_FreeValueRT(rt, it->padding[i]);
+        if (it->keys)
+            JS_FreeAtomRT(rt, it->keys[i]);
+    }
+    js_free_rt(rt, it->iters);
+    js_free_rt(rt, it->nexts);
+    js_free_rt(rt, it->padding);
+    js_free_rt(rt, it->keys);
+    js_free_rt(rt, it->state);
+    js_free_rt(rt, it);
+}
+
+static void js_iterator_zip_mark(JSRuntime *rt, JSValueConst val,
+                                 JS_MarkFunc *mark_func)
+{
+    JSIteratorZipData *it = JS_VALUE_GET_OBJ(val)->u.iterator_zip_data;
+    int i;
+
+    if (!it)
+        return;
+    for (i = 0; i < it->count; i++) {
+        JS_MarkValue(rt, it->iters[i], mark_func);
+        JS_MarkValue(rt, it->nexts[i], mark_func);
+        JS_MarkValue(rt, it->padding[i], mark_func);
+    }
+}
+
+/* Close 'count' iterators in reverse order (IteratorCloseAll). If
+   'pending' is TRUE an exception is pending and it is preserved.
+   Return -1 if an exception is pending after the call. */
+static int zip_close_range(JSContext *ctx, JSValue *iters, int count,
+                           BOOL pending)
+{
+    int res = pending ? -1 : 0;
+
+    while (count > 0) {
+        count--;
+        if (JS_IteratorClose(ctx, iters[count], res < 0))
+            res = -1;
+    }
+    return res;
+}
+
+/* Close all the open iterators of a zip iterator. */
+static int js_iterator_zip_close_all(JSContext *ctx, JSIteratorZipData *it,
+                                     BOOL pending)
+{
+    int i, res = pending ? -1 : 0;
+
+    for (i = it->count - 1; i >= 0; i--) {
+        if (it->state[i] != ZIP_OPEN)
+            continue;
+        it->state[i] = ZIP_CLOSED;
+        if (JS_IteratorClose(ctx, it->iters[i], res < 0))
+            res = -1;
+    }
+    return res;
+}
+
+static JSValue js_iterator_zip_next(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv,
+                                    int *pdone, int magic)
+{
+    JSIteratorZipData *it;
+    JSValue *results = NULL, output, ret;
+    int i, k, done, open;
+
+    *pdone = FALSE;
+    it = JS_GetOpaque2(ctx, this_val, JS_CLASS_ITERATOR_ZIP);
+    if (!it)
+        return JS_EXCEPTION;
+    if (it->running)
+        return JS_ThrowTypeError(ctx, "cannot invoke a running iterator");
+    if (it->done) {
+        *pdone = TRUE;
+        return JS_UNDEFINED;
+    }
+
+    if (magic == GEN_MAGIC_RETURN) {
+        /* Iterator Helper return(): close the underlying iterators. If a
+           value was yielded the iterator is in the "executing" state
+           while closing them (GeneratorResumeAbrupt). */
+        it->done = TRUE;
+        *pdone = TRUE;
+        it->running = it->started;
+        if (js_iterator_zip_close_all(ctx, it, FALSE) < 0) {
+            it->running = FALSE;
+            return JS_EXCEPTION;
+        }
+        it->running = FALSE;
+        return JS_UNDEFINED;
+    }
+
+    it->running = TRUE;
+    if (it->count == 0) {
+        it->done = TRUE;
+        *pdone = TRUE;
+        return JS_UNDEFINED;
+    }
+
+    while (TRUE) {
+        results = js_malloc(ctx, it->count * sizeof(*results));
+        if (!results) {
+            ret = JS_EXCEPTION;
+            goto fail;
+        }
+        for (i = 0; i < it->count; i++)
+            results[i] = JS_UNDEFINED;
+        for (i = 0; i < it->count; i++) {
+            if (it->state[i] == ZIP_EXHAUSTED) {
+                results[i] = JS_DupValue(ctx, it->padding[i]);
+                continue;
+            }
+            ret = JS_IteratorNext(ctx, it->iters[i], it->nexts[i], &done);
+            if (JS_IsException(ret)) {
+                it->state[i] = ZIP_CLOSED;
+                goto fail;
+            }
+            if (!done) {
+                results[i] = ret;
+                continue;
+            }
+            JS_FreeValue(ctx, ret);
+            it->state[i] = ZIP_CLOSED;
+            if (it->mode == ZIP_MODE_SHORTEST) {
+                /* one iterator is exhausted: close all the others */
+                it->done = TRUE;
+                *pdone = TRUE;
+                if (js_iterator_zip_close_all(ctx, it, FALSE) < 0)
+                    ret = JS_EXCEPTION;
+                else
+                    ret = JS_UNDEFINED;
+                goto free_results;
+            }
+            if (it->mode == ZIP_MODE_STRICT) {
+                if (i != 0) {
+                    JS_ThrowTypeError(ctx,
+                                       "iterators have different lengths");
+                    ret = JS_EXCEPTION;
+                    goto fail;
+                }
+                for (k = 1; k < it->count; k++) {
+                    ret = JS_IteratorNext(ctx, it->iters[k], it->nexts[k], &done);
+                    if (JS_IsException(ret)) {
+                        it->state[k] = ZIP_CLOSED;
+                        ret = JS_EXCEPTION;
+                        goto fail;
+                    }
+                    JS_FreeValue(ctx, ret);
+                    if (done) {
+                        it->state[k] = ZIP_CLOSED;
+                    } else {
+                        JS_ThrowTypeError(ctx,
+                                           "iterators have different lengths");
+                        ret = JS_EXCEPTION;
+                        goto fail;
+                    }
+                }
+                /* all the iterators are exhausted */
+                it->done = TRUE;
+                *pdone = TRUE;
+                ret = JS_UNDEFINED;
+                goto free_results;
+            }
+            /* ZIP_MODE_LONGEST: the padding value is used if no
+               iterator is left open */
+            open = FALSE;
+            for (k = 0; k < it->count; k++) {
+                if (it->state[k] == ZIP_OPEN) {
+                    open = TRUE;
+                    break;
+                }
+            }
+            if (!open) {
+                it->done = TRUE;
+                *pdone = TRUE;
+                ret = JS_UNDEFINED;
+                goto free_results;
+            }
+            it->state[i] = ZIP_EXHAUSTED;
+            results[i] = JS_DupValue(ctx, it->padding[i]);
+        }
+        /* FinishResults */
+        if (it->keyed) {
+            output = JS_NewObjectProto(ctx, JS_NULL);
+            for (i = 0; !JS_IsException(output) && i < it->count; i++) {
+                int r = JS_DefinePropertyValue(ctx, output, it->keys[i],
+                                               results[i], JS_PROP_C_W_E);
+                results[i] = JS_UNDEFINED;
+                if (r < 0) {
+                    JS_FreeValue(ctx, output);
+                    output = JS_EXCEPTION;
+                }
+            }
+        } else {
+            output = JS_NewArray(ctx);
+            for (i = 0; !JS_IsException(output) && i < it->count; i++) {
+                int r = JS_DefinePropertyValueUint32(ctx, output, i,
+                                                     results[i],
+                                                     JS_PROP_C_W_E);
+                results[i] = JS_UNDEFINED;
+                if (r < 0) {
+                    JS_FreeValue(ctx, output);
+                    output = JS_EXCEPTION;
+                }
+            }
+        }
+        if (JS_IsException(output)) {
+            for (i = 0; i < it->count; i++)
+                JS_FreeValue(ctx, results[i]);
+            js_free(ctx, results);
+            results = NULL;
+            ret = JS_EXCEPTION;
+            goto fail;
+        }
+        js_free(ctx, results);
+        results = NULL;
+        /* Yield: the caller creates the iterator result */
+        it->started = TRUE;
+        ret = output;
+        goto done;
+
+    free_results:
+        for (i = 0; i < it->count; i++)
+            JS_FreeValue(ctx, results[i]);
+        js_free(ctx, results);
+        results = NULL;
+        if (JS_IsException(ret))
+            goto fail;
+        goto done;
+    }
+
+ fail:
+    /* close all the open iterators, keeping the exception */
+    js_iterator_zip_close_all(ctx, it, TRUE);
+    if (results) {
+        for (i = 0; i < it->count; i++)
+            JS_FreeValue(ctx, results[i]);
+        js_free(ctx, results);
+    }
+    ret = JS_EXCEPTION;
+ done:
+    it->running = FALSE;
+    return ret;
+}
+
+static JSValue js_iterator_zip(JSContext *ctx, JSValueConst this_val,
+                               int argc, JSValueConst *argv, int keyed)
+{
+    JSValueConst iterables = argv[0];
+    JSValueConst options = argc > 1 ? argv[1] : JS_UNDEFINED;
+    JSValue mode_val = JS_UNDEFINED, paddingOption = JS_UNDEFINED;
+    JSValue inputIter = JS_UNDEFINED, inputNext = JS_UNDEFINED;
+    JSValue paddingIter = JS_UNDEFINED, paddingNext = JS_UNDEFINED;
+    JSValue iter = JS_UNDEFINED, next = JS_UNDEFINED, item = JS_UNDEFINED;
+    JSValue value = JS_UNDEFINED, obj = JS_UNDEFINED;
+    JSValue *iters = NULL, *nexts = NULL, *padding = NULL;
+    JSAtom *keys = NULL;
+    JSPropertyEnum *ptab = NULL;
+    JSPropertyDescriptor desc;
+    JSIteratorZipData *it;
+    uint8_t *state = NULL;
+    int count = 0, cap = 0, mode = ZIP_MODE_SHORTEST;
+    int i, close_input = 0, using_iterator, pad_count = 0;
+    uint32_t plen = 0;
+    
+    if (!JS_IsObject(iterables))
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    /* GetOptionsObject */
+    if (!JS_IsUndefined(options) && !JS_IsObject(options))
+        return JS_ThrowTypeError(ctx, "options must be an object");
+
+    /* mode */
+    if (!JS_IsUndefined(options)) {
+        mode_val = JS_GetPropertyStr(ctx, options, "mode");
+        if (JS_IsException(mode_val))
+            return JS_EXCEPTION;
+    }
+    if (JS_IsUndefined(mode_val)) {
+        mode = ZIP_MODE_SHORTEST;
+    } else if (JS_IsString(mode_val)) {
+        const char *str = JS_ToCString(ctx, mode_val);
+        JS_FreeValue(ctx, mode_val);
+        if (!str)
+            return JS_EXCEPTION;
+        if (!strcmp(str, "shortest")) {
+            mode = ZIP_MODE_SHORTEST;
+        } else if (!strcmp(str, "longest")) {
+            mode = ZIP_MODE_LONGEST;
+        } else if (!strcmp(str, "strict")) {
+            mode = ZIP_MODE_STRICT;
+        } else {
+            JS_FreeCString(ctx, str);
+            return JS_ThrowTypeError(ctx, "invalid mode");
+        }
+        JS_FreeCString(ctx, str);
+    } else {
+        JS_FreeValue(ctx, mode_val);
+        return JS_ThrowTypeError(ctx, "invalid mode");
+    }
+
+    /* padding option */
+    if (mode == ZIP_MODE_LONGEST && !JS_IsUndefined(options)) {
+        paddingOption = JS_GetPropertyStr(ctx, options, "padding");
+        if (JS_IsException(paddingOption))
+            return JS_EXCEPTION;
+        if (!JS_IsUndefined(paddingOption) && !JS_IsObject(paddingOption)) {
+            JS_FreeValue(ctx, paddingOption);
+            return JS_ThrowTypeError(ctx, "padding must be an object");
+        }
+    }
+
+    if (!keyed) {
+        /* collect the iterators of the input iterable */
+        inputIter = JS_GetIterator(ctx, iterables, FALSE);
+        if (JS_IsException(inputIter))
+            goto fail_all;
+        inputNext = JS_GetProperty(ctx, inputIter, JS_ATOM_next);
+        if (JS_IsException(inputNext)) {
+            close_input = 1;
+            goto fail_iters;
+        }
+        while (TRUE) {
+            int done, newcap;
+            JSValue *tab;
+            uint8_t *st;
+
+            item = JS_IteratorNext(ctx, inputIter, inputNext, &done);
+            if (JS_IsException(item))
+                goto fail_iters;
+            if (done) {
+                JS_FreeValue(ctx, item);
+                item = JS_UNDEFINED;
+                break;
+            }
+            iter = js_get_iterator_flattenable(ctx, item, &next, FALSE);
+            if (JS_IsException(iter)) {
+                JS_FreeValue(ctx, item);
+                item = JS_UNDEFINED;
+                close_input = 1;
+                goto fail_iters;
+            }
+            JS_FreeValue(ctx, item);
+            item = JS_UNDEFINED;
+            if (count == cap) {
+                newcap = cap ? cap + (cap / 2) : 4;
+                tab = js_realloc(ctx, iters, sizeof(*tab) * newcap);
+                if (!tab)
+                    goto fail_iters;
+                iters = tab;
+                tab = js_realloc(ctx, nexts, sizeof(*tab) * newcap);
+                if (!tab)
+                    goto fail_iters;
+                nexts = tab;
+                st = js_realloc(ctx, state, newcap);
+                if (!st)
+                    goto fail_iters;
+                state = st;
+                cap = newcap;
+            }
+            iters[count] = iter;
+            nexts[count] = next;
+            state[count] = ZIP_OPEN;
+            iter = JS_UNDEFINED;
+            next = JS_UNDEFINED;
+            count++;
+        }
+    } else {
+        /* collect the own enumerable properties of iterables */
+        if (JS_GetOwnPropertyNames(ctx, &ptab, &plen, iterables,
+                                   JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK) < 0)
+            goto fail_all;
+        for (i = 0; i < plen; i++) {
+            JSAtom key = ptab[i].atom;
+            int r, newcap;
+            JSValue *tab;
+            JSAtom *atab;
+            uint8_t *st;
+
+            memset(&desc, 0, sizeof(desc));
+            r = JS_GetOwnProperty(ctx, &desc, iterables, key);
+            if (r < 0)
+                goto fail_iters;
+            if (r > 0) {
+                int enumerable = desc.flags & JS_PROP_ENUMERABLE;
+                JS_FreeValue(ctx, desc.value);
+                JS_FreeValue(ctx, desc.getter);
+                JS_FreeValue(ctx, desc.setter);
+                if (!enumerable)
+                    continue;
+            }
+            value = JS_GetProperty(ctx, iterables, key);
+            if (JS_IsException(value))
+                goto fail_iters;
+            if (JS_IsUndefined(value)) {
+                value = JS_UNDEFINED;
+                continue;
+            }
+            iter = js_get_iterator_flattenable(ctx, value, &next, FALSE);
+            if (JS_IsException(iter)) {
+                JS_FreeValue(ctx, value);
+                value = JS_UNDEFINED;
+                goto fail_iters;
+            }
+            JS_FreeValue(ctx, value);
+            value = JS_UNDEFINED;
+            if (count == cap) {
+                newcap = cap ? cap * 2 : 4;
+                tab = js_realloc(ctx, iters, sizeof(*tab) * newcap);
+                if (!tab)
+                    goto fail_iters;
+                iters = tab;
+                tab = js_realloc(ctx, nexts, sizeof(*tab) * newcap);
+                if (!tab)
+                    goto fail_iters;
+                nexts = tab;
+                atab = js_realloc(ctx, keys, sizeof(*atab) * newcap);
+                if (!atab)
+                    goto fail_iters;
+                keys = atab;
+                st = js_realloc(ctx, state, newcap);
+                if (!st)
+                    goto fail_iters;
+                state = st;
+                cap = newcap;
+            }
+            keys[count] = JS_DupAtom(ctx, key);
+            iters[count] = iter;
+            nexts[count] = next;
+            state[count] = ZIP_OPEN;
+            iter = JS_UNDEFINED;
+            next = JS_UNDEFINED;
+            count++;
+        }
+        JS_FreePropertyEnum(ctx, ptab, plen);
+        ptab = NULL;
+    }
+
+    /* padding values */
+    padding = js_malloc(ctx, (count + 1) * sizeof(*padding));
+    if (!padding)
+        goto fail_iters;
+    for (i = 0; i <= count; i++)
+        padding[i] = JS_UNDEFINED;
+    if (mode == ZIP_MODE_LONGEST && !JS_IsUndefined(paddingOption)) {
+        if (!keyed) {
+            paddingIter = JS_GetIterator(ctx, paddingOption, FALSE);
+            if (JS_IsException(paddingIter))
+                goto fail_iters;
+            paddingNext = JS_GetProperty(ctx, paddingIter, JS_ATOM_next);
+            if (JS_IsException(paddingNext))
+                goto fail_iters;
+            using_iterator = TRUE;
+            while (pad_count < count) {
+                int done;
+                item = JS_IteratorNext(ctx, paddingIter, paddingNext, &done);
+                if (JS_IsException(item))
+                    goto fail_iters;
+                if (done) {
+                    JS_FreeValue(ctx, item);
+                    item = JS_UNDEFINED;
+                    using_iterator = FALSE;
+                    break;
+                }
+                padding[pad_count++] = item;
+            }
+            if (using_iterator) {
+                if (JS_IteratorClose(ctx, paddingIter, FALSE) < 0)
+                    goto fail_iters;
+            }
+        } else {
+            for (i = 0; i < count; i++) {
+                value = JS_GetProperty(ctx, paddingOption, keys[i]);
+                if (JS_IsException(value))
+                    goto fail_iters;
+                padding[pad_count++] = value;
+            }
+        }
+    }
+
+    /* create the iterator object */
+    obj = JS_NewObjectClass(ctx, JS_CLASS_ITERATOR_ZIP);
+    if (JS_IsException(obj))
+        goto fail_iters;
+    it = js_malloc(ctx, sizeof(*it));
+    if (!it) {
+        JS_FreeValue(ctx, obj);
+        goto fail_iters;
+    }
+    it->iters = iters;
+    it->nexts = nexts;
+    it->padding = padding;
+    it->keys = keys;
+    it->state = state;
+    it->count = count;
+    it->mode = mode;
+    it->keyed = keyed;
+    it->running = FALSE;
+    it->done = FALSE;
+    it->started = FALSE;
+    iters = NULL;
+    nexts = NULL;
+    padding = NULL;
+    keys = NULL;
+    state = NULL;
+    JS_SetOpaque(obj, it);
+    JS_FreeValue(ctx, inputIter);
+    JS_FreeValue(ctx, inputNext);
+    JS_FreeValue(ctx, paddingIter);
+    JS_FreeValue(ctx, paddingNext);
+    JS_FreeValue(ctx, paddingOption);
+    return obj;
+
+ fail_iters:
+    /* an exception is pending: close the collected iterators */
+    zip_close_range(ctx, iters, count, TRUE);
+    if (close_input)
+        JS_IteratorClose(ctx, inputIter, TRUE);
+ fail_all:
+    JS_FreeValue(ctx, iter);
+    JS_FreeValue(ctx, next);
+    JS_FreeValue(ctx, value);
+    JS_FreeValue(ctx, item);
+    for (i = 0; i < count; i++) {
+        JS_FreeValue(ctx, iters[i]);
+        JS_FreeValue(ctx, nexts[i]);
+        if (keys)
+            JS_FreeAtom(ctx, keys[i]);
+    }
+    js_free(ctx, iters);
+    js_free(ctx, nexts);
+    if (padding) {
+        for (i = 0; i < pad_count; i++)
+            JS_FreeValue(ctx, padding[i]);
+        js_free(ctx, padding);
+    }
+    js_free(ctx, keys);
+    js_free(ctx, state);
+    JS_FreePropertyEnum(ctx, ptab, plen);
+    JS_FreeValue(ctx, inputIter);
+    JS_FreeValue(ctx, inputNext);
+    JS_FreeValue(ctx, paddingIter);
+    JS_FreeValue(ctx, paddingNext);
+    JS_FreeValue(ctx, paddingOption);
     return JS_EXCEPTION;
 }
 
@@ -44789,6 +45406,10 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
 
     *pdone = FALSE;
 
+    if (JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT &&
+        JS_VALUE_GET_OBJ(this_val)->class_id == JS_CLASS_ITERATOR_ZIP)
+        return js_iterator_zip_next(ctx, this_val, argc, argv, pdone, magic);
+
     it = JS_GetOpaque2(ctx, this_val, JS_CLASS_ITERATOR_HELPER);
     if (!it)
         return JS_EXCEPTION;
@@ -44890,37 +45511,17 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
                     JS_FreeValue(ctx, index_val);
                     if (JS_IsException(ret))
                         goto fail;
-                    if (!JS_IsObject(ret)) {
-                        JS_FreeValue(ctx, ret);
-                        JS_ThrowTypeError(ctx, "not an object");
+                    iter = js_get_iterator_flattenable(ctx, ret, &method, FALSE);
+                    JS_FreeValue(ctx, ret);
+                    if (JS_IsException(iter)) {
                         goto fail;
                     }
-                    method = JS_GetProperty(ctx, ret, JS_ATOM_Symbol_iterator);
-                    if (JS_IsException(method)) {
-                        JS_FreeValue(ctx, ret);
-                        goto fail;
-                    }
-                    if (JS_IsNull(method) || JS_IsUndefined(method)) {
-                        JS_FreeValue(ctx, method);
-                        iter = ret;
-                    } else {
-                        iter = JS_GetIterator2(ctx, ret, method);
-                        JS_FreeValue(ctx, method);
-                        JS_FreeValue(ctx, ret);
-                        if (JS_IsException(iter))
-                            goto fail;
-                    }
-
                     it->inner = iter;
-                    method = JS_GetProperty(ctx, it->inner, JS_ATOM_next);
-                    if (JS_IsException(method))
-                        goto inner_fail;
                     it->inner_next = method;
                 }
 
                 item = JS_IteratorNext(ctx, it->inner, it->inner_next, pdone);
                 if (JS_IsException(item)) {
-                inner_fail:
                     JS_IteratorClose(ctx, it->inner, FALSE);
                     JS_FreeValue(ctx, it->inner);
                     JS_FreeValue(ctx, it->inner_next);
@@ -44999,6 +45600,8 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
 static const JSCFunctionListEntry js_iterator_funcs[] = {
     JS_CFUNC_DEF("concat", 0, js_iterator_concat ),
     JS_CFUNC_DEF("from", 1, js_iterator_from ),
+    JS_CFUNC_MAGIC_DEF("zip", 1, js_iterator_zip, 0 ),
+    JS_CFUNC_MAGIC_DEF("zipKeyed", 1, js_iterator_zip, 1 ),
 };
 
 static const JSCFunctionListEntry js_iterator_proto_funcs[] = {
@@ -57091,6 +57694,9 @@ int JS_AddIntrinsicBaseObjects(JSContext *ctx)
                               countof(js_iterator_helper_proto_funcs));
     if (JS_IsException(ctx->class_proto[JS_CLASS_ITERATOR_HELPER]))
         return -1;
+    /* the zip iterators share the iterator helper prototype */
+    ctx->class_proto[JS_CLASS_ITERATOR_ZIP] =
+        JS_DupValue(ctx, ctx->class_proto[JS_CLASS_ITERATOR_HELPER]);
                        
     ctx->class_proto[JS_CLASS_ITERATOR_WRAP] =
         JS_NewObjectProtoList(ctx, ctx->class_proto[JS_CLASS_ITERATOR], 
