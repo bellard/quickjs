@@ -45837,6 +45837,69 @@ exception:
     return JS_EXCEPTION;
 }
 
+static JSValue js_iterator_proto_join(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+    JSValue item, method, sep = JS_UNDEFINED;
+    StringBuffer b_s, *b = &b_s;
+    JSString *p = NULL;
+    bool first;
+    int c, done;
+
+    if (!JS_IsObject(this_val))
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    c = ',';    /* default separator */
+    if (!JS_IsUndefined(argv[0])) {
+        sep = JS_ToString(ctx, argv[0]);
+        if (JS_IsException(sep)) {
+            JS_IteratorClose(ctx, this_val, /*is_exception_pending*/true);
+            return JS_EXCEPTION;
+        }
+        p = JS_VALUE_GET_STRING(sep);
+        if (p->len == 1 && !p->is_wide_char)
+            c = p->u.str8[0];
+        else
+            c = -1;
+    }
+    method = JS_GetProperty(ctx, this_val, JS_ATOM_next);
+    if (JS_IsException(method)) {
+        JS_FreeValue(ctx, sep);
+        return JS_EXCEPTION;
+    }
+    string_buffer_init(ctx, b, 0);
+    for (first = true; /*empty*/; first = false) {
+        item = JS_IteratorNext(ctx, this_val, method, &done);
+        if (JS_IsException(item))
+            goto fail;
+        if (done)
+            break;
+        if (!first) {
+            if (c >= 0)
+                string_buffer_putc8(b, c);
+            else
+                string_buffer_concat(b, p, 0, p->len);
+        }
+        /* nullish values contribute the empty string */
+        if (JS_IsNull(item) || JS_IsUndefined(item)) {
+            JS_FreeValue(ctx, item);
+            continue;
+        }
+        if (string_buffer_concat_value_free(b, item))
+            goto close;
+    }
+    JS_FreeValue(ctx, method);
+    JS_FreeValue(ctx, sep);
+    return string_buffer_end(b);
+
+close:
+    JS_IteratorClose(ctx, this_val, /*is_exception_pending*/true);
+fail:
+    string_buffer_free(b);
+    JS_FreeValue(ctx, method);
+    JS_FreeValue(ctx, sep);
+    return JS_EXCEPTION;
+}
+
 static JSValue js_iterator_proto_iterator(JSContext *ctx, JSValueConst this_val,
                                           int argc, JSValueConst *argv)
 {
@@ -46119,6 +46182,7 @@ static const JSCFunctionListEntry js_iterator_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("find", 1, js_iterator_proto_func, JS_ITERATOR_HELPER_KIND_FIND),
     JS_CFUNC_MAGIC_DEF("forEach", 1, js_iterator_proto_func, JS_ITERATOR_HELPER_KIND_FOR_EACH ),
     JS_CFUNC_MAGIC_DEF("some", 1, js_iterator_proto_func, JS_ITERATOR_HELPER_KIND_SOME ),
+    JS_CFUNC_DEF("join", 1, js_iterator_proto_join ),
     JS_CFUNC_DEF("reduce", 1, js_iterator_proto_reduce ),
     JS_CFUNC_DEF("toArray", 0, js_iterator_proto_toArray ),
     JS_CFUNC_DEF("[Symbol.iterator]", 0, js_iterator_proto_iterator ),
