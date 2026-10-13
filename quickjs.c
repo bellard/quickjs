@@ -45516,7 +45516,7 @@ static JSValue js_create_iterator_helper(JSContext *ctx, JSValueConst this_val,
     JSValue obj, method;
     int64_t count;
     JSIteratorHelperData *it;
-    bool allow_partial;
+    BOOL allow_partial;
 
     if (!JS_IsObject(this_val))
         return JS_ThrowTypeErrorNotAnObject(ctx);
@@ -45842,14 +45842,14 @@ static JSValue js_iterator_proto_includes(JSContext *ctx, JSValueConst this_val,
         } else if (js_same_value_zero(ctx, item, argv[0])) {
             JS_FreeValue(ctx, item);
             JS_FreeValue(ctx, method);
-            if (JS_IteratorClose(ctx, this_val, false) < 0)
+            if (JS_IteratorClose(ctx, this_val, FALSE) < 0)
                 return JS_EXCEPTION;
             return JS_TRUE;
         }
         JS_FreeValue(ctx, item);
     }
 fail:
-    JS_IteratorClose(ctx, this_val, true);
+    JS_IteratorClose(ctx, this_val, TRUE);
     return JS_EXCEPTION;
 }
 
@@ -45960,7 +45960,7 @@ static JSValue js_iterator_proto_join(JSContext *ctx, JSValueConst this_val,
     JSValue item, method, sep = JS_UNDEFINED;
     StringBuffer b_s, *b = &b_s;
     JSString *p = NULL;
-    bool first;
+    BOOL first;
     int c, done;
 
     if (!JS_IsObject(this_val))
@@ -45969,7 +45969,7 @@ static JSValue js_iterator_proto_join(JSContext *ctx, JSValueConst this_val,
     if (!JS_IsUndefined(argv[0])) {
         sep = JS_ToString(ctx, argv[0]);
         if (JS_IsException(sep)) {
-            JS_IteratorClose(ctx, this_val, /*is_exception_pending*/true);
+            JS_IteratorClose(ctx, this_val, /*is_exception_pending*/TRUE);
             return JS_EXCEPTION;
         }
         p = JS_VALUE_GET_STRING(sep);
@@ -45984,7 +45984,7 @@ static JSValue js_iterator_proto_join(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     }
     string_buffer_init(ctx, b, 0);
-    for (first = true; /*empty*/; first = false) {
+    for (first = TRUE; /*empty*/; first = FALSE) {
         item = JS_IteratorNext(ctx, this_val, method, &done);
         if (JS_IsException(item))
             goto fail;
@@ -46009,7 +46009,7 @@ static JSValue js_iterator_proto_join(JSContext *ctx, JSValueConst this_val,
     return string_buffer_end(b);
 
 close:
-    JS_IteratorClose(ctx, this_val, /*is_exception_pending*/true);
+    JS_IteratorClose(ctx, this_val, /*is_exception_pending*/TRUE);
 fail:
     string_buffer_free(b);
     JS_FreeValue(ctx, method);
