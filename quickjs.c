@@ -55932,6 +55932,321 @@ static JSValue js_promise_all(JSContext *ctx, JSValueConst this_val,
     goto done;
 }
 
+/* Promise.allKeyed and Promise.allSettledKeyed ("await dictionary"
+   proposal).  magic = 0: Promise.allKeyed, magic = 1:
+   Promise.allSettledKeyed.  The element functions use the same magic
+   with PROMISE_KEYED_MAGIC_reject added for the rejection handlers of
+   Promise.allSettledKeyed. */
+
+#define PROMISE_KEYED_MAGIC_allSettled 1
+#define PROMISE_KEYED_MAGIC_reject  2
+
+/* CreateKeyedPromiseCombinatorResultObject: an ordinary object with a
+   null prototype holding the collected entries in key order.  'keys'
+   and 'values' are parallel arrays. */
+static JSValue promise_keyed_result_object(JSContext *ctx, JSValueConst keys,
+                                           JSValueConst values)
+{
+    JSValue obj, key, val;
+    uint32_t len, i;
+    JSAtom atom;
+    int res;
+
+    obj = JS_NewObjectProto(ctx, JS_NULL);
+    if (JS_IsException(obj))
+        return obj;
+    if (js_get_length32(ctx, &len, values) < 0)
+        goto fail;
+    for (i = 0; i < len; i++) {
+        key = JS_GetPropertyUint32(ctx, keys, i);
+        if (JS_IsException(key))
+            goto fail;
+        atom = JS_ValueToAtom(ctx, key);
+        JS_FreeValue(ctx, key);
+        if (atom == JS_ATOM_NULL)
+            goto fail;
+        val = JS_GetPropertyUint32(ctx, values, i);
+        if (JS_IsException(val)) {
+            JS_FreeAtom(ctx, atom);
+            goto fail;
+        }
+        res = JS_DefinePropertyValue(ctx, obj, atom, val,
+                                     JS_PROP_C_W_E | JS_PROP_THROW);
+        JS_FreeAtom(ctx, atom);
+        if (res < 0)
+            goto fail;
+    }
+    return obj;
+ fail:
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+}
+
+/* func_data: [0] [[AlreadyCalled]] record, [1] index, [2] values,
+   [3] keys, [4] resolve function, [5] remainingElementsCount */
+static JSValue js_promise_allKeyed_resolve_element(JSContext *ctx,
+                                                   JSValueConst this_val,
+                                                   int argc, JSValueConst *argv,
+                                                   int magic, JSValue *func_data)
+{
+    JSValueConst called_box, value, values, keys, handler, env;
+    JSValue called, obj, ret, result;
+    BOOL alreadyCalled;
+    BOOL is_reject = (magic & PROMISE_KEYED_MAGIC_reject) != 0;
+    int index, is_zero;
+
+    /* func_data[0] holds the [[AlreadyCalled]] record which is shared
+       with the other handler of the same key */
+    called_box = func_data[0];
+    called = JS_GetPropertyUint32(ctx, called_box, 0);
+    if (JS_IsException(called))
+        return JS_EXCEPTION;
+    alreadyCalled = JS_ToBool(ctx, called);
+    JS_FreeValue(ctx, called);
+    if (alreadyCalled < 0)
+        return JS_EXCEPTION;
+    if (alreadyCalled)
+        return JS_UNDEFINED;
+    if (JS_SetPropertyUint32(ctx, called_box, 0, JS_TRUE) < 0)
+        return JS_EXCEPTION;
+    if (JS_ToInt32(ctx, &index, func_data[1]))
+        return JS_EXCEPTION;
+    value = (argc > 0) ? argv[0] : JS_UNDEFINED;
+    values = func_data[2];
+    keys = func_data[3];
+    handler = func_data[4];
+    env = func_data[5];
+
+    if (magic & PROMISE_KEYED_MAGIC_allSettled) {
+        JSValue str;
+
+        obj = JS_NewObject(ctx);
+        if (JS_IsException(obj))
+            return JS_EXCEPTION;
+        str = js_new_string8(ctx, is_reject ? "rejected" : "fulfilled");
+        if (JS_IsException(str))
+            goto fail_obj;
+        if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_status, str,
+                                   JS_PROP_C_W_E) < 0)
+            goto fail_obj;
+        if (JS_DefinePropertyValue(ctx, obj,
+                                   is_reject ? JS_ATOM_reason : JS_ATOM_value,
+                                   JS_DupValue(ctx, value),
+                                   JS_PROP_C_W_E) < 0)
+            goto fail_obj;
+    } else {
+        obj = JS_DupValue(ctx, value);
+    }
+    if (JS_DefinePropertyValueUint32(ctx, values, index, obj,
+                                     JS_PROP_C_W_E) < 0)
+        return JS_EXCEPTION;
+
+    is_zero = remainingElementsCount_add(ctx, env, -1);
+    if (is_zero < 0)
+        return JS_EXCEPTION;
+    if (is_zero) {
+        result = promise_keyed_result_object(ctx, keys, values);
+        if (JS_IsException(result))
+            return JS_EXCEPTION;
+        ret = JS_Call(ctx, handler, JS_UNDEFINED, 1, (JSValueConst *)&result);
+        JS_FreeValue(ctx, result);
+        if (JS_IsException(ret))
+            return ret;
+        JS_FreeValue(ctx, ret);
+    }
+    return JS_UNDEFINED;
+
+ fail_obj:
+    JS_FreeValue(ctx, obj);
+    return JS_EXCEPTION;
+}
+
+static JSValue js_promise_allKeyed(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv, int magic)
+{
+    JSValueConst promises = argv[0];
+    JSValue result_promise, resolving_funcs[2];
+    JSValue promise_resolve = JS_UNDEFINED;
+    JSValue keys = JS_UNDEFINED, values = JS_UNDEFINED, env = JS_UNDEFINED;
+    JSValue propertyValue, next_promise, ret, error;
+    JSValue resolve_element = JS_UNDEFINED, reject_element = JS_UNDEFINED;
+    JSValue called_box = JS_UNDEFINED;
+    JSValueConst then_args[2], data[6];
+    JSPropertyEnum *ptab = NULL;
+    JSPropertyDescriptor desc;
+    uint32_t plen = 0, i;
+    int index, is_zero, res;
+
+    if (!JS_IsObject(this_val))
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    result_promise = js_new_promise_capability(ctx, resolving_funcs, this_val);
+    if (JS_IsException(result_promise))
+        return result_promise;
+
+    promise_resolve = JS_GetProperty(ctx, this_val, JS_ATOM_resolve);
+    if (JS_IsException(promise_resolve) ||
+        check_function(ctx, promise_resolve))
+        goto fail_reject;
+    if (!JS_IsObject(promises)) {
+        JS_ThrowTypeErrorNotAnObject(ctx);
+        goto fail_reject;
+    }
+    keys = JS_NewArray(ctx);
+    if (JS_IsException(keys))
+        goto fail_reject;
+    values = JS_NewArray(ctx);
+    if (JS_IsException(values))
+        goto fail_reject;
+    env = JS_NewArray(ctx);
+    if (JS_IsException(env))
+        goto fail_reject;
+    /* remainingElementsCount field */
+    if (JS_DefinePropertyValueUint32(ctx, env, 0, JS_NewInt32(ctx, 1),
+                                     JS_PROP_C_W_E) < 0)
+        goto fail_reject;
+
+    if (JS_GetOwnPropertyNames(ctx, &ptab, &plen, promises,
+                               JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK) < 0)
+        goto fail_reject;
+
+    index = 0;
+    for (i = 0; i < plen; i++) {
+        JSAtom key = ptab[i].atom;
+
+        memset(&desc, 0, sizeof(desc));
+        res = JS_GetOwnProperty(ctx, &desc, promises, key);
+        if (res < 0)
+            goto fail_reject;
+        if (res == 0 || !(desc.flags & JS_PROP_ENUMERABLE)) {
+            if (res > 0)
+                js_free_desc(ctx, &desc);
+            continue;
+        }
+        js_free_desc(ctx, &desc);
+
+        propertyValue = JS_GetProperty(ctx, promises, key);
+        if (JS_IsException(propertyValue))
+            goto fail_reject;
+        /* entries.append(Record { [[Key]]: key, [[Value]]: undefined }) */
+        ret = JS_AtomToValue(ctx, key);
+        if (JS_IsException(ret)) {
+            JS_FreeValue(ctx, propertyValue);
+            goto fail_reject;
+        }
+        if (JS_DefinePropertyValueUint32(ctx, keys, index, ret,
+                                         JS_PROP_C_W_E) < 0) {
+            JS_FreeValue(ctx, propertyValue);
+            goto fail_reject;
+        }
+        if (JS_DefinePropertyValueUint32(ctx, values, index, JS_UNDEFINED,
+                                         JS_PROP_C_W_E) < 0) {
+            JS_FreeValue(ctx, propertyValue);
+            goto fail_reject;
+        }
+
+        next_promise = JS_Call(ctx, promise_resolve, this_val, 1,
+                               (JSValueConst *)&propertyValue);
+        JS_FreeValue(ctx, propertyValue);
+        if (JS_IsException(next_promise))
+            goto fail_reject;
+
+        /* the [[AlreadyCalled]] record shared by both handlers */
+        called_box = JS_NewArray(ctx);
+        if (JS_IsException(called_box)) {
+            JS_FreeValue(ctx, next_promise);
+            goto fail_reject;
+        }
+        if (JS_DefinePropertyValueUint32(ctx, called_box, 0, JS_FALSE,
+                                         JS_PROP_C_W_E) < 0) {
+            JS_FreeValue(ctx, next_promise);
+            goto fail_reject;
+        }
+        data[0] = called_box;
+        data[1] = JS_NewInt32(ctx, index);
+        data[2] = values;
+        data[3] = keys;
+        data[4] = resolving_funcs[0];
+        data[5] = env;
+        resolve_element =
+            JS_NewCFunctionData(ctx, js_promise_allKeyed_resolve_element, 1,
+                                magic, 6, data);
+        if (JS_IsException(resolve_element)) {
+            JS_FreeValue(ctx, next_promise);
+            goto fail_reject;
+        }
+        if (magic & PROMISE_KEYED_MAGIC_allSettled) {
+            reject_element =
+                JS_NewCFunctionData(ctx, js_promise_allKeyed_resolve_element,
+                                    1, magic | PROMISE_KEYED_MAGIC_reject,
+                                    6, data);
+            if (JS_IsException(reject_element)) {
+                JS_FreeValue(ctx, resolve_element);
+                JS_FreeValue(ctx, next_promise);
+                goto fail_reject;
+            }
+        } else {
+            reject_element = JS_DupValue(ctx, resolving_funcs[1]);
+        }
+
+        JS_FreeValue(ctx, called_box);
+        called_box = JS_UNDEFINED;
+
+        if (remainingElementsCount_add(ctx, env, 1) < 0) {
+            JS_FreeValue(ctx, resolve_element);
+            JS_FreeValue(ctx, reject_element);
+            JS_FreeValue(ctx, next_promise);
+            goto fail_reject;
+        }
+
+        then_args[0] = resolve_element;
+        then_args[1] = reject_element;
+        ret = JS_InvokeFree(ctx, next_promise, JS_ATOM_then, 2, then_args);
+        JS_FreeValue(ctx, resolve_element);
+        JS_FreeValue(ctx, reject_element);
+        if (check_exception_free(ctx, ret))
+            goto fail_reject;
+        index++;
+    }
+
+    is_zero = remainingElementsCount_add(ctx, env, -1);
+    if (is_zero < 0)
+        goto fail_reject;
+    if (is_zero) {
+        ret = promise_keyed_result_object(ctx, keys, values);
+        if (JS_IsException(ret))
+            goto fail_reject;
+        error = JS_Call(ctx, resolving_funcs[0], JS_UNDEFINED, 1,
+                        (JSValueConst *)&ret);
+        JS_FreeValue(ctx, ret);
+        if (check_exception_free(ctx, error))
+            goto fail_reject;
+    }
+ done:
+    JS_FreeValue(ctx, called_box);
+    JS_FreePropertyEnum(ctx, ptab, plen);
+    JS_FreeValue(ctx, promise_resolve);
+    JS_FreeValue(ctx, env);
+    JS_FreeValue(ctx, values);
+    JS_FreeValue(ctx, keys);
+    JS_FreeValue(ctx, resolving_funcs[0]);
+    JS_FreeValue(ctx, resolving_funcs[1]);
+    return result_promise;
+
+ fail_reject:
+    error = JS_GetException(ctx);
+    ret = JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1,
+                  (JSValueConst *)&error);
+    JS_FreeValue(ctx, error);
+    if (JS_IsException(ret))
+        goto fail;
+    JS_FreeValue(ctx, ret);
+    goto done;
+ fail:
+    JS_FreeValue(ctx, result_promise);
+    result_promise = JS_EXCEPTION;
+    goto done;
+}
+
 static JSValue js_promise_race(JSContext *ctx, JSValueConst this_val,
                                int argc, JSValueConst *argv)
 {
@@ -56179,6 +56494,8 @@ static const JSCFunctionListEntry js_promise_funcs[] = {
     JS_CFUNC_MAGIC_DEF("reject", 1, js_promise_resolve, 1 ),
     JS_CFUNC_MAGIC_DEF("all", 1, js_promise_all, PROMISE_MAGIC_all ),
     JS_CFUNC_MAGIC_DEF("allSettled", 1, js_promise_all, PROMISE_MAGIC_allSettled ),
+    JS_CFUNC_MAGIC_DEF("allKeyed", 1, js_promise_allKeyed, 0 ),
+    JS_CFUNC_MAGIC_DEF("allSettledKeyed", 1, js_promise_allKeyed, PROMISE_KEYED_MAGIC_allSettled ),
     JS_CFUNC_MAGIC_DEF("any", 1, js_promise_all, PROMISE_MAGIC_any ),
     JS_CFUNC_DEF("try", 1, js_promise_try ),
     JS_CFUNC_DEF("race", 1, js_promise_race ),
