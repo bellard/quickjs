@@ -44172,6 +44172,27 @@ static JSValue js_iterator_concat_next(JSContext *ctx, JSValueConst this_val,
     if (it->running)
         return JS_ThrowTypeError(ctx, "already running");
 
+    if (magic == GEN_MAGIC_RETURN) {
+        ret = JS_UNDEFINED;
+        if (!JS_IsUndefined(it->iter)) {
+            it->running = TRUE;
+            ret = JS_GetProperty(ctx, it->iter, JS_ATOM_return);
+            if (JS_IsException(ret)) {
+                it->running = FALSE;
+                return JS_EXCEPTION;
+            }
+            ret = JS_CallFree(ctx, ret, it->iter, 0, NULL);
+            it->running = FALSE;
+        }
+        while (it->index < it->count)
+            JS_FreeValue(ctx, it->values[it->index++]);
+        JS_FreeValue(ctx, it->iter);
+        JS_FreeValue(ctx, it->next);
+        it->iter = JS_UNDEFINED;
+        it->next = JS_UNDEFINED;
+        return ret;
+    }
+    
     it->running = TRUE;
     for(;;) {
         if (it->index >= it->count) {
@@ -44230,43 +44251,6 @@ static JSValue js_iterator_concat_next(JSContext *ctx, JSValueConst this_val,
     it->running = FALSE;
     return ret;
 }
-
-static JSValue js_iterator_concat_return(JSContext *ctx, JSValueConst this_val,
-                                         int argc, JSValueConst *argv)
-{
-    JSIteratorConcatData *it;
-    JSValue ret;
-
-    it = JS_GetOpaque2(ctx, this_val, JS_CLASS_ITERATOR_CONCAT);
-    if (!it)
-        return JS_EXCEPTION;
-    if (it->running)
-        return JS_ThrowTypeError(ctx, "already running");
-    ret = JS_UNDEFINED;
-    if (!JS_IsUndefined(it->iter)) {
-        it->running = TRUE;
-        ret = JS_GetProperty(ctx, it->iter, JS_ATOM_return);
-        if (JS_IsException(ret)) {
-            it->running = FALSE;
-            return JS_EXCEPTION;
-        }
-        ret = JS_CallFree(ctx, ret, it->iter, 0, NULL);
-        it->running = FALSE;
-    }
-    while (it->index < it->count)
-        JS_FreeValue(ctx, it->values[it->index++]);
-    JS_FreeValue(ctx, it->iter);
-    JS_FreeValue(ctx, it->next);
-    it->iter = JS_UNDEFINED;
-    it->next = JS_UNDEFINED;
-    return ret;
-}
-
-static const JSCFunctionListEntry js_iterator_concat_proto_funcs[] = {
-    JS_ITERATOR_NEXT_DEF("next", 0, js_iterator_concat_next, 0 ),
-    JS_CFUNC_DEF("return", 0, js_iterator_concat_return ),
-    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Iterator Concat", JS_PROP_CONFIGURABLE ),
-};
 
 static JSValue js_iterator_concat(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
@@ -45406,10 +45390,13 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
 
     *pdone = FALSE;
 
-    if (JS_VALUE_GET_TAG(this_val) == JS_TAG_OBJECT &&
-        JS_VALUE_GET_OBJ(this_val)->class_id == JS_CLASS_ITERATOR_ZIP)
+    if (JS_VALUE_GET_TAG(this_val) != JS_TAG_OBJECT)
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (JS_VALUE_GET_OBJ(this_val)->class_id == JS_CLASS_ITERATOR_ZIP)
         return js_iterator_zip_next(ctx, this_val, argc, argv, pdone, magic);
-
+    if (JS_VALUE_GET_OBJ(this_val)->class_id == JS_CLASS_ITERATOR_CONCAT)
+        return js_iterator_concat_next(ctx, this_val, argc, argv, pdone, magic);
+    
     it = JS_GetOpaque2(ctx, this_val, JS_CLASS_ITERATOR_HELPER);
     if (!it)
         return JS_EXCEPTION;
@@ -57682,18 +57669,14 @@ int JS_AddIntrinsicBaseObjects(JSContext *ctx)
     JS_FreeValue(ctx, obj1);
     ctx->iterator_ctor = obj2;
     
-    ctx->class_proto[JS_CLASS_ITERATOR_CONCAT] =
-        JS_NewObjectProtoList(ctx, ctx->class_proto[JS_CLASS_ITERATOR], 
-                              js_iterator_concat_proto_funcs,
-                              countof(js_iterator_concat_proto_funcs));
-    if (JS_IsException(ctx->class_proto[JS_CLASS_ITERATOR_CONCAT]))
-        return -1;
     ctx->class_proto[JS_CLASS_ITERATOR_HELPER] =
         JS_NewObjectProtoList(ctx, ctx->class_proto[JS_CLASS_ITERATOR], 
                               js_iterator_helper_proto_funcs,
                               countof(js_iterator_helper_proto_funcs));
     if (JS_IsException(ctx->class_proto[JS_CLASS_ITERATOR_HELPER]))
         return -1;
+    ctx->class_proto[JS_CLASS_ITERATOR_CONCAT] =
+        JS_DupValue(ctx, ctx->class_proto[JS_CLASS_ITERATOR_HELPER]);
     /* the zip iterators share the iterator helper prototype */
     ctx->class_proto[JS_CLASS_ITERATOR_ZIP] =
         JS_DupValue(ctx, ctx->class_proto[JS_CLASS_ITERATOR_HELPER]);
