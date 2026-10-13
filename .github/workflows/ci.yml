@@ -285,8 +285,6 @@ jobs:
           - linux/386
           - linux/riscv64
           - linux/arm64
-          - linux/arm/v6
-          - linux/arm/v7
           - linux/s390x
           - linux/ppc64le
 
@@ -299,3 +297,26 @@ jobs:
         run: docker run --privileged --rm tonistiigi/binfmt:master --install all
       - name: Run tests on ${{ matrix.platform }}
         run: docker run --rm --interactive --mount type=bind,source=$(pwd),target=/host --platform ${{ matrix.platform }} alpine sh -c "apk add git patch make gcc libc-dev && cd /host && make test"
+
+# qemu-alpine without temporal and intl because the C compiler does
+# not support int128
+
+  qemu-alpine2:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/arm/v6
+          - linux/arm/v7
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            submodules: recursive
+      - name: Get qemu
+        # See https://github.com/tonistiigi/binfmt/issues/215#issuecomment-2613004741
+        run: docker run --privileged --rm tonistiigi/binfmt:master --install all
+      - name: Run tests on ${{ matrix.platform }}
+        run: docker run --rm --interactive --mount type=bind,source=$(pwd),target=/host --platform ${{ matrix.platform }} alpine sh -c "apk add git patch make gcc libc-dev && cd /host && make CONFIG_TEMPORAL_INTL= test"
