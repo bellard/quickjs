@@ -164,6 +164,7 @@ enum {
     JS_CLASS_ITERATOR_HELPER,   /* u.iterator_helper_data */
     JS_CLASS_ITERATOR_WRAP,     /* u.iterator_wrap_data */
     JS_CLASS_ITERATOR_ZIP,      /* u.iterator_zip_data */
+    JS_CLASS_ARRAY_FROM_ASYNC,  /* u.array_from_async_data */
     JS_CLASS_MAP_ITERATOR,      /* u.map_iterator_data */
     JS_CLASS_SET_ITERATOR,      /* u.map_iterator_data */
     JS_CLASS_ARRAY_ITERATOR,    /* u.array_iterator_data */
@@ -1031,6 +1032,7 @@ struct JSObject {
         struct JSIteratorHelperData *iterator_helper_data; /* JS_CLASS_ITERATOR_HELPER */
         struct JSIteratorWrapData *iterator_wrap_data; /* JS_CLASS_ITERATOR_WRAP */
         struct JSIteratorZipData *iterator_zip_data; /* JS_CLASS_ITERATOR_ZIP */
+        struct JSArrayFromAsyncData *array_from_async_data; /* JS_CLASS_ARRAY_FROM_ASYNC */
         struct JSProxyData *proxy_data; /* JS_CLASS_PROXY */
         struct JSPromiseData *promise_data; /* JS_CLASS_PROMISE */
         struct JSPromiseFunctionData *promise_function_data; /* JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROMISE_REJECT_FUNCTION */
@@ -1232,6 +1234,9 @@ static void js_iterator_wrap_mark(JSRuntime *rt, JSValueConst val,
 static void js_iterator_zip_finalizer(JSRuntime *rt, JSValue val);
 static void js_iterator_zip_mark(JSRuntime *rt, JSValueConst val,
                                  JS_MarkFunc *mark_func);
+static void js_array_from_async_finalizer(JSRuntime *rt, JSValue val);
+static void js_array_from_async_mark(JSRuntime *rt, JSValueConst val,
+                                     JS_MarkFunc *mark_func);
 static void js_regexp_string_iterator_finalizer(JSRuntime *rt, JSValue val);
 static void js_regexp_string_iterator_mark(JSRuntime *rt, JSValueConst val,
                                 JS_MarkFunc *mark_func);
@@ -2015,6 +2020,7 @@ static JSClassShortDef const js_std_class_def[] = {
     { JS_ATOM_IteratorHelper, js_iterator_helper_finalizer, js_iterator_helper_mark }, /* JS_CLASS_ITERATOR_HELPER */
     { JS_ATOM_IteratorWrap, js_iterator_wrap_finalizer, js_iterator_wrap_mark }, /* JS_CLASS_ITERATOR_WRAP */
     { JS_ATOM_IteratorZip, js_iterator_zip_finalizer, js_iterator_zip_mark }, /* JS_CLASS_ITERATOR_ZIP */
+    { JS_ATOM_ArrayFromAsync, js_array_from_async_finalizer, js_array_from_async_mark }, /* JS_CLASS_ARRAY_FROM_ASYNC */
     { JS_ATOM_Map_Iterator, js_map_iterator_finalizer, js_map_iterator_mark }, /* JS_CLASS_MAP_ITERATOR */
     { JS_ATOM_Set_Iterator, js_map_iterator_finalizer, js_map_iterator_mark }, /* JS_CLASS_SET_ITERATOR */
     { JS_ATOM_Array_Iterator, js_array_iterator_finalizer, js_array_iterator_mark }, /* JS_CLASS_ARRAY_ITERATOR */
@@ -42147,6 +42153,517 @@ static JSValue js_array_from(JSContext *ctx, JSValueConst this_val,
     return r;
 }
 
+/* Array.fromAsync: the iteration is performed by a state machine:
+   each Await suspends the machine and the promise reaction functions
+   resume it.
+*/
+
+enum {
+    AFS_STATE_START = 0,   /* get the iterator and create the array */
+    AFS_STATE_CALL_NEXT,   /* call the next method and await the result */
+    AFS_STATE_NEXT_RESULT, /* resumed with the awaited next result */
+    AFS_STATE_MAPPED,      /* resumed with the awaited mapped value */
+    AFS_STATE_KVALUE_CALL, /* read the property and await it */
+    AFS_STATE_KVALUE,      /* resumed with the awaited property value */
+    AFS_STATE_MAPPED_LIKE, /* resumed with the awaited mapped value */
+    AFS_STATE_CLOSE,       /* resumed after closing the iterator */
+};
+
+typedef struct JSArrayFromAsyncData {
+    JSValue promise;
+    JSValue resolving_funcs[2];
+    JSValue items;
+    JSValue ctor;
+    JSValue mapper, this_arg;
+    JSValue iterator, next_method;
+    JSValue array, array_like;
+    JSValue value;  /* value returned by the last Await */
+    JSValue error;  /* error propagated while closing the iterator */
+    int64_t k, length;
+    int state;
+    BOOL mapping;
+    BOOL has_iterator;
+} JSArrayFromAsyncData;
+
+static void js_array_from_async_finalizer(JSRuntime *rt, JSValue val)
+{
+    JSArrayFromAsyncData *s = JS_VALUE_GET_OBJ(val)->u.array_from_async_data;
+    int i;
+
+    if (!s)
+        return;
+    JS_FreeValueRT(rt, s->promise);
+    for (i = 0; i < 2; i++)
+        JS_FreeValueRT(rt, s->resolving_funcs[i]);
+    JS_FreeValueRT(rt, s->items);
+    JS_FreeValueRT(rt, s->ctor);
+    JS_FreeValueRT(rt, s->mapper);
+    JS_FreeValueRT(rt, s->this_arg);
+    JS_FreeValueRT(rt, s->iterator);
+    JS_FreeValueRT(rt, s->next_method);
+    JS_FreeValueRT(rt, s->array);
+    JS_FreeValueRT(rt, s->array_like);
+    JS_FreeValueRT(rt, s->value);
+    JS_FreeValueRT(rt, s->error);
+    js_free_rt(rt, s);
+}
+
+static void js_array_from_async_mark(JSRuntime *rt, JSValueConst val,
+                                     JS_MarkFunc *mark_func)
+{
+    JSArrayFromAsyncData *s = JS_VALUE_GET_OBJ(val)->u.array_from_async_data;
+    int i;
+
+    if (!s)
+        return;
+    JS_MarkValue(rt, s->promise, mark_func);
+    for (i = 0; i < 2; i++)
+        JS_MarkValue(rt, s->resolving_funcs[i], mark_func);
+    JS_MarkValue(rt, s->items, mark_func);
+    JS_MarkValue(rt, s->ctor, mark_func);
+    JS_MarkValue(rt, s->mapper, mark_func);
+    JS_MarkValue(rt, s->this_arg, mark_func);
+    JS_MarkValue(rt, s->iterator, mark_func);
+    JS_MarkValue(rt, s->next_method, mark_func);
+    JS_MarkValue(rt, s->array, mark_func);
+    JS_MarkValue(rt, s->array_like, mark_func);
+    JS_MarkValue(rt, s->value, mark_func);
+    JS_MarkValue(rt, s->error, mark_func);
+}
+
+static void array_from_async_resolve(JSContext *ctx, JSArrayFromAsyncData *s,
+                                     JSValueConst value)
+{
+    JSValue ret;
+
+    ret = JS_Call(ctx, s->resolving_funcs[0], JS_UNDEFINED, 1, &value);
+    JS_FreeValue(ctx, ret);
+}
+
+static void array_from_async_reject(JSContext *ctx, JSArrayFromAsyncData *s,
+                                    JSValueConst error)
+{
+    JSValue ret;
+
+    ret = JS_Call(ctx, s->resolving_funcs[1], JS_UNDEFINED, 1, &error);
+    JS_FreeValue(ctx, ret);
+}
+
+static void js_array_from_async_resume(JSContext *ctx, JSValueConst obj,
+                                       JSArrayFromAsyncData *s);
+
+static JSValue array_from_async_handler(JSContext *ctx,
+                                        JSValueConst this_val,
+                                        int argc, JSValueConst *argv,
+                                        int magic, JSValue *func_data);
+
+/* Await(value): resume the state machine with the awaited value. */
+static int array_from_async_await(JSContext *ctx, JSValueConst obj,
+                                  JSValueConst value, int next_state)
+{
+    JSArrayFromAsyncData *s =
+        JS_GetOpaque2(ctx, obj, JS_CLASS_ARRAY_FROM_ASYNC);
+    JSValue promise, funcs[2], undef[2];
+    int i, res;
+
+    promise = js_promise_resolve(ctx, ctx->promise_ctor, 1, &value, 0);
+    if (JS_IsException(promise))
+        return -1;
+    s->state = next_state;
+    for (i = 0; i < 2; i++) {
+        funcs[i] = JS_NewCFunctionData(ctx, array_from_async_handler, 1,
+                                       i, 1, (JSValueConst *)&obj);
+        if (JS_IsException(funcs[i])) {
+            JS_FreeValue(ctx, promise);
+            while (--i >= 0)
+                JS_FreeValue(ctx, funcs[i]);
+            return -1;
+        }
+        undef[i] = JS_UNDEFINED;
+    }
+    res = perform_promise_then(ctx, promise, (JSValueConst *)funcs,
+                               (JSValueConst *)undef);
+    JS_FreeValue(ctx, promise);
+    for (i = 0; i < 2; i++)
+        JS_FreeValue(ctx, funcs[i]);
+    return res;
+}
+
+/* An abrupt completion occurred: close the iterator if there is one
+   (AsyncIteratorClose) and reject the promise. The original error is
+   not replaced by the errors of the closing. */
+static void array_from_async_fail(JSContext *ctx, JSValueConst obj,
+                                  JSValueConst error)
+{
+    JSArrayFromAsyncData *s =
+        JS_GetOpaque2(ctx, obj, JS_CLASS_ARRAY_FROM_ASYNC);
+    JSValue method, ret;
+    int res;
+
+    if (!s->has_iterator) {
+        array_from_async_reject(ctx, s, error);
+        return;
+    }
+    JS_FreeValue(ctx, s->error);
+    s->error = JS_DupValue(ctx, error);
+    method = JS_GetProperty(ctx, s->iterator, JS_ATOM_return);
+    if (JS_IsException(method))
+        method = JS_UNDEFINED;
+    if (JS_IsUndefined(method) || JS_IsNull(method)) {
+        JS_FreeValue(ctx, method);
+        array_from_async_reject(ctx, s, error);
+        return;
+    }
+    ret = JS_Call(ctx, method, s->iterator, 0, NULL);
+    JS_FreeValue(ctx, method);
+    if (JS_IsException(ret) || !JS_IsObject(ret)) {
+        JS_FreeValue(ctx, ret);
+        array_from_async_reject(ctx, s, error);
+        return;
+    }
+    /* Await(returnResult), then reject with the original error */
+    res = array_from_async_await(ctx, obj, ret, AFS_STATE_CLOSE);
+    JS_FreeValue(ctx, ret);
+    if (res < 0)
+        array_from_async_reject(ctx, s, error);
+}
+
+/* an exception is pending: close the iterator if needed and reject */
+static void array_from_async_throw(JSContext *ctx, JSValueConst obj)
+{
+    JSArrayFromAsyncData *s =
+        JS_GetOpaque2(ctx, obj, JS_CLASS_ARRAY_FROM_ASYNC);
+    JSValue error;
+
+    error = JS_GetException(ctx);
+    if (s->has_iterator)
+        array_from_async_fail(ctx, obj, error);
+    else
+        array_from_async_reject(ctx, s, error);
+    JS_FreeValue(ctx, error);
+}
+
+/* an exception is pending: reject without closing (no iterator) */
+static void array_from_async_throw_plain(JSContext *ctx,
+                                         JSArrayFromAsyncData *s)
+{
+    JSValue error;
+
+    error = JS_GetException(ctx);
+    array_from_async_reject(ctx, s, error);
+    JS_FreeValue(ctx, error);
+}
+
+static void js_array_from_async_resume(JSContext *ctx, JSValueConst obj,
+                                       JSArrayFromAsyncData *s)
+{
+    JSValue val, method, args[2], ret;
+    int64_t len;
+    int done;
+
+    for (;;) {
+        switch (s->state) {
+
+        case AFS_STATE_START:
+            method = JS_GetProperty(ctx, s->items, JS_ATOM_Symbol_asyncIterator);
+            if (JS_IsException(method))
+                goto reject_start;
+            if (!JS_IsUndefined(method) && !JS_IsNull(method)) {
+                s->iterator = JS_GetIterator2(ctx, s->items, method);
+                JS_FreeValue(ctx, method);
+                if (JS_IsException(s->iterator)) {
+                    s->iterator = JS_UNDEFINED;
+                    goto reject_start;
+                }
+                s->has_iterator = TRUE;
+            } else {
+                method = JS_GetProperty(ctx, s->items, JS_ATOM_Symbol_iterator);
+                if (JS_IsException(method))
+                    goto reject_start;
+                if (!JS_IsUndefined(method) && !JS_IsNull(method)) {
+                    JSValue sync_iter;
+                    sync_iter = JS_GetIterator2(ctx, s->items, method);
+                    JS_FreeValue(ctx, method);
+                    if (JS_IsException(sync_iter))
+                        goto reject_start;
+                    s->iterator =
+                        JS_CreateAsyncFromSyncIterator(ctx, sync_iter);
+                    JS_FreeValue(ctx, sync_iter);
+                    if (JS_IsException(s->iterator)) {
+                        s->iterator = JS_UNDEFINED;
+                        goto reject_start;
+                    }
+                    s->has_iterator = TRUE;
+                }
+            }
+            if (s->has_iterator) {
+                s->next_method = JS_GetProperty(ctx, s->iterator,
+                                                JS_ATOM_next);
+                if (JS_IsException(s->next_method)) {
+                    s->next_method = JS_UNDEFINED;
+                    goto throw_close;
+                }
+                if (JS_IsConstructor(ctx, s->ctor)) {
+                    val = JS_CallConstructor(ctx, s->ctor, 0, NULL);
+                } else {
+                    val = JS_NewArray(ctx);
+                }
+                if (JS_IsException(val))
+                    goto throw_close;
+                s->array = val;
+                s->state = AFS_STATE_CALL_NEXT;
+                continue;
+            }
+            /* neither an async nor a sync iterable: array like path */
+            s->array_like = JS_ToObject(ctx, s->items);
+            if (JS_IsException(s->array_like)) {
+                s->array_like = JS_UNDEFINED;
+                goto reject_start;
+            }
+            if (js_get_length64(ctx, &len, s->array_like) < 0)
+                goto reject_start;
+            s->length = len;
+            args[0] = JS_NewInt64(ctx, len);
+            if (JS_IsConstructor(ctx, s->ctor)) {
+                val = JS_CallConstructor(ctx, s->ctor, 1, (JSValueConst *)args);
+            } else {
+                val = js_array_constructor(ctx, JS_UNDEFINED, 1, (JSValueConst *)args);
+            }
+            JS_FreeValue(ctx, args[0]);
+            if (JS_IsException(val))
+                goto throw_close;
+            s->array = val;
+            s->k = 0;
+            s->state = AFS_STATE_KVALUE_CALL;
+            continue;
+
+        case AFS_STATE_CALL_NEXT:
+            ret = JS_Call(ctx, s->next_method, s->iterator, 0, NULL);
+            if (JS_IsException(ret))
+                goto throw_close;
+            done = array_from_async_await(ctx, obj, ret,
+                                          AFS_STATE_NEXT_RESULT);
+            JS_FreeValue(ctx, ret);
+            if (done < 0)
+                goto throw_close;
+            return;
+
+        case AFS_STATE_NEXT_RESULT:
+            val = s->value;
+            s->value = JS_UNDEFINED;
+            if (!JS_IsObject(val)) {
+                JS_FreeValue(ctx, val);
+                JS_ThrowTypeError(ctx, "iterator result is not an object");
+                goto throw_close;
+            }
+            ret = JS_GetProperty(ctx, val, JS_ATOM_done);
+            if (JS_IsException(ret)) {
+                JS_FreeValue(ctx, val);
+                goto throw_close;
+            }
+            done = JS_ToBoolFree(ctx, ret);
+            if (done) {
+                JS_FreeValue(ctx, val);
+                if (JS_SetProperty(ctx, s->array, JS_ATOM_length,
+                                   JS_NewInt64(ctx, s->k)) < 0)
+                    goto throw_close;
+                array_from_async_resolve(ctx, s, s->array);
+                return;
+            }
+            ret = JS_GetProperty(ctx, val, JS_ATOM_value);
+            JS_FreeValue(ctx, val);
+            if (JS_IsException(ret))
+                goto throw_close;
+            if (s->mapping) {
+                args[0] = ret;
+                args[1] = JS_NewInt64(ctx, s->k);
+                val = JS_Call(ctx, s->mapper, s->this_arg, 2, (JSValueConst *)args);
+                JS_FreeValue(ctx, ret);
+                JS_FreeValue(ctx, args[1]);
+                if (JS_IsException(val))
+                    goto throw_close;
+                done = array_from_async_await(ctx, obj, val,
+                                              AFS_STATE_MAPPED);
+                JS_FreeValue(ctx, val);
+                if (done < 0)
+                    goto throw_close;
+                return;
+            }
+            done = JS_DefinePropertyValueInt64(ctx, s->array, s->k, ret,
+                                               JS_PROP_C_W_E | JS_PROP_THROW);
+            if (done < 0)
+                goto throw_close;
+            s->k++;
+            s->state = AFS_STATE_CALL_NEXT;
+            continue;
+
+        case AFS_STATE_MAPPED:
+            val = s->value;
+            s->value = JS_UNDEFINED;
+            done = JS_DefinePropertyValueInt64(ctx, s->array, s->k, val,
+                                               JS_PROP_C_W_E | JS_PROP_THROW);
+            if (done < 0)
+                goto throw_close;
+            s->k++;
+            s->state = AFS_STATE_CALL_NEXT;
+            continue;
+
+        case AFS_STATE_KVALUE_CALL:
+            if (s->k >= s->length) {
+                if (JS_SetProperty(ctx, s->array, JS_ATOM_length,
+                                   JS_NewInt64(ctx, s->length)) < 0)
+                    goto throw_close;
+                array_from_async_resolve(ctx, s, s->array);
+                return;
+            }
+            val = JS_GetPropertyInt64(ctx, s->array_like, s->k);
+            if (JS_IsException(val))
+                goto throw_plain;
+            done = array_from_async_await(ctx, obj, val,
+                                          AFS_STATE_KVALUE);
+            JS_FreeValue(ctx, val);
+            if (done < 0)
+                goto throw_plain;
+            return;
+
+        case AFS_STATE_KVALUE:
+            val = s->value;
+            s->value = JS_UNDEFINED;
+            if (s->mapping) {
+                args[0] = val;
+                args[1] = JS_NewInt64(ctx, s->k);
+                ret = JS_Call(ctx, s->mapper, s->this_arg, 2, (JSValueConst *)args);
+                JS_FreeValue(ctx, val);
+                JS_FreeValue(ctx, args[1]);
+                if (JS_IsException(ret))
+                    goto throw_plain;
+                done = array_from_async_await(ctx, obj, ret,
+                                              AFS_STATE_MAPPED_LIKE);
+                JS_FreeValue(ctx, ret);
+                if (done < 0)
+                    goto throw_plain;
+                return;
+            }
+            done = JS_DefinePropertyValueInt64(ctx, s->array, s->k, val,
+                                               JS_PROP_C_W_E | JS_PROP_THROW);
+            if (done < 0)
+                goto throw_plain;
+            s->k++;
+            s->state = AFS_STATE_KVALUE_CALL;
+            continue;
+
+        case AFS_STATE_MAPPED_LIKE:
+            val = s->value;
+            s->value = JS_UNDEFINED;
+            done = JS_DefinePropertyValueInt64(ctx, s->array, s->k, val,
+                                               JS_PROP_C_W_E | JS_PROP_THROW);
+            if (done < 0)
+                goto throw_plain;
+            s->k++;
+            s->state = AFS_STATE_KVALUE_CALL;
+            continue;
+
+        case AFS_STATE_CLOSE:
+            /* the iterator was closed: reject with the original error */
+            array_from_async_reject(ctx, s, s->error);
+            return;
+
+        default:
+            abort();
+        }
+
+    throw_close:
+        array_from_async_throw(ctx, obj);
+        return;
+    throw_plain:
+    reject_start:
+        array_from_async_throw_plain(ctx, s);
+        return;
+    }
+}
+
+static JSValue array_from_async_handler(JSContext *ctx,
+                                        JSValueConst this_val,
+                                        int argc, JSValueConst *argv,
+                                        int magic, JSValue *func_data)
+{
+    JSArrayFromAsyncData *s =
+        JS_GetOpaque(func_data[0], JS_CLASS_ARRAY_FROM_ASYNC);
+
+    if (!s)
+        return JS_UNDEFINED;
+    if (magic & 1) {
+        /* the Await was rejected */
+        if (s->state == AFS_STATE_CLOSE) {
+            array_from_async_reject(ctx, s, s->error);
+        } else {
+            array_from_async_fail(ctx, func_data[0],
+                                  argc > 0 ? argv[0] : JS_UNDEFINED);
+        }
+    } else {
+        JS_FreeValue(ctx, s->value);
+        s->value = JS_DupValue(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+        js_array_from_async_resume(ctx, func_data[0], s);
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue js_array_from_async(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    JSArrayFromAsyncData *s;
+    JSValue promise, resolving_funcs[2], obj;
+
+    promise = JS_NewPromiseCapability(ctx, resolving_funcs);
+    if (JS_IsException(promise))
+        return JS_EXCEPTION;
+    obj = JS_NewObjectClass(ctx, JS_CLASS_ARRAY_FROM_ASYNC);
+    if (JS_IsException(obj))
+        goto fail_capability;
+    s = js_mallocz(ctx, sizeof(*s));
+    if (!s) {
+        JS_FreeValue(ctx, obj);
+        goto fail_capability;
+    }
+    s->promise = JS_DupValue(ctx, promise);
+    s->resolving_funcs[0] = resolving_funcs[0];
+    s->resolving_funcs[1] = resolving_funcs[1];
+    s->items = JS_DupValue(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    s->ctor = JS_DupValue(ctx, this_val);
+    s->mapper = JS_UNDEFINED;
+    s->this_arg = JS_UNDEFINED;
+    s->iterator = JS_UNDEFINED;
+    s->next_method = JS_UNDEFINED;
+    s->array = JS_UNDEFINED;
+    s->array_like = JS_UNDEFINED;
+    s->value = JS_UNDEFINED;
+    s->error = JS_UNDEFINED;
+    s->state = AFS_STATE_START;
+    JS_SetOpaque(obj, s);
+
+    if (argc > 1 && !JS_IsUndefined(argv[1])) {
+        if (!JS_IsFunction(ctx, argv[1])) {
+            JS_ThrowTypeError(ctx, "mapfn is not callable");
+            array_from_async_throw_plain(ctx, s);
+            JS_FreeValue(ctx, obj);
+            return promise;
+        }
+        s->mapping = TRUE;
+        s->mapper = JS_DupValue(ctx, argv[1]);
+        s->this_arg = JS_DupValue(ctx, argc > 2 ? argv[2] : JS_UNDEFINED);
+    }
+    /* run synchronously until the first Await */
+    js_array_from_async_resume(ctx, obj, s);
+    JS_FreeValue(ctx, obj);
+    return promise;
+
+ fail_capability:
+    JS_FreeValue(ctx, promise);
+    JS_FreeValue(ctx, resolving_funcs[0]);
+    JS_FreeValue(ctx, resolving_funcs[1]);
+    return JS_EXCEPTION;
+}
+
 static JSValue js_array_of(JSContext *ctx, JSValueConst this_val,
                            int argc, JSValueConst *argv)
 {
@@ -42267,6 +42784,7 @@ static JSValue JS_ArraySpeciesCreate(JSContext *ctx, JSValueConst obj, int64_t l
 static const JSCFunctionListEntry js_array_funcs[] = {
     JS_CFUNC_DEF("isArray", 1, js_array_isArray ),
     JS_CFUNC_DEF("from", 1, js_array_from ),
+    JS_CFUNC_DEF("fromAsync", 1, js_array_from_async ),
     JS_CFUNC_DEF("of", 0, js_array_of ),
     JS_CGETSET_DEF("[Symbol.species]", js_get_this, NULL ),
 };
