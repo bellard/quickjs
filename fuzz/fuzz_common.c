@@ -28,6 +28,22 @@ void reset_nbinterrupts() {
     nbinterrupts = 0;
 }
 
+JSContext *JS_NewCustomContext(JSRuntime *rt)
+{
+    JSContext *ctx = JS_NewContext(rt);
+    if (!ctx)
+        return NULL;
+
+    JS_AddIntrinsicBigFloat(ctx);
+    JS_AddIntrinsicBigDecimal(ctx);
+    JS_AddIntrinsicOperators(ctx);
+    JS_EnableBignumExt(ctx, 1);
+
+    js_init_module_std(ctx, "std");
+    js_init_module_os(ctx, "os");
+    return ctx;
+}
+
 void test_one_input_init(JSRuntime *rt, JSContext *ctx) {
     // 64 Mo
     JS_SetMemoryLimit(rt, 0x4000000);
@@ -36,12 +52,11 @@ void test_one_input_init(JSRuntime *rt, JSContext *ctx) {
 
     JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
     JS_SetInterruptHandler(JS_GetRuntime(ctx), interrupt_handler, NULL);
+    js_std_set_worker_new_context_func(JS_NewCustomContext);
     js_std_add_helpers(ctx, 0, NULL);
 
     // Load os and std
     js_std_init_handlers(rt);
-    js_init_module_std(ctx, "std");
-    js_init_module_os(ctx, "os");
     const char *str = "import * as std from 'std';\n"
                 "import * as os from 'os';\n"
                 "globalThis.std = std;\n"
