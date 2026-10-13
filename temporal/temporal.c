@@ -1771,6 +1771,8 @@ int ti_prepare_calendar_fields(JSContext *ctx, JSValueConst obj,
             JS_FreeCString(ctx, era_str);
             out->present_mask |= TI_FIELD_ERA;
         }
+        JS_FreeValue(ctx, v);
+        v = JS_UNDEFINED;
     }
 
     /* eraYear */
