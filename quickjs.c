@@ -171,6 +171,7 @@ enum {
     JS_CLASS_STRING_ITERATOR,   /* u.array_iterator_data */
     JS_CLASS_REGEXP_STRING_ITERATOR,   /* u.regexp_string_iterator_data */
     JS_CLASS_GENERATOR,         /* u.generator_data */
+    JS_CLASS_DISPOSABLE_STACK,
     JS_CLASS_GLOBAL_OBJECT,     /* u.global_object */
     JS_CLASS_RAWJSON,
     JS_CLASS_PROXY,             /* u.proxy_data */
@@ -183,6 +184,7 @@ enum {
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,  /* u.async_from_sync_iterator_data */
     JS_CLASS_ASYNC_GENERATOR_FUNCTION,  /* u.func */
     JS_CLASS_ASYNC_GENERATOR,   /* u.async_generator_data */
+    JS_CLASS_ASYNC_DISPOSABLE_STACK,
     JS_CLASS_WEAK_REF,
     JS_CLASS_FINALIZATION_REGISTRY,
     
@@ -203,6 +205,7 @@ typedef enum JSErrorEnum {
     JS_URI_ERROR,
     JS_INTERNAL_ERROR,
     JS_AGGREGATE_ERROR,
+    JS_SUPPRESSED_ERROR,
 
     JS_NATIVE_ERROR_COUNT, /* number of different NativeError objects */
 } JSErrorEnum;
@@ -1149,6 +1152,11 @@ enum OPCodeEnum {
     OP_TEMP_END,
 };
 
+static inline JSValueConst *vc(JSValue *vals)
+{
+    return (JSValueConst *)vals;
+}
+
 static int JS_InitAtoms(JSRuntime *rt);
 static JSAtom __JS_NewAtomInit(JSRuntime *rt, const char *str, int len,
                                int atom_type);
@@ -1252,6 +1260,9 @@ static void js_promise_mark(JSRuntime *rt, JSValueConst val,
 static void js_promise_resolve_function_finalizer(JSRuntime *rt, JSValue val);
 static void js_promise_resolve_function_mark(JSRuntime *rt, JSValueConst val,
                                 JS_MarkFunc *mark_func);
+static void js_disposable_stack_finalizer(JSRuntime *rt, JSValue val);
+static void js_disposable_stack_mark(JSRuntime *rt, JSValueConst val,
+                                     JS_MarkFunc *mark_func);
 
 #define JS_HINT_FORCE_ORDINARY (1 << 4) // don't try Symbol.toPrimitive
 static JSValue JS_ToPrimitiveFree(JSContext *ctx, JSValue val, int hint);
@@ -2027,6 +2038,7 @@ static JSClassShortDef const js_std_class_def[] = {
     { JS_ATOM_String_Iterator, js_array_iterator_finalizer, js_array_iterator_mark }, /* JS_CLASS_STRING_ITERATOR */
     { JS_ATOM_RegExp_String_Iterator, js_regexp_string_iterator_finalizer, js_regexp_string_iterator_mark }, /* JS_CLASS_REGEXP_STRING_ITERATOR */
     { JS_ATOM_Generator, js_generator_finalizer, js_generator_mark }, /* JS_CLASS_GENERATOR */
+    { JS_ATOM_DisposableStack, js_disposable_stack_finalizer, js_disposable_stack_mark }, /* JS_CLASS_DISPOSABLE_STACK */
     { JS_ATOM_Object, js_global_object_finalizer, js_global_object_mark }, /* JS_CLASS_GLOBAL_OBJECT */
     { JS_ATOM_Object, NULL, NULL }, /* JS_CLASS_RAWJSON */
 };
@@ -41810,7 +41822,17 @@ static JSValue js_error_constructor(JSContext *ctx, JSValueConst new_target,
     JS_FreeValue(ctx, proto);
     if (JS_IsException(obj))
         return obj;
-    arg_index = (magic == JS_AGGREGATE_ERROR);
+    switch(magic) {
+    case JS_AGGREGATE_ERROR:
+        arg_index = 1;
+        break;
+    case JS_SUPPRESSED_ERROR:
+        arg_index = 2;
+        break;
+    default:
+        arg_index = 0;
+        break;
+    }
 
     message = argv[arg_index++];
     if (!JS_IsUndefined(message)) {
@@ -41842,6 +41864,15 @@ static JSValue js_error_constructor(JSContext *ctx, JSValueConst new_target,
         if (JS_IsException(error_list))
             goto exception;
         JS_DefinePropertyValue(ctx, obj, JS_ATOM_errors, error_list,
+                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    }
+
+    if (magic == JS_SUPPRESSED_ERROR) {
+        JS_DefinePropertyValue(ctx, obj, JS_ATOM_error,
+                               JS_DupValue(ctx, argv[0]),
+                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+        JS_DefinePropertyValue(ctx, obj, JS_ATOM_suppressed,
+                               JS_DupValue(ctx, argv[1]),
                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
     }
 
@@ -41904,7 +41935,8 @@ static const JSCFunctionListEntry js_native_error_proto_funcs[] = {
     DEF(JS_ATOM_URIError)
     DEF(JS_ATOM_InternalError)
     DEF(JS_ATOM_AggregateError)
-#undef DEF    
+    DEF(JS_ATOM_SuppressedError)
+#undef DEF
 };
 
 static JSValue js_error_isError(JSContext *ctx, JSValueConst this_val,
@@ -46023,6 +46055,65 @@ static JSValue js_iterator_proto_iterator(JSContext *ctx, JSValueConst this_val,
     return JS_DupValue(ctx, this_val);
 }
 
+static JSValue js_async_dispose_to_undef(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv,
+                                         int magic, JSValue *func_data);
+
+static JSValue js_iterator_proto_dispose(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv)
+{
+    JSValue method;
+
+    method = JS_GetProperty(ctx, this_val, JS_ATOM_return);
+    if (JS_IsException(method))
+        return JS_EXCEPTION;
+    if (JS_IsUndefined(method) || JS_IsNull(method))
+        return JS_UNDEFINED;
+    return JS_CallFree(ctx, method, this_val, 0, NULL);
+}
+
+static JSValue js_async_iterator_proto_dispose(JSContext *ctx,
+                                               JSValueConst this_val,
+                                               int argc, JSValueConst *argv)
+{
+    JSValue method, ret, promise, undef_fn, then_args[1], result;
+    JSValue undef = JS_UNDEFINED;
+
+    method = JS_GetProperty(ctx, this_val, JS_ATOM_return);
+    if (JS_IsException(method)) {
+        JSValue exc = JS_GetException(ctx);
+        JSValue p = js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&exc), 1);
+        JS_FreeValue(ctx, exc);
+        return p;
+    }
+    if (JS_IsUndefined(method) || JS_IsNull(method)) {
+        return js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&undef), 0);
+    }
+    ret = JS_CallFree(ctx, method, this_val, 0, NULL);
+    if (JS_IsException(ret)) {
+        JSValue exc = JS_GetException(ctx);
+        JSValue p = js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&exc), 1);
+        JS_FreeValue(ctx, exc);
+        return p;
+    }
+    /* Wrap in Promise.resolve(ret).then(() => undefined) */
+    promise = js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&ret), 0);
+    JS_FreeValue(ctx, ret);
+    if (JS_IsException(promise))
+        return promise;
+    undef_fn = JS_NewCFunctionData(ctx, js_async_dispose_to_undef, 0, 0, 0,
+                                   NULL);
+    if (JS_IsException(undef_fn)) {
+        JS_FreeValue(ctx, promise);
+        return JS_EXCEPTION;
+    }
+    then_args[0] = undef_fn;
+    result = JS_Invoke(ctx, promise, JS_ATOM_then, 1, vc(then_args));
+    JS_FreeValue(ctx, undef_fn);
+    JS_FreeValue(ctx, promise);
+    return result;
+}
+
 static JSValue js_iterator_proto_get_toStringTag(JSContext *ctx, JSValueConst this_val)
 {
     return JS_AtomToString(ctx, JS_ATOM_Iterator);
@@ -46379,6 +46470,7 @@ static const JSCFunctionListEntry js_iterator_proto_funcs[] = {
     JS_CFUNC_DEF("join", 1, js_iterator_proto_join ),
     JS_CFUNC_DEF("reduce", 1, js_iterator_proto_reduce ),
     JS_CFUNC_DEF("toArray", 0, js_iterator_proto_toArray ),
+    JS_CFUNC_DEF("[Symbol.dispose]", 0, js_iterator_proto_dispose ),
     JS_CFUNC_DEF("[Symbol.iterator]", 0, js_iterator_proto_iterator ),
     JS_CGETSET_DEF("[Symbol.toStringTag]", js_iterator_proto_get_toStringTag, js_iterator_proto_set_toStringTag),
 };
@@ -53506,6 +53598,8 @@ static const JSCFunctionListEntry js_symbol_funcs[] = {
     JS_PROP_ATOM_DEF("species", JS_ATOM_Symbol_species, 0),
     JS_PROP_ATOM_DEF("unscopables", JS_ATOM_Symbol_unscopables, 0),
     JS_PROP_ATOM_DEF("asyncIterator", JS_ATOM_Symbol_asyncIterator, 0),
+    JS_PROP_ATOM_DEF("dispose", JS_ATOM_Symbol_dispose, 0),
+    JS_PROP_ATOM_DEF("asyncDispose", JS_ATOM_Symbol_asyncDispose, 0),
 };
 
 /* Set/Map/WeakSet/WeakMap */
@@ -55150,6 +55244,661 @@ static const JSCFunctionListEntry js_generator_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Generator", JS_PROP_CONFIGURABLE),
 };
 
+/* Explicit resource management */
+
+enum {
+    JS_DISPOSE_HINT_SYNC,   /* use: Call(method, value) */
+    JS_DISPOSE_HINT_ADOPT,  /* adopt: Call(method, undefined, [value]) */
+    JS_DISPOSE_HINT_DEFER,  /* defer: Call(method, undefined) */
+};
+
+typedef struct JSDisposableResource {
+    JSValue value;
+    JSValue method; /* dispose method */
+    uint8_t hint;
+} JSDisposableResource;
+
+typedef struct JSDisposableStack {
+    BOOL disposed;
+    int resource_count;
+    int resource_capacity;
+    JSDisposableResource *resources;
+} JSDisposableStack;
+
+static JSValue js_new_suppressed_error(JSContext *ctx, JSValueConst error,
+                                       JSValueConst suppressed)
+{
+    JSValue obj;
+
+    /* Construct via the intrinsic prototype rather than going through
+       SuppressedError.prototype.constructor, which is user-writable. */
+    obj = JS_NewObjectProtoClass(ctx,
+                                 ctx->native_error_proto[JS_SUPPRESSED_ERROR],
+                                 JS_CLASS_ERROR);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    JS_DefinePropertyValue(ctx, obj, JS_ATOM_error, JS_DupValue(ctx, error),
+                           JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    JS_DefinePropertyValue(ctx, obj, JS_ATOM_suppressed, JS_DupValue(ctx, suppressed),
+                           JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    build_backtrace(ctx, obj, NULL, 0, 0,
+                    JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
+    return obj;
+}
+
+/* Perform DisposeResources. Returns 0 on success, -1 on exception.
+   completion_error is the pending error (JS_UNDEFINED if none).
+   It is consumed (freed) by this function. */
+static int js_dispose_resources(JSContext *ctx, JSDisposableStack *ds,
+                                JSValue completion_error)
+{
+    JSValue error = completion_error;
+    BOOL has_error = !JS_IsUndefined(error);
+    int i;
+
+    ds->disposed = TRUE;
+    /* dispose in LIFO order */
+    for (i = ds->resource_count - 1; i >= 0; i--) {
+        JSDisposableResource *res = &ds->resources[i];
+        JSValue ret;
+        if (JS_IsUndefined(res->method)) {
+            /* null/undefined resource, skip */
+            JS_FreeValue(ctx, res->value);
+            res->value = JS_UNDEFINED;
+            continue;
+        }
+        switch (res->hint) {
+        case JS_DISPOSE_HINT_ADOPT:
+            ret = JS_Call(ctx, res->method, JS_UNDEFINED, 1, vc(&res->value));
+            break;
+        case JS_DISPOSE_HINT_DEFER:
+            ret = JS_Call(ctx, res->method, JS_UNDEFINED, 0, NULL);
+            break;
+        default: /* JS_DISPOSE_HINT_SYNC */
+            ret = JS_Call(ctx, res->method, res->value, 0, NULL);
+            break;
+        }
+        JS_FreeValue(ctx, res->value);
+        JS_FreeValue(ctx, res->method);
+        res->value = JS_UNDEFINED;
+        res->method = JS_UNDEFINED;
+        if (JS_IsException(ret)) {
+            JSValue new_error = JS_GetException(ctx);
+            if (has_error) {
+                JSValue suppressed = js_new_suppressed_error(ctx, new_error, error);
+                JS_FreeValue(ctx, new_error);
+                JS_FreeValue(ctx, error);
+                if (JS_IsException(suppressed)) {
+                    error = JS_GetException(ctx);
+                } else {
+                    error = suppressed;
+                }
+            } else {
+                error = new_error;
+                has_error = TRUE;
+            }
+        } else {
+            JS_FreeValue(ctx, ret);
+        }
+    }
+    ds->resource_count = 0;
+    if (has_error) {
+        JS_Throw(ctx, error);
+        return -1;
+    }
+    return 0;
+}
+
+static void js_disposable_stack_clear(JSRuntime *rt, JSDisposableStack *ds)
+{
+    int i;
+    for (i = 0; i < ds->resource_count; i++) {
+        JS_FreeValueRT(rt, ds->resources[i].value);
+        JS_FreeValueRT(rt, ds->resources[i].method);
+    }
+    js_free_rt(rt, ds->resources);
+}
+
+static int js_disposable_stack_add(JSContext *ctx, JSDisposableStack *ds,
+                                   JSValueConst value, JSValueConst method,
+                                   int hint)
+{
+    if (ds->resource_count >= ds->resource_capacity) {
+        int new_cap = max_int(ds->resource_capacity * 2, 4);
+        JSDisposableResource *new_res;
+        new_res = js_realloc(ctx, ds->resources,
+                             new_cap * sizeof(JSDisposableResource));
+        if (!new_res)
+            return -1;
+        ds->resources = new_res;
+        ds->resource_capacity = new_cap;
+    }
+    ds->resources[ds->resource_count].value = JS_DupValue(ctx, value);
+    ds->resources[ds->resource_count].method = JS_DupValue(ctx, method);
+    ds->resources[ds->resource_count].hint = hint;
+    ds->resource_count++;
+    return 0;
+}
+
+static JSValue js_sync_dispose_wrapper(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv,
+                                       int magic, JSValue *func_data)
+{
+    JSValueConst method = func_data[0];
+    JSValue ret = JS_Call(ctx, method, this_val, 0, NULL);
+    if (JS_IsException(ret))
+        return JS_EXCEPTION;
+    JS_FreeValue(ctx, ret);
+    return JS_UNDEFINED;
+}
+
+static JSValue js_get_dispose_method(JSContext *ctx, JSValueConst value, int hint)
+{
+    JSValue method;
+
+    if (hint == 1) {
+        /* async: try Symbol.asyncDispose first */
+        method = JS_GetProperty(ctx, value, JS_ATOM_Symbol_asyncDispose);
+        if (JS_IsException(method))
+            return JS_EXCEPTION;
+        if (!JS_IsUndefined(method) && !JS_IsNull(method)) {
+            if (!JS_IsFunction(ctx, method)) {
+                JS_FreeValue(ctx, method);
+                return JS_ThrowTypeError(ctx, "property is not a function");
+            }
+            return method;
+        }
+        JS_FreeValue(ctx, method);
+        /* Fall back to Symbol.dispose, but wrap it so its return value is
+           NOT awaited (per spec GetDisposeMethod). */
+        method = JS_GetProperty(ctx, value, JS_ATOM_Symbol_dispose);
+        if (JS_IsException(method))
+            return JS_EXCEPTION;
+        if (JS_IsUndefined(method) || JS_IsNull(method))
+            return JS_ThrowTypeError(ctx, "property is not a function");
+        if (!JS_IsFunction(ctx, method)) {
+            JS_FreeValue(ctx, method);
+            return JS_ThrowTypeError(ctx, "property is not a function");
+        }
+
+        {
+            JSValue data[1], wrapped;
+            data[0] = method;
+            wrapped = JS_NewCFunctionData(ctx, js_sync_dispose_wrapper, 0, 0,
+                                          1, vc(data));
+            JS_FreeValue(ctx, method);
+            return wrapped;
+        }
+    }
+
+    /* sync dispose */
+    method = JS_GetProperty(ctx, value, JS_ATOM_Symbol_dispose);
+    if (JS_IsException(method))
+        return JS_EXCEPTION;
+    if (JS_IsUndefined(method) || JS_IsNull(method))
+        return JS_ThrowTypeError(ctx, "property is not a function");
+    if (!JS_IsFunction(ctx, method)) {
+        JS_FreeValue(ctx, method);
+        return JS_ThrowTypeError(ctx, "property is not a function");
+    }
+    return method;
+}
+
+static JSValue js_disposable_stack_constructor(JSContext *ctx,
+                                               JSValueConst new_target,
+                                               int argc, JSValueConst *argv,
+                                               int class_id)
+{
+    JSDisposableStack *s;
+    JSValue obj;
+
+    if (JS_IsUndefined(new_target))
+        return JS_ThrowTypeError(ctx, "Constructor requires 'new'");
+    obj = JS_CreateFromConstructor(ctx, new_target, class_id);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    s = js_mallocz(ctx, sizeof(*s));
+    if (!s) {
+        JS_FreeValue(ctx, obj);
+        return JS_EXCEPTION;
+    }
+    JS_SetOpaque(obj, s);
+    return obj;
+}
+
+static void js_disposable_stack_finalizer(JSRuntime *rt, JSValue val)
+{
+    JSObject *p;
+    JSDisposableStack *s;
+
+    p = JS_VALUE_GET_OBJ(val);
+    s = p->u.opaque;
+    if (s) {
+        js_disposable_stack_clear(rt, s);
+        js_free_rt(rt, s);
+    }
+}
+
+static void js_disposable_stack_mark(JSRuntime *rt, JSValueConst val,
+                                     JS_MarkFunc *mark_func)
+{
+    JSObject *p;
+    JSDisposableStack *s;
+    int i;
+
+    p = JS_VALUE_GET_OBJ(val);
+    s = p->u.opaque;
+    if (s) {
+        for (i = 0; i < s->resource_count; i++) {
+            JS_MarkValue(rt, s->resources[i].value, mark_func);
+            JS_MarkValue(rt, s->resources[i].method, mark_func);
+        }
+    }
+}
+
+static JSDisposableStack *js_disposable_stack_get(JSContext *ctx,
+                                                  JSValueConst this_val,
+                                                  int class_id)
+{
+    JSDisposableStack *s;
+    s = JS_GetOpaque2(ctx, this_val, class_id);
+    if (!s)
+        return NULL;
+    if (s->disposed) {
+        JS_ThrowReferenceError(ctx, "DisposableStack has been disposed");
+        return NULL;
+    }
+    return s;
+}
+
+static JSValue js_disposable_stack_use(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv, int class_id)
+{
+    JSDisposableStack *s;
+    JSValueConst value;
+    JSValue method;
+    int hint = (class_id == JS_CLASS_ASYNC_DISPOSABLE_STACK) ? 1 : 0;
+
+    s = js_disposable_stack_get(ctx, this_val, class_id);
+    if (!s)
+        return JS_EXCEPTION;
+    value = argv[0];
+    if (JS_IsNull(value) || JS_IsUndefined(value)) {
+        /* For async stacks, a null/undefined resource still needs a record
+           so disposeAsync performs the required Await(undefined). */
+        if (class_id == JS_CLASS_ASYNC_DISPOSABLE_STACK) {
+            if (js_disposable_stack_add(ctx, s, JS_UNDEFINED, JS_UNDEFINED,
+                                        JS_DISPOSE_HINT_SYNC) < 0)
+                return JS_EXCEPTION;
+        }
+        return JS_DupValue(ctx, value);
+    }
+    if (!JS_IsObject(value))
+        return JS_ThrowTypeError(ctx, "not an object");
+    method = js_get_dispose_method(ctx, value, hint);
+    if (JS_IsException(method))
+        return JS_EXCEPTION;
+    if (js_disposable_stack_add(ctx, s, value, method, JS_DISPOSE_HINT_SYNC) < 0) {
+        JS_FreeValue(ctx, method);
+        return JS_EXCEPTION;
+    }
+    JS_FreeValue(ctx, method);
+    return JS_DupValue(ctx, value);
+}
+
+static JSValue js_disposable_stack_adopt(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv, int class_id)
+{
+    JSDisposableStack *s;
+    JSValueConst value, on_dispose;
+
+    s = js_disposable_stack_get(ctx, this_val, class_id);
+    if (!s)
+        return JS_EXCEPTION;
+    value = argv[0];
+    on_dispose = argv[1];
+    if (!JS_IsFunction(ctx, on_dispose))
+        return JS_ThrowTypeError(ctx, "not a function");
+    if (js_disposable_stack_add(ctx, s, value, on_dispose, JS_DISPOSE_HINT_ADOPT) < 0)
+        return JS_EXCEPTION;
+    return JS_DupValue(ctx, value);
+}
+
+static JSValue js_disposable_stack_defer(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv, int class_id)
+{
+    JSDisposableStack *s;
+    JSValueConst on_dispose;
+
+    s = js_disposable_stack_get(ctx, this_val, class_id);
+    if (!s)
+        return JS_EXCEPTION;
+    on_dispose = argv[0];
+    if (!JS_IsFunction(ctx, on_dispose))
+        return JS_ThrowTypeError(ctx, "not a function");
+    if (js_disposable_stack_add(ctx, s, JS_UNDEFINED, on_dispose, JS_DISPOSE_HINT_DEFER) < 0)
+        return JS_EXCEPTION;
+    return JS_UNDEFINED;
+}
+
+/* Simple .then handler that discards its argument and returns undefined;
+   used to normalize the chain's resolved value after all disposals. */
+static JSValue js_async_dispose_to_undef(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv,
+                                         int magic, JSValue *func_data)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue js_async_dispose_rethrow(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv,
+                                        int magic, JSValue *func_data)
+{
+    JSValue prev_err = JS_DupValue(ctx, func_data[0]);
+    if (magic == 0) {
+        return JS_Throw(ctx, prev_err);
+    } else {
+        JSValue se = js_new_suppressed_error(ctx, argv[0], prev_err);
+        JS_FreeValue(ctx, prev_err);
+        if (JS_IsException(se))
+            return JS_EXCEPTION;
+        return JS_Throw(ctx, se);
+    }
+}
+
+static JSValue js_async_dispose_step(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv,
+                                     int magic, JSValue *func_data)
+{
+    JSValueConst value = func_data[0];
+    JSValueConst method = func_data[1];
+    int hint = JS_VALUE_GET_INT(func_data[2]);
+    BOOL has_prev_err = (magic == 1);
+    JSValue ret;
+
+    if (JS_IsUndefined(method)) {
+        /* null/undefined resource on async stack: Await(undefined) */
+        if (has_prev_err)
+            return JS_Throw(ctx, JS_DupValue(ctx, argv[0]));
+        return JS_UNDEFINED;
+    }
+
+    switch (hint) {
+    case JS_DISPOSE_HINT_ADOPT:
+        ret = JS_Call(ctx, method, JS_UNDEFINED, 1, &value);
+        break;
+    case JS_DISPOSE_HINT_DEFER:
+        ret = JS_Call(ctx, method, JS_UNDEFINED, 0, NULL);
+        break;
+    default:
+        ret = JS_Call(ctx, method, value, 0, NULL);
+        break;
+    }
+
+    if (JS_IsException(ret)) {
+        JSValue new_err = JS_GetException(ctx);
+        if (has_prev_err) {
+            JSValue se = js_new_suppressed_error(ctx, new_err, argv[0]);
+            JS_FreeValue(ctx, new_err);
+            if (JS_IsException(se))
+                return JS_EXCEPTION;
+            return JS_Throw(ctx, se);
+        }
+        return JS_Throw(ctx, new_err);
+    }
+
+    if (!has_prev_err) {
+        /* Propagate method result; next .then awaits it */
+        return ret;
+    }
+
+    /* Await ret, then rethrow the stored error (possibly wrapped) */
+    {
+        JSValueConst prev_err = argv[0];
+        JSValue ret_promise, resolve_fn, reject_fn, then_args[2], result;
+        ret_promise = js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&ret), 0);
+        JS_FreeValue(ctx, ret);
+        if (JS_IsException(ret_promise))
+            return JS_EXCEPTION;
+        resolve_fn = JS_NewCFunctionData(ctx, js_async_dispose_rethrow, 0, 0,
+                                         1, &prev_err);
+        reject_fn = JS_NewCFunctionData(ctx, js_async_dispose_rethrow, 1, 1,
+                                        1, &prev_err);
+        then_args[0] = resolve_fn;
+        then_args[1] = reject_fn;
+        result = JS_Invoke(ctx, ret_promise, JS_ATOM_then, 2, vc(then_args));
+        JS_FreeValue(ctx, resolve_fn);
+        JS_FreeValue(ctx, reject_fn);
+        JS_FreeValue(ctx, ret_promise);
+        return result;
+    }
+}
+
+static JSValue js_disposable_stack_dispose(JSContext *ctx,
+                                           JSValueConst this_val,
+                                           int argc,
+                                           JSValueConst *argv,
+                                           int class_id)
+{
+    JSDisposableStack *s;
+
+    s = JS_GetOpaque2(ctx, this_val, class_id);
+    if (!s) {
+        if (class_id == JS_CLASS_ASYNC_DISPOSABLE_STACK) {
+            JSValue exc = JS_GetException(ctx);
+            JSValue p = js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&exc),
+                                           /*is_reject*/1);
+            JS_FreeValue(ctx, exc);
+            return p;
+        }
+        return JS_EXCEPTION;
+    }
+    if (s->disposed) {
+        if (class_id == JS_CLASS_ASYNC_DISPOSABLE_STACK) {
+            JSValue undef = JS_UNDEFINED;
+            return js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&undef),
+                                      /*is_reject*/0);
+        }
+        return JS_UNDEFINED;
+    }
+    if (class_id == JS_CLASS_ASYNC_DISPOSABLE_STACK) {
+        /* Per spec DisposeResources: iterate resources in LIFO order and
+           for each do Call + Await. The first Call happens synchronously
+           inside disposeAsync(); subsequent Calls fire in microtasks via a
+           Promise.then() chain so that each call sees the previous
+           dispose's promise already settled. */
+        int i, count = s->resource_count;
+        JSValue chain, undef, ret;
+
+        s->disposed = TRUE;
+
+        /* First (top-of-stack) resource: synchronous Call. */
+        undef = JS_UNDEFINED;
+        i = count - 1;
+        if (i < 0) {
+            chain = js_promise_resolve(ctx, ctx->promise_ctor, 1, vc(&undef),
+                                       /*is_reject*/0);
+            if (JS_IsException(chain))
+                goto async_dispose_fail;
+        } else {
+            JSDisposableResource *res = &s->resources[i];
+            if (JS_IsUndefined(res->method)) {
+                /* null/undefined resource: Await(undefined) */
+                chain = js_promise_resolve(ctx, ctx->promise_ctor, 1,
+                                           vc(&undef), /*is_reject*/0);
+            } else {
+                switch (res->hint) {
+                case JS_DISPOSE_HINT_ADOPT:
+                    ret = JS_Call(ctx, res->method, JS_UNDEFINED, 1,
+                                  vc(&res->value));
+                    break;
+                case JS_DISPOSE_HINT_DEFER:
+                    ret = JS_Call(ctx, res->method, JS_UNDEFINED, 0, NULL);
+                    break;
+                default:
+                    ret = JS_Call(ctx, res->method, res->value, 0, NULL);
+                    break;
+                }
+                if (JS_IsException(ret)) {
+                    JSValue err = JS_GetException(ctx);
+                    chain = js_promise_resolve(ctx, ctx->promise_ctor, 1,
+                                               vc(&err), /*is_reject*/1);
+                    JS_FreeValue(ctx, err);
+                } else {
+                    chain = js_promise_resolve(ctx, ctx->promise_ctor, 1,
+                                               vc(&ret), /*is_reject*/0);
+                    JS_FreeValue(ctx, ret);
+                }
+            }
+            JS_FreeValue(ctx, res->value);
+            JS_FreeValue(ctx, res->method);
+            res->value = JS_UNDEFINED;
+            res->method = JS_UNDEFINED;
+            if (JS_IsException(chain)) {
+                i--;
+                goto async_dispose_fail;
+            }
+            i--;
+        }
+
+        /* Remaining resources: chain lazy steps. */
+        for (; i >= 0; i--) {
+            JSDisposableResource *res = &s->resources[i];
+            JSValueConst data[3];
+            JSValue hint_val, resolve_fn, reject_fn, then_args[2], new_chain;
+
+            hint_val = JS_NewInt32(ctx, res->hint);
+            data[0] = res->value;
+            data[1] = res->method;
+            data[2] = hint_val;
+            resolve_fn = JS_NewCFunctionData(ctx, js_async_dispose_step, 0, 0,
+                                             3, data);
+            reject_fn = JS_NewCFunctionData(ctx, js_async_dispose_step, 1, 1,
+                                            3, data);
+            JS_FreeValue(ctx, hint_val);
+            JS_FreeValue(ctx, res->value);
+            JS_FreeValue(ctx, res->method);
+            res->value = JS_UNDEFINED;
+            res->method = JS_UNDEFINED;
+            if (JS_IsException(resolve_fn) || JS_IsException(reject_fn)) {
+                JS_FreeValue(ctx, resolve_fn);
+                JS_FreeValue(ctx, reject_fn);
+                JS_FreeValue(ctx, chain);
+                chain = JS_EXCEPTION;
+                goto async_dispose_fail;
+            }
+            then_args[0] = resolve_fn;
+            then_args[1] = reject_fn;
+            new_chain = JS_Invoke(ctx, chain, JS_ATOM_then, 2, vc(then_args));
+            JS_FreeValue(ctx, resolve_fn);
+            JS_FreeValue(ctx, reject_fn);
+            JS_FreeValue(ctx, chain);
+            if (JS_IsException(new_chain)) {
+                chain = JS_EXCEPTION;
+                goto async_dispose_fail;
+            }
+            chain = new_chain;
+        }
+        s->resource_count = 0;
+
+        if (count > 0) {
+            JSValue undef_fn, then_args[1], new_chain;
+            undef_fn = JS_NewCFunctionData(ctx, js_async_dispose_to_undef,
+                                           0, 0, 0, NULL);
+            if (JS_IsException(undef_fn)) {
+                JS_FreeValue(ctx, chain);
+                return JS_EXCEPTION;
+            }
+            then_args[0] = undef_fn;
+            new_chain = JS_Invoke(ctx, chain, JS_ATOM_then, 1, vc(then_args));
+            JS_FreeValue(ctx, undef_fn);
+            JS_FreeValue(ctx, chain);
+            return new_chain;
+        }
+        return chain;
+
+    async_dispose_fail:
+        for (; i >= 0; i--) {
+            JSDisposableResource *res = &s->resources[i];
+            JS_FreeValue(ctx, res->value);
+            JS_FreeValue(ctx, res->method);
+            res->value = JS_UNDEFINED;
+            res->method = JS_UNDEFINED;
+        }
+        s->resource_count = 0;
+        return JS_EXCEPTION;
+    }
+    if (js_dispose_resources(ctx, s, JS_UNDEFINED) < 0)
+        return JS_EXCEPTION;
+    return JS_UNDEFINED;
+}
+
+static JSValue js_disposable_stack_move(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv, int class_id)
+{
+    JSDisposableStack *s, *ns;
+    JSValue new_obj;
+
+    s = js_disposable_stack_get(ctx, this_val, class_id);
+    if (!s)
+        return JS_EXCEPTION;
+    /* Use the intrinsic prototype directly so tampering with the global
+       binding or subclassing cannot redirect move(). */
+    new_obj = JS_NewObjectProtoClass(ctx, ctx->class_proto[class_id],
+                                     class_id);
+    if (JS_IsException(new_obj))
+        return JS_EXCEPTION;
+    ns = js_mallocz(ctx, sizeof(*ns));
+    if (!ns) {
+        JS_FreeValue(ctx, new_obj);
+        return JS_EXCEPTION;
+    }
+    JS_SetOpaque(new_obj, ns);
+    /* Transfer resources to new stack */
+    ns->resources = s->resources;
+    ns->resource_count = s->resource_count;
+    ns->resource_capacity = s->resource_capacity;
+    /* Reset original stack */
+    s->resources = NULL;
+    s->resource_count = 0;
+    s->resource_capacity = 0;
+    s->disposed = TRUE;
+    return new_obj;
+}
+
+static JSValue js_disposable_stack_get_disposed(JSContext *ctx,
+                                                JSValueConst this_val, int class_id)
+{
+    JSDisposableStack *s;
+
+    s = JS_GetOpaque2(ctx, this_val, class_id);
+    if (!s)
+        return JS_EXCEPTION;
+    return JS_NewBool(ctx, s->disposed);
+}
+
+static const JSCFunctionListEntry js_disposable_stack_proto_funcs[] = {
+    JS_CFUNC_MAGIC_DEF("adopt", 2, js_disposable_stack_adopt, JS_CLASS_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("defer", 1, js_disposable_stack_defer, JS_CLASS_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("dispose", 0, js_disposable_stack_dispose, JS_CLASS_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("move", 0, js_disposable_stack_move, JS_CLASS_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("use", 1, js_disposable_stack_use, JS_CLASS_DISPOSABLE_STACK ),
+    JS_CGETSET_MAGIC_DEF("disposed", js_disposable_stack_get_disposed, NULL, JS_CLASS_DISPOSABLE_STACK ),
+    JS_ALIAS_DEF("[Symbol.dispose]", "dispose" ),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "DisposableStack", JS_PROP_CONFIGURABLE ),
+};
+
+static const JSCFunctionListEntry js_async_disposable_stack_proto_funcs[] = {
+    JS_CFUNC_MAGIC_DEF("adopt", 2, js_disposable_stack_adopt, JS_CLASS_ASYNC_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("defer", 1, js_disposable_stack_defer, JS_CLASS_ASYNC_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("disposeAsync", 0, js_disposable_stack_dispose, JS_CLASS_ASYNC_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("move", 0, js_disposable_stack_move, JS_CLASS_ASYNC_DISPOSABLE_STACK ),
+    JS_CFUNC_MAGIC_DEF("use", 1, js_disposable_stack_use, JS_CLASS_ASYNC_DISPOSABLE_STACK ),
+    JS_CGETSET_MAGIC_DEF("disposed", js_disposable_stack_get_disposed, NULL, JS_CLASS_ASYNC_DISPOSABLE_STACK ),
+    JS_ALIAS_DEF("[Symbol.asyncDispose]", "disposeAsync" ),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "AsyncDisposableStack", JS_PROP_CONFIGURABLE),
+};
+
 /* Promise */
 
 typedef struct JSPromiseData {
@@ -56519,6 +57268,7 @@ static const JSCFunctionListEntry js_async_function_proto_funcs[] = {
 
 static const JSCFunctionListEntry js_async_iterator_proto_funcs[] = {
     JS_CFUNC_DEF("[Symbol.asyncIterator]", 0, js_iterator_proto_iterator ),
+    JS_CFUNC_DEF("[Symbol.asyncDispose]", 0, js_async_iterator_proto_dispose ),
 };
 
 /* AsyncFromSyncIteratorPrototype */
@@ -56761,7 +57511,7 @@ static JSClassShortDef const js_async_class_def[] = {
     { JS_ATOM_empty_string, js_async_from_sync_iterator_finalizer, js_async_from_sync_iterator_mark }, /* JS_CLASS_ASYNC_FROM_SYNC_ITERATOR */
     { JS_ATOM_AsyncGeneratorFunction, js_bytecode_function_finalizer, js_bytecode_function_mark },  /* JS_CLASS_ASYNC_GENERATOR_FUNCTION */
     { JS_ATOM_AsyncGenerator, js_async_generator_finalizer, js_async_generator_mark },  /* JS_CLASS_ASYNC_GENERATOR */
-};
+    { JS_ATOM_AsyncDisposableStack, js_disposable_stack_finalizer, js_disposable_stack_mark }, /* JS_CLASS_ASYNC_DISPOSABLE_STACK */};
 
 int JS_AddIntrinsicPromise(JSContext *ctx)
 {
@@ -56840,9 +57590,23 @@ int JS_AddIntrinsicPromise(JSContext *ctx)
         return -1;
     JS_FreeValue(ctx, obj1);
 
-    return JS_SetConstructor2(ctx, ctx->class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION],
-                              ctx->class_proto[JS_CLASS_ASYNC_GENERATOR],
-                              JS_PROP_CONFIGURABLE, JS_PROP_CONFIGURABLE);
+    if (JS_SetConstructor2(ctx, ctx->class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION],
+                           ctx->class_proto[JS_CLASS_ASYNC_GENERATOR],
+                           JS_PROP_CONFIGURABLE, JS_PROP_CONFIGURABLE))
+        return -1;
+
+    ft.generic_magic = js_disposable_stack_constructor;
+    obj1 = JS_NewCConstructor(ctx, JS_CLASS_ASYNC_DISPOSABLE_STACK, "AsyncDisposableStack",
+                              ft.generic, 0, JS_CFUNC_constructor_or_func_magic, JS_CLASS_ASYNC_DISPOSABLE_STACK,
+                              JS_UNDEFINED,
+                              NULL, 0,
+                              js_async_disposable_stack_proto_funcs,
+                              countof(js_async_disposable_stack_proto_funcs),
+                              0);
+    if (JS_IsException(obj1))
+        return -1;
+    JS_FreeValue(ctx, obj1);
+    return 0;
 }
 
 /* URI handling */
@@ -58612,7 +59376,17 @@ static int JS_AddIntrinsicBasicObjects(JSContext *ctx)
         char buf[ATOM_GET_STR_BUF_SIZE];
         const char *name = JS_AtomGetStr(ctx, buf, sizeof(buf),
                                          JS_ATOM_EvalError + i);
-        n_args = 1 + (i == JS_AGGREGATE_ERROR);
+        switch(i) {
+        case JS_AGGREGATE_ERROR:
+            n_args = 2;
+            break;
+        case JS_SUPPRESSED_ERROR:
+            n_args = 3;
+            break;
+        default:
+            n_args = 1;
+            break;
+        }
         funcs = js_native_error_proto_funcs + 2 * i;
         func_obj = JS_NewCConstructor(ctx, -1, name,
                                       ft.generic, n_args, JS_CFUNC_constructor_or_func_magic, i,
@@ -58891,6 +59665,18 @@ int JS_AddIntrinsicBaseObjects(JSContext *ctx)
                            JS_PROP_CONFIGURABLE, JS_PROP_CONFIGURABLE))
         return -1;
     
+    ft.generic_magic = js_disposable_stack_constructor;
+    obj1 = JS_NewCConstructor(ctx, JS_CLASS_DISPOSABLE_STACK, "DisposableStack",
+                              ft.generic, 0, JS_CFUNC_constructor_or_func_magic, JS_CLASS_DISPOSABLE_STACK,
+                              JS_UNDEFINED,
+                              NULL, 0,
+                              js_disposable_stack_proto_funcs,
+                              countof(js_disposable_stack_proto_funcs),
+                              0);
+    if (JS_IsException(obj1))
+        return -1;
+    JS_FreeValue(ctx, obj1);
+
     /* global properties */
     ctx->eval_obj = JS_GetProperty(ctx, ctx->global_obj, JS_ATOM_eval);
     if (JS_IsException(ctx->eval_obj))
