@@ -827,6 +827,7 @@ static int intl_mv_round_significant(JSContext *ctx, IntlMV *mv, int maxSD, int 
     char *scaled_digits;
     int scaled_len;
     int is_positive;
+    int big_drop = 0;
 
     if (mv->kind != INTL_MV_NORMAL)
         return 0;
@@ -1026,10 +1027,13 @@ static int intl_mv_round_significant(JSContext *ctx, IntlMV *mv, int maxSD, int 
                         mv->exponent = mv->exponent + drop;
                 }
             }
-            return 0;
+            big_drop = 1;
+            break;
         }
         M *= 10;
     }
+    if (big_drop)
+        goto finalize;
 
     rem = intl_mv_mod_string(scaled_digits, scaled_len, M);
 
@@ -1136,6 +1140,16 @@ static int intl_mv_round_significant(JSContext *ctx, IntlMV *mv, int maxSD, int 
     mv->num_digits = scaled_len;
     mv->exponent = mv->exponent + drop;
 
+finalize:
+    /* ToRawPrecision: a rounding carry may have added one extra digit. The
+       extra digits are trailing zeros, drop them so that at most maxSD
+       significant digits remain. */
+    while (mv->num_digits > maxSD && mv->digits[mv->num_digits - 1] == '0') {
+        mv->num_digits--;
+        mv->digits[mv->num_digits] = '\0';
+        mv->exponent++;
+    }
+
     /* Pad to minimumSignificantDigits */
     if (mv->num_digits < minSD) {
         int pad = (int)(minSD - mv->num_digits);
@@ -1149,6 +1163,7 @@ static int intl_mv_round_significant(JSContext *ctx, IntlMV *mv, int maxSD, int 
         js_free(ctx, mv->digits);
         mv->digits = new_d;
         mv->num_digits = new_len;
+        mv->exponent -= pad;
     }
 
     return 0;
@@ -2086,8 +2101,12 @@ static JSValue intl_mv_format_standard(JSContext *ctx, IntlMV *mv, JSNumberForma
     int int_len = 0;
     int frac_len = 0;
     int i;
+    int sig_digits;
 
     js_intl_dbuf_init(ctx, &db);
+
+    sig_digits = (s->roundingPriority == NF_ROUNDINGPRIORITY_AUTO &&
+                  (s->hasMinimumSignificantDigits || s->hasMaximumSignificantDigits));
 
     /* Build integer and fraction strings */
     if (mv->exponent >= 0) {
@@ -2134,6 +2153,24 @@ static JSValue intl_mv_format_standard(JSContext *ctx, IntlMV *mv, JSNumberForma
             for (i = 0; i < leading_zeros; i++)
                 frac_str[i] = '0';
             memcpy(frac_str + leading_zeros, mv->digits, (size_t)mv->num_digits);
+            frac_str[frac_len] = '\0';
+        }
+    }
+
+    /* ToRawPrecision step 7: remove the trailing zeros of the fraction which
+       are not needed to satisfy minimumSignificantDigits */
+    if (frac_len > 0 && sig_digits) {
+        int allowed = mv->num_digits - s->minimumSignificantDigits;
+        if (allowed < 0)
+            allowed = 0;
+        while (allowed > 0 && frac_str[frac_len - 1] == '0') {
+            frac_len--;
+            allowed--;
+        }
+        if (frac_len == 0) {
+            js_free(ctx, frac_str);
+            frac_str = NULL;
+        } else {
             frac_str[frac_len] = '\0';
         }
     }

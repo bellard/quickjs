@@ -276,6 +276,26 @@ def discover_aliases():
                 aliases[alias] = target
     return aliases
 
+def collect_zone_names():
+    """Return the sorted list of all available named time zone identifiers,
+    i.e. every canonical zone name and every link found in zoneinfo."""
+    excluded = {"localtime", "posixrules", "leapseconds", "leap-seconds.list",
+                "tzdata.zi", "zone.tab", "zone1970.tab", "iso3166.tab",
+                "SECURITY", "README"}
+    names = set()
+    for root, dirs, files in os.walk(ZONEINFO_DIR):
+        # do not descend into the posix/ and right/ trees
+        dirs[:] = [d for d in dirs if d not in ("posix", "right")]
+        for name in files:
+            if name in excluded:
+                continue
+            full = os.path.join(root, name)
+            if not (os.path.isfile(full) or os.path.islink(full)):
+                continue
+            names.add(full[len(ZONEINFO_DIR) + 1:])
+    return sorted(names)
+
+
 def collect_all_zones():
     """Return set of canonical zones plus aliases."""
     zones = set(NEEDED_ZONES)
@@ -376,9 +396,18 @@ def main():
             f.write(f'    {{ "{name}", tz_trans_{var_name}, {count} }},\n')
         f.write('};\n\n')
 
-        f.write('const int ti_tz_zone_count = countof(ti_tz_zone_data);\n')
+        f.write('const int ti_tz_zone_count = countof(ti_tz_zone_data);\n\n')
 
-    print(f"Generated {out_path}: {len(canonical_list)} canonical zones, {len(alias_list)} aliases", file=sys.stderr)
+        # All available named time zone identifiers (zones and links)
+        zone_names = collect_zone_names()
+        f.write('/* All available named time zone identifiers (canonical names and links) */\n')
+        f.write('const char * const ti_tz_names[] = {\n')
+        for name in zone_names:
+            f.write(f'    "{name}",\n')
+        f.write('};\n')
+        f.write('const int ti_tz_name_count = countof(ti_tz_names);\n')
+
+    print(f"Generated {out_path}: {len(canonical_list)} canonical zones, {len(alias_list)} aliases, {len(zone_names)} zone names", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

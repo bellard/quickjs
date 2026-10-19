@@ -164,6 +164,7 @@ function readLocaleDates(locale) {
     
     const daysFmt = cal['days']['format'];
     const weekdayLong = ['sun','mon','tue','wed','thu','fri','sat'].map(k => daysFmt['wide'][k]);
+    const weekdayShort = ['sun','mon','tue','wed','thu','fri','sat'].map(k => daysFmt['abbreviated'] ? daysFmt['abbreviated'][k] : daysFmt['wide'][k]);
     const weekdayNarrow = ['sun','mon','tue','wed','thu','fri','sat'].map(k => daysFmt['narrow'][k]);
     
     const eras = cal['eras'];
@@ -213,6 +214,7 @@ function readLocaleDates(locale) {
         monthShort,
         monthNarrow,
         weekdayLong,
+        weekdayShort,
         weekdayNarrow,
         era: [...eraNames, ...eraAbbr, eraNarrow0, eraNarrow1],
         ampm,
@@ -457,6 +459,7 @@ const monthLongEntries = locales.map(l => l.dateData ? l.dateData.monthLong : nu
 const monthShortEntries = locales.map(l => l.dateData ? l.dateData.monthShort : null).filter(Boolean);
 const monthNarrowEntries = locales.map(l => l.dateData ? l.dateData.monthNarrow : null).filter(Boolean);
 const weekdayLongEntries = locales.map(l => l.dateData ? l.dateData.weekdayLong : null).filter(Boolean);
+const weekdayShortEntries = locales.map(l => l.dateData ? l.dateData.weekdayShort : null).filter(Boolean);
 const weekdayNarrowEntries = locales.map(l => l.dateData ? l.dateData.weekdayNarrow : null).filter(Boolean);
 const eraEntries = locales.map(l => l.dateData ? l.dateData.era : null).filter(Boolean);
 const ampmEntries = locales.map(l => l.dateData ? l.dateData.ampm : null).filter(Boolean);
@@ -467,6 +470,7 @@ const monthLongPool = buildStrpool(monthLongEntries);
 const monthShortPool = buildStrpool(monthShortEntries);
 const monthNarrowPool = buildStrpool(monthNarrowEntries);
 const weekdayLongPool = buildStrpool(weekdayLongEntries);
+const weekdayShortPool = buildStrpool(weekdayShortEntries);
 const weekdayNarrowPool = buildStrpool(weekdayNarrowEntries);
 const eraPool = buildStrpool(eraEntries);
 const ampmPool = buildStrpool(ampmEntries);
@@ -706,6 +710,7 @@ emitStrpool('month_long_tab', monthLongPool);
 emitStrpool('month_short_tab', monthShortPool);
 emitStrpool('month_narrow_tab', monthNarrowPool);
 emitStrpool('weekday_long_tab', weekdayLongPool);
+emitStrpool('weekday_short_tab', weekdayShortPool);
 emitStrpool('weekday_narrow_tab', weekdayNarrowPool);
 emitStrpool('era_tab', eraPool);
 emitStrpool('ampm_tab', ampmPool);
@@ -749,8 +754,9 @@ for (const loc of locales) {
     const d = loc.dateData;
     out += `        ${d ? getDateIdx(monthLongPool, d.monthLong) : 0}, ${d ? getDateIdx(monthShortPool, d.monthShort) : 0},\n`;
     out += `        ${d ? getDateIdx(monthNarrowPool, d.monthNarrow) : 0}, ${d ? getDateIdx(weekdayLongPool, d.weekdayLong) : 0},\n`;
-    out += `        ${d ? getDateIdx(weekdayNarrowPool, d.weekdayNarrow) : 0}, ${d ? getDateIdx(eraPool, d.era) : 0},\n`;
-    out += `        ${d ? getDateIdx(ampmPool, d.ampm) : 0}, ${d ? getDateIdx(dayPeriodLongPool, d.dayPeriodLong) : 0},\n`;
+    out += `        ${d ? getDateIdx(weekdayShortPool, d.weekdayShort) : 0}, ${d ? getDateIdx(weekdayNarrowPool, d.weekdayNarrow) : 0},\n`;
+    out += `        ${d ? getDateIdx(eraPool, d.era) : 0}, ${d ? getDateIdx(ampmPool, d.ampm) : 0},\n`;
+    out += `        ${d ? getDateIdx(dayPeriodLongPool, d.dayPeriodLong) : 0},\n`;
     out += `        ${d ? getDateIdx(dayPeriodNarrowPool, d.dayPeriodNarrow) : 0},\n`;
     const p = d ? d.datePatterns : null;
     out += `        ${getPatternIdx(datePatternPool, p ? p.short : '')}, ${getPatternIdx(datePatternPool, p ? p.medium : '')},\n`;

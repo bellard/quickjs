@@ -133,6 +133,27 @@ int ti_tz_find_id(const char *name) {
     return -1;
 }
 
+/* Return TRUE if the named time zone identifier is available, i.e. it is a
+   primary or non-primary (alias) identifier known to the database. */
+BOOL ti_tz_can_be_named(const char *name)
+{
+    int i, n;
+
+    n = ti_tz_name_count;
+    for (i = 0; i < n; i++) {
+        if (strcasecmp(name, ti_tz_names[i]) == 0)
+            return TRUE;
+    }
+    /* fallback for the aliases maintained below in case zoneinfo lacks them */
+    n = (int)(sizeof(tz_aliases) / sizeof(tz_aliases[0]));
+    for (i = 0; i < n; i++) {
+        if (strcasecmp(name, tz_aliases[i][0]) == 0 ||
+            strcasecmp(name, tz_aliases[i][1]) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 int ti_tz_offset_at_sec(int tz_id, int64_t epoch_sec) {
     const TZData *tz;
     const TZTransition *tr;

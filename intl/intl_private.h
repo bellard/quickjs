@@ -242,6 +242,7 @@ typedef struct {
     uint16_t month_short_idx;
     uint16_t month_narrow_idx;
     uint16_t weekday_long_idx;
+    uint16_t weekday_short_idx;
     uint16_t weekday_narrow_idx;
     uint16_t era_idx;
     uint16_t ampm_idx;
@@ -285,6 +286,7 @@ extern const char *month_long_tab[];
 extern const char *month_short_tab[];
 extern const char *month_narrow_tab[];
 extern const char *weekday_long_tab[];
+extern const char *weekday_short_tab[];
 extern const char *weekday_narrow_tab[];
 extern const char *era_tab[];
 extern const char *ampm_tab[];
@@ -324,6 +326,7 @@ static inline const char *strpool_get(const char *pool, int n) {
 #define LD_MONTH_SHORT(ld, i) strpool_get(month_short_tab[(ld)->month_short_idx], (i))
 #define LD_MONTH_NARROW(ld, i) strpool_get(month_narrow_tab[(ld)->month_narrow_idx], (i))
 #define LD_WEEKDAY_LONG(ld, i) strpool_get(weekday_long_tab[(ld)->weekday_long_idx], (i))
+#define LD_WEEKDAY_SHORT(ld, i) strpool_get(weekday_short_tab[(ld)->weekday_short_idx], (i))
 #define LD_WEEKDAY_NARROW(ld, i) strpool_get(weekday_narrow_tab[(ld)->weekday_narrow_idx], (i))
 #define LD_ERA(ld, style, era) strpool_get(era_tab[(ld)->era_idx], (style) * 2 + (era))
 #define LD_AMPM(ld, i) strpool_get(ampm_tab[(ld)->ampm_idx], (i))

@@ -1,6 +1,3 @@
-test262/test/built-ins/Temporal/Instant/prototype/toString/timezone-string-unknown.js:10: Test262Error: Mars/Olympus_Mons is not an available named time zone Expected a RangeError to be thrown but no exception was thrown at all
-test262/test/built-ins/Temporal/Instant/prototype/toZonedDateTimeISO/timezone-string-unknown.js:10: Test262Error: Mars/Olympus_Mons is not an available named time zone Expected a RangeError to be thrown but no exception was thrown at all
-test262/test/intl402/DateTimeFormat/prototype/format/german-weekday-no-year.js:10: Test262Error: German weekday without year Expected SameValue(«false», «true») to be true
 test262/test/intl402/Locale/constructor-unicode-extension-uvalue-true.js:20: Test262Error: new Intl.Locale("en-u-0a-true").toString() must be "en-u-0a" Expected SameValue(«"en-u-true"», «"en-u-0a"») to be true
 test262/test/intl402/Locale/constructor-unicode-extension-uvalue-yes.js:20: Test262Error: new Intl.Locale("en-u-0a-yes").toString() must be "en-u-0a-yes" Expected SameValue(«"en-u-yes"», «"en-u-0a-yes"») to be true
 test262/test/intl402/Locale/prototype/calendar/canonicalize-case.js:26: Test262Error: new Intl.Locale("de", {calendar: "GREGORY"}).calendar Expected SameValue(«"GREGORY"», «"gregory"») to be true
@@ -22,9 +19,6 @@ test262/test/intl402/Locale/prototype/getWeekInfo/region-override.js:45: Test262
 test262/test/intl402/Locale/prototype/getWeekInfo/region-priority.js:59: Test262Error: Inconclusive: the "rg" region override and the region subtag selected regions with identical week info in this implementation. Consider updating the test data
 test262/test/intl402/Locale/prototype/getWeekInfo/subdivision-region.js:39: Test262Error: No suitable test data found in this implementation. Consider updating the candidate list
 test262/test/intl402/Locale/prototype/numberingSystem/canonicalize-case.js:26: Test262Error: new Intl.Locale("de", {numberingSystem: "LATN"}).numberingSystem Expected SameValue(«"LATN"», «"latn"») to be true
-test262/test/intl402/NumberFormat/prototype/format/format-significant-digits-rounding-magnitude.js:93: Test262Error: Formatted value for 0.0009999, en-US-u-nu-latn and options {"useGrouping":false,"minimumSignificantDigits":3,"maximumSignificantDigits":3} is 0.001000; expected 0.00100.
-test262/test/intl402/NumberFormat/prototype/formatToParts/significant-digits-rounding-magnitude-en-US.js:32: Test262Error: Expected [Object {type: "integer", value: "10"}, Object {type: "decimal", value: "."}, Object {type: "fraction", value: "00"}] to be structurally equal to [Object {type: "integer", value: "10"}]. 9.999 with maximumSignificantDigits 3 is '10'
-test262/test/intl402/Temporal/PlainMonthDay/from/reference-date-noniso-calendar.js:16: Test262Error: referenceISOYear result: Expected SameValue(«2023», «1972») to be true
 test262/test/language/statements/await-using/initializer-Symbol.asyncDispose-disposed-at-end-of-imported-module.js:11: SyntaxError: exported variable 'resource' does not exist
 test262/test/language/statements/await-using/initializer-Symbol.dispose-disposed-at-end-of-imported-module.js:11: SyntaxError: exported variable 'resource' does not exist
 test262/test/language/statements/using/initializer-disposed-at-end-of-imported-module.js:11: SyntaxError: exported variable 'resource' does not exist

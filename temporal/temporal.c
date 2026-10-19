@@ -18,10 +18,23 @@
 
 static int ti_is_valid_plain_offset_string(const char *str);
 
+/* Return TRUE if the named time zone identifier is available
+   (GetAvailableNamedTimeZoneIdentifier is not empty). */
+static BOOL ti_named_tz_is_available(const char *name, size_t name_len)
+{
+    char buf[TI_TIMEZONE_BUF_SIZE];
+    if (name_len == 0 || name_len >= sizeof(buf))
+        return FALSE;
+    memcpy(buf, name, name_len);
+    buf[name_len] = '\0';
+    return ti_tz_can_be_named(buf);
+}
+
 /* Parse a Temporal time zone string and return the fixed offset in nanoseconds.
    Returns 0 on success, -1 on RangeError, -2 on TypeError.
    Handles: "UTC", "±HH:MM", ISO date-time strings with Z/offset/bracket annotation.
-   This is a partial implementation of ToTemporalTimeZone for fixed-offset time zones. */
+   Named time zones are validated: an unknown named time zone is a RangeError.
+   This is a partial implementation of ToTemporalTimeZoneIdentifier. */
 int ti_parse_temporal_timezone_string(const char *str, int64_t *offset_ns)
 {
     int has_bracket = 0;
@@ -76,6 +89,9 @@ int ti_parse_temporal_timezone_string(const char *str, int64_t *offset_ns)
                 }
             }
             if (valid_iana && inner_len > 0) {
+                /* The time zone annotation takes precedence over any offset */
+                if (!ti_named_tz_is_available(bracket_open + 1, (size_t)inner_len))
+                    return -1;
                 *offset_ns = 0;
             } else {
                 return -1;
@@ -113,6 +129,8 @@ int ti_parse_temporal_timezone_string(const char *str, int64_t *offset_ns)
     if (len == 3 && (str[0] == 'U' || str[0] == 'u') &&
         (str[1] == 'T' || str[1] == 't') &&
         (str[2] == 'C' || str[2] == 'c')) {
+        if (!ti_named_tz_is_available(str, len))
+            return -1;
         *offset_ns = 0;
         return 0;
     }
@@ -243,6 +261,8 @@ int ti_parse_temporal_timezone_string(const char *str, int64_t *offset_ns)
             }
         }
         if (valid_iana && len > 0) {
+            if (!ti_named_tz_is_available(str, len))
+                return -1;
             *offset_ns = 0;
             return 0;
         }

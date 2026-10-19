@@ -1294,8 +1294,7 @@ static int dtf_format_from_pattern(JSContext *ctx, DynBuf *db,
             case 'E': {
                 const char *name;
                 if (width <= 3) {
-                    /* Short weekday not in our data; fall back to long */
-                    name = LD_WEEKDAY_LONG(ldata, fields->weekday);
+                    name = LD_WEEKDAY_SHORT(ldata, fields->weekday);
                 } else if (width == 4) {
                     name = LD_WEEKDAY_LONG(ldata, fields->weekday);
                 } else {
@@ -1795,14 +1794,11 @@ static JSValue dtf_format_date(JSContext *ctx, JSDateTimeFormatData *s, double m
                         goto fail;
                 }
             } else if (weekday_opt == DTF_WEEKDAY_SHORT) {
-                const char *name = LD_WEEKDAY_LONG(ldata, fields.weekday);
-                int name_len = (int)strlen(name);
-                if (name_len > 3)
-                    name_len = 3;
+                const char *name = LD_WEEKDAY_SHORT(ldata, fields.weekday);
                 if (dtf_record_part(ctx, &db, want_parts ? &parts : NULL, &n_parts, &max_parts,
-                                    "weekday", (int)db.size, name_len) < 0)
+                                    "weekday", (int)db.size, (int)strlen(name)) < 0)
                     goto fail;
-                dbuf_put(&db, (uint8_t *)name, (size_t)name_len);
+                dbuf_putstr(&db, name);
                 if (month_opt != DTF_MONTH_UNSET || day_opt != DTF_DAY_UNSET || year_opt != DTF_YEAR_UNSET) {
                     if (dtf_add_literal(ctx, &db, want_parts ? &parts : NULL, &n_parts, &max_parts, ", ") < 0)
                         goto fail;

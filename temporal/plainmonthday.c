@@ -675,9 +675,24 @@ static JSValue js_plainmonthday_from(JSContext *ctx, JSValueConst this_val,
         {
             int str_ref_year = 1972;
             if (str_calendar != CAL_ISO8601) {
-                str_ref_year = pm_year;
-                if (!ti_is_date_within_iso_limits(str_ref_year, pm_month, pm_day))
+                int cal_y, cal_m, cal_d, cal_month, cal_has_l;
+                int iso_y, iso_m, iso_d;
+                if (!ti_is_date_within_iso_limits(pm_year, pm_month, pm_day))
                     return JS_ThrowRangeError(ctx, "invalid PlainMonthDay string");
+                /* ISODateToFields(calendar, isoDate, ~month-day~) gives the
+                   month code and day of the parsed date; the resulting
+                   PlainMonthDay stores a reference date chosen by
+                   CalendarMonthDayFromFields (~constrain~). */
+                ti_iso_to_calendar_date(str_calendar, pm_year, pm_month, pm_day,
+                                        &cal_y, &cal_m, &cal_d);
+                ti_calendar_month_to_month_code(str_calendar, cal_y, cal_m,
+                                                &cal_month, &cal_has_l);
+                if (ti_calendar_monthday_iso_reference_date(str_calendar, cal_month,
+                                                            cal_has_l, cal_d, 1, 0,
+                                                            &iso_y, &iso_m, &iso_d) < 0)
+                    return JS_ThrowRangeError(ctx, "invalid PlainMonthDay string");
+                return js_create_plainmonthday_with_calendar(ctx, iso_y, iso_m, iso_d,
+                                                             str_calendar);
             }
             return js_create_plainmonthday_with_calendar(ctx, str_ref_year, pm_month, pm_day, str_calendar);
         }
