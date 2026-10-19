@@ -8,6 +8,7 @@
 
 #include "../quickjs.h"
 #include "../cutils.h"
+#include "../temporal/temporal_private.h"
 #include "intl_private.h"
 
 static JSClassID js_locale_class_id;
@@ -248,6 +249,7 @@ static const char *canonicalize_keyword_value(const char *key, const char *value
     if (!strcasecmp(key, "ca")) {
         if (!strcasecmp(value, "islamicc")) return "islamic-civil";
         if (!strcasecmp(value, "ethiopic-amete-alem")) return "ethioaa";
+        if (!strcasecmp(value, "gregorian")) return "gregory";
     }
     return value;
 }
@@ -1377,150 +1379,6 @@ static JSValue js_locale_get_firstDayOfWeek(JSContext *ctx, JSValueConst this_va
     return JS_UNDEFINED;
 }
 
-static JSValue js_locale_getCalendars(JSContext *ctx, JSValueConst this_val,
-                                      int argc, JSValueConst *argv)
-{
-    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
-    if (!s)
-        return JS_EXCEPTION;
-    {
-        JSValue arr = JS_NewArray(ctx);
-        if (JS_IsException(arr))
-            return JS_EXCEPTION;
-        JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewString(ctx, "gregory"),
-                                     JS_PROP_C_W_E);
-        return arr;
-    }
-}
-
-static JSValue js_locale_getTimeZones(JSContext *ctx, JSValueConst this_val,
-                                      int argc, JSValueConst *argv)
-{
-    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
-    if (!s)
-        return JS_EXCEPTION;
-    if (!s->region)
-        return JS_UNDEFINED;
-    {
-        JSValue arr = JS_NewArray(ctx);
-        if (JS_IsException(arr))
-            return JS_EXCEPTION;
-        JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewString(ctx, "UTC"),
-                                     JS_PROP_C_W_E);
-        return arr;
-    }
-}
-
-static int weekday_name_to_number(const char *s)
-{
-    if (!strcmp(s, "mon") || !strcmp(s, "1")) return 1;
-    if (!strcmp(s, "tue") || !strcmp(s, "2")) return 2;
-    if (!strcmp(s, "wed") || !strcmp(s, "3")) return 3;
-    if (!strcmp(s, "thu") || !strcmp(s, "4")) return 4;
-    if (!strcmp(s, "fri") || !strcmp(s, "5")) return 5;
-    if (!strcmp(s, "sat") || !strcmp(s, "6")) return 6;
-    if (!strcmp(s, "sun") || !strcmp(s, "7") || !strcmp(s, "0")) return 7;
-    return 7;
-}
-
-static JSValue js_locale_getTextInfo(JSContext *ctx, JSValueConst this_val,
-                                     int argc, JSValueConst *argv)
-{
-    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
-    if (!s)
-        return JS_EXCEPTION;
-    {
-        JSValue obj = JS_NewObject(ctx);
-        if (JS_IsException(obj))
-            return JS_EXCEPTION;
-        {
-            const char *dir = "ltr";
-            if (s->language && (!strcmp(s->language, "ar") ||
-                                !strcmp(s->language, "he") ||
-                                !strcmp(s->language, "fa") ||
-                                !strcmp(s->language, "ur")))
-                dir = "rtl";
-            JS_DefinePropertyValueStr(ctx, obj, "direction",
-                                       JS_NewString(ctx, dir), JS_PROP_C_W_E);
-        }
-        return obj;
-    }
-}
-
-static JSValue js_locale_getCollations(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv)
-{
-    if (!JS_GetOpaque2(ctx, this_val, js_locale_class_id))
-        return JS_EXCEPTION;
-    {
-        JSValue arr = JS_NewArray(ctx);
-        if (JS_IsException(arr))
-            return JS_EXCEPTION;
-        JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewString(ctx, "default"),
-                                     JS_PROP_C_W_E);
-        return arr;
-    }
-}
-
-static JSValue js_locale_getHourCycles(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv)
-{
-    if (!JS_GetOpaque2(ctx, this_val, js_locale_class_id))
-        return JS_EXCEPTION;
-    {
-        JSValue arr = JS_NewArray(ctx);
-        if (JS_IsException(arr))
-            return JS_EXCEPTION;
-        JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewString(ctx, "h12"),
-                                     JS_PROP_C_W_E);
-        return arr;
-    }
-}
-
-static JSValue js_locale_getNumberingSystems(JSContext *ctx, JSValueConst this_val,
-                                             int argc, JSValueConst *argv)
-{
-    if (!JS_GetOpaque2(ctx, this_val, js_locale_class_id))
-        return JS_EXCEPTION;
-    {
-        JSValue arr = JS_NewArray(ctx);
-        if (JS_IsException(arr))
-            return JS_EXCEPTION;
-        JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewString(ctx, "latn"),
-                                     JS_PROP_C_W_E);
-        return arr;
-    }
-}
-
-static JSValue js_locale_getWeekInfo(JSContext *ctx, JSValueConst this_val,
-                                     int argc, JSValueConst *argv)
-{
-    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
-    if (!s)
-        return JS_EXCEPTION;
-    {
-        JSValue obj = JS_NewObject(ctx);
-        int firstDay = 7;
-        if (JS_IsException(obj))
-            return JS_EXCEPTION;
-        if (s->firstDayOfWeek)
-            firstDay = weekday_name_to_number(s->firstDayOfWeek);
-        JS_DefinePropertyValueStr(ctx, obj, "firstDay",
-                                   JS_NewInt32(ctx, firstDay), JS_PROP_C_W_E);
-        {
-            JSValue weekend = JS_NewArray(ctx);
-            if (JS_IsException(weekend))
-                return JS_EXCEPTION;
-            JS_DefinePropertyValueUint32(ctx, weekend, 0, JS_NewInt32(ctx, 6),
-                                         JS_PROP_C_W_E);
-            JS_DefinePropertyValueUint32(ctx, weekend, 1, JS_NewInt32(ctx, 7),
-                                         JS_PROP_C_W_E);
-            JS_DefinePropertyValueStr(ctx, obj, "weekend", weekend, JS_PROP_C_W_E);
-        }
-        return obj;
-    }
-}
-
 /* Split locale into base (before first extension singleton) and suffix */
 static void locale_split_base_suffix(const char *locale, char *base, int base_size, char *suffix, int suffix_size)
 {
@@ -1548,178 +1406,219 @@ static void locale_split_base_suffix(const char *locale, char *base, int base_si
     }
 }
 
-/* Hard-coded likely subtags for common locales */
-static const char *locale_get_likely_subtags(const char *lang, const char *script, const char *region)
+/* --------------------------------------------------------------------- */
+/* UTS 35 likely subtags                                                  */
+/* --------------------------------------------------------------------- */
+
+static BOOL is_script_subtag(const char *s)
 {
-    if (!lang[0]) return NULL;
-    if (!strcmp(lang, "und")) {
-        if (script && !strcmp(script, "Thai")) return "th-Thai-TH";
-        if (region && !strcmp(region, "419")) return "es-Latn-419";
-        if (region && !strcmp(region, "150")) return "en-Latn-150";
-        if (region && !strcmp(region, "AT")) return "de-Latn-AT";
-        if (region && !strcmp(region, "AQ")) return "en-Latn-AQ";
-        if (script && !strcmp(script, "Cyrl") && region && !strcmp(region, "RO")) return "bg-Cyrl-RO";
-        if (region && !strcmp(region, "CW")) return "pap";
-        return "en-Latn-US";
+    int i, len = (int)strlen(s);
+    if (len != 4)
+        return FALSE;
+    for (i = 0; i < 4; i++) {
+        if (!isalpha((unsigned char)s[i]))
+            return FALSE;
     }
-    if (!strcmp(lang, "en")) {
-        if (script && !strcmp(script, "Shaw")) return "en-Shaw-GB";
-        if (script && !strcmp(script, "Arab")) return "en-Arab-US";
-        if (!script && region && !strcmp(region, "150")) return "en-Latn-150";
-        if (script && !strcmp(script, "Latn") && region && !strcmp(region, "150")) return "en-Latn-150";
-        if (!script && region && !strcmp(region, "AQ")) return "en-Latn-AQ";
-        if (script && !strcmp(script, "Latn") && region && !strcmp(region, "AQ")) return "en-Latn-AQ";
-        if (region && !strcmp(region, "GB")) return "en-Latn-GB";
-        if (region && !strcmp(region, "FR")) return "en-Latn-FR";
-        if (region && !strcmp(region, "US")) return "en-Latn-US";
-        if (script && !strcmp(script, "Latn")) return "en-Latn-US";
-        return "en-Latn-US";
+    return TRUE;
+}
+
+static BOOL is_region_subtag(const char *s)
+{
+    int i, len = (int)strlen(s);
+    if (len == 2) {
+        for (i = 0; i < 2; i++) {
+            if (!isalpha((unsigned char)s[i]))
+                return FALSE;
+        }
+        return TRUE;
     }
-    if (!strcmp(lang, "sr")) return "sr-Cyrl-RS";
-    if (!strcmp(lang, "zh")) {
-        if (script && !strcmp(script, "Hant")) return "zh-Hant-TW";
-        if (!script && region && !strcmp(region, "TW")) return "zh-Hant-TW";
-        if (!script && region && !strcmp(region, "CN")) return "zh-Hans-CN";
-        if (script && !strcmp(script, "Hans") && !region) return "zh-Hans-CN";
-        if (!script && !region) return "zh-Hans-CN";
+    if (len == 3) {
+        for (i = 0; i < 3; i++) {
+            if (!isdigit((unsigned char)s[i]))
+                return FALSE;
+        }
+        return TRUE;
     }
-    if (!strcmp(lang, "ja")) return "ja-Jpan-JP";
-    if (!strcmp(lang, "jbo")) {
-        if (!script && !region) return "jbo-Latn-001";
-        if (script && !strcmp(script, "Latn") && !region) return "jbo-Latn-001";
-        if (!script && region && !strcmp(region, "001")) return "jbo-Latn-001";
+    return FALSE;
+}
+
+static BOOL is_alphanum_len(const char *s, int min_len, int max_len)
+{
+    int i, len = (int)strlen(s);
+    if (len < min_len || len > max_len)
+        return FALSE;
+    for (i = 0; i < len; i++) {
+        if (!isalnum((unsigned char)s[i]))
+            return FALSE;
     }
-    if (!strcmp(lang, "ro")) return "ro-Latn-RO";
-    if (!strcmp(lang, "de")) {
-        if (region && !strcmp(region, "AT")) return "de-Latn-AT";
-        return "de-Latn-DE";
-    }
-    if (!strcmp(lang, "it")) {
-        if (script && !strcmp(script, "Kana") && region && !strcmp(region, "CA")) return "it-Kana-CA";
-    }
-    if (!strcmp(lang, "ar")) {
-        if (!script && !region) return "ar-Arab-EG";
-        if (script && !strcmp(script, "Arab") && !region) return "ar-Arab-EG";
-        if (!script && region && !strcmp(region, "EG")) return "ar-Arab-EG";
-    }
-    if (!strcmp(lang, "th")) {
-        if (!script && !region) return "th-Thai-TH";
-        if (!script && region && !strcmp(region, "TH")) return "th-Thai-TH";
-    }
-    if (!strcmp(lang, "es")) {
-        if (!script && !region) return "es-Latn-ES";
-        if (!script && region && !strcmp(region, "ES")) return "es-Latn-ES";
-        if (!script && region && !strcmp(region, "419")) return "es-Latn-419";
-        if (script && !strcmp(script, "Latn") && region && !strcmp(region, "419")) return "es-Latn-419";
-    }
-    if (!strcmp(lang, "fr")) {
-        if (!script && !region) return "fr-Latn-FR";
-        if (!script && region && !strcmp(region, "FR")) return "fr-Latn-FR";
-    }
-    if (!strcmp(lang, "pt")) {
-        if (!script && !region) return "pt-Latn-PT";
-        if (!script && region && !strcmp(region, "BR")) return "pt-Latn-BR";
-        if (!script && region && !strcmp(region, "PT")) return "pt-Latn-PT";
-    }
-    if (!strcmp(lang, "ru")) {
-        if (!script && !region) return "ru-Cyrl-RU";
-        if (!script && region && !strcmp(region, "RU")) return "ru-Cyrl-RU";
-    }
-    if (!strcmp(lang, "bg")) {
-        if (!script && !region) return "bg-Cyrl-BG";
-        if (!script && region && !strcmp(region, "RO")) return "bg-Cyrl-RO";
-    }
-    if (!strcmp(lang, "uz")) {
-        if (!script && !region) return "uz-Latn-UZ";
-        if (!script && region && !strcmp(region, "UZ")) return "uz-Latn-UZ";
-    }
-    if (!strcmp(lang, "hi")) {
-        if (!script && !region) return "hi-Deva-IN";
-    }
-    if (!strcmp(lang, "aa")) {
-        if (!script && !region) return "aa-Latn-ET";
-    }
-    if (!strcmp(lang, "he")) {
-        if (!script && !region) return "he-Hebr-IL";
-    }
-    if (!strcmp(lang, "cs")) {
-        if (!script && !region) return "cs-Latn-CZ";
-    }
-    if (!strcmp(lang, "hy")) {
-        if (!script && !region) return "hy-Armn-AM";
-    }
-    if (!strcmp(lang, "hyw")) {
-        if (!script && !region) return "hyw-Armn-AM";
-    }
-    if (!strcmp(lang, "hak")) {
-        if (!script && !region) return "hak-Hans-CN";
-        if (script && !strcmp(script, "Hans") && !region) return "hak-Hans-CN";
-        if (!script && region && !strcmp(region, "CN")) return "hak-Hans-CN";
-    }
-    if (!strcmp(lang, "hsn")) {
-        if (!script && !region) return "hsn-Hans-CN";
-        if (script && !strcmp(script, "Hans") && !region) return "hsn-Hans-CN";
-        if (!script && region && !strcmp(region, "CN")) return "hsn-Hans-CN";
-    }
-    if (!strcmp(lang, "aae")) {
-        if (!script && !region) return "aae-Latn-IT";
-        if (script && !strcmp(script, "Latn") && !region) return "aae-Latn-IT";
-    }
-    if (!strcmp(lang, "und")) {
-        if (region && !strcmp(region, "CW")) return "pap";
-    }
-    if (!strcmp(lang, "pap")) {
-        return "pap";
+    return TRUE;
+}
+
+/* Look up a key in the likely subtags data. Returns the associated
+   language-script-region value, or NULL if the key is unknown. */
+static const char *likely_subtags_lookup(const char *key)
+{
+    int lo = 0, hi = likely_subtags_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        const char *entry = likely_subtags_tab[mid];
+        int c = strcmp(entry, key);
+        if (c == 0)
+            return entry + strlen(entry) + 1;
+        if (c < 0)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
     }
     return NULL;
 }
 
+/* Add Likely Subtags (UTS 35). Store the maximized form of the language,
+   script and region subtags in buf. The subtags which are present are kept,
+   the missing ones are taken from the matched entry. Returns 0 on success,
+   or -1 if no data matches (an error is signaled by the caller). */
+static int locale_add_likely_subtags(const char *lang, const char *script,
+                                     const char *region, char *buf, int buf_size)
+{
+    char key[64], value[64], *vsubtags[4];
+    const char *found = NULL;
+    const char *prefix, *sc, *rg;
+    BOOL has_lang = lang && *lang && strcmp(lang, "und") != 0;
+    BOOL has_script = script && *script && strcmp(script, "Zzzz") != 0;
+    BOOL has_region = region && *region && strcmp(region, "ZZ") != 0;
+    int n;
+
+    prefix = has_lang ? lang : "und";
+    if (has_lang && has_script && has_region) {
+        /* already in maximal form */
+        snprintf(buf, buf_size, "%s-%s-%s", lang, script, region);
+        return 0;
+    }
+    /* Try the keys built from the subtags which are present, longest first */
+    if (!has_lang && has_script && has_region) {
+        snprintf(key, sizeof(key), "und-%s-%s", script, region);
+        found = likely_subtags_lookup(key);
+    }
+    if (!found && has_script) {
+        snprintf(key, sizeof(key), "%s-%s", prefix, script);
+        found = likely_subtags_lookup(key);
+    }
+    if (!found && has_region) {
+        snprintf(key, sizeof(key), "%s-%s", prefix, region);
+        found = likely_subtags_lookup(key);
+    }
+    if (!found) {
+        snprintf(key, sizeof(key), "%s", prefix);
+        found = likely_subtags_lookup(key);
+    }
+    if (!found)
+        return -1;
+    pstrcpy(value, sizeof(value), found);
+    n = locale_split_subtags(value, vsubtags, 4);
+    if (n != 3)
+        return -1;
+    sc = has_script ? script : vsubtags[1];
+    rg = has_region ? region : vsubtags[2];
+    snprintf(buf, buf_size, "%s", has_lang ? lang : vsubtags[0]);
+    if (*sc) {
+        pstrcat(buf, buf_size, "-");
+        pstrcat(buf, buf_size, sc);
+    }
+    if (*rg) {
+        pstrcat(buf, buf_size, "-");
+        pstrcat(buf, buf_size, rg);
+    }
+    return 0;
+}
+
+/* A locale base name split into its language, script, region and variant
+   subtags. The subtag pointers point into storage. */
+typedef struct {
+    char storage[256];
+    char *subtags[16];
+    int count;
+    const char *lang;
+    const char *script;
+    const char *region;
+    int first_variant;
+} LocaleNameParts;
+
+static int locale_parse_name(const char *name, LocaleNameParts *p)
+{
+    memset(p, 0, sizeof(*p));
+    pstrcpy(p->storage, sizeof(p->storage), name);
+    p->count = locale_split_subtags(p->storage, p->subtags, 16);
+    if (p->count == 0)
+        return -1;
+    p->lang = p->subtags[0];
+    p->first_variant = 1;
+    if (p->count > 1 && is_script_subtag(p->subtags[1])) {
+        p->script = p->subtags[1];
+        p->first_variant = 2;
+    }
+    if (p->count > p->first_variant &&
+        is_region_subtag(p->subtags[p->first_variant])) {
+        p->region = p->subtags[p->first_variant];
+        p->first_variant++;
+    }
+    return 0;
+}
+
+/* Apply Add Likely Subtags to lang/script/region and append the variants of
+   name. Returns 0 on success, or -1 if an error is signaled. */
+static int locale_maximize_parts(const LocaleNameParts *name, const char *lang,
+                                 const char *script, const char *region,
+                                 char *out, int out_size)
+{
+    char res[256];
+    int i;
+    if (locale_add_likely_subtags(lang, script, region, res, sizeof(res)) < 0)
+        return -1;
+    pstrcpy(out, out_size, res);
+    for (i = name->first_variant; i < name->count; i++) {
+        pstrcat(out, out_size, "-");
+        pstrcat(out, out_size, name->subtags[i]);
+    }
+    return 0;
+}
+
+/* Build a locale from the given subtags, appending the variants of name. */
+static void locale_join_parts(const LocaleNameParts *name, const char *lang,
+                              const char *script, const char *region,
+                              char *out, int out_size)
+{
+    int i;
+    pstrcpy(out, out_size, lang);
+    if (script && *script) {
+        pstrcat(out, out_size, "-");
+        pstrcat(out, out_size, script);
+    }
+    if (region && *region) {
+        pstrcat(out, out_size, "-");
+        pstrcat(out, out_size, region);
+    }
+    for (i = name->first_variant; i < name->count; i++) {
+        pstrcat(out, out_size, "-");
+        pstrcat(out, out_size, name->subtags[i]);
+    }
+}
+
+/* Maximize a locale base name. Returns 0 and stores the result in out, or
+   -1 if the Add Likely Subtags algorithm signaled an error. */
+static int locale_maximize_to(const char *base, char *out, int out_size)
+{
+    LocaleNameParts name;
+    if (locale_parse_name(base, &name) < 0)
+        return -1;
+    return locale_maximize_parts(&name, name.lang, name.script, name.region,
+                                 out, out_size);
+}
+
 static char *locale_maximize_base(JSContext *ctx, const char *base)
 {
-    char buf[256];
-    char *subtags[16];
-    int n = 0;
-    const char *likely;
-    int idx;
-    DynBuf db;
-    pstrcpy(buf, sizeof(buf), base);
-    n = locale_split_subtags(buf, subtags, 16);
-    if (n == 0) return NULL;
-    {
-        const char *lang = subtags[0];
-        const char *script = NULL;
-        const char *region = NULL;
-        idx = 1;
-        if (idx < n && strlen(subtags[idx]) == 4 &&
-            isalpha((unsigned char)subtags[idx][0])) {
-            script = subtags[idx++];
-        }
-        if (idx < n && (strlen(subtags[idx]) == 2 || strlen(subtags[idx]) == 3)) {
-            int is_region = 1;
-            int j;
-            for (j = 0; j < (int)strlen(subtags[idx]); j++) {
-                if (strlen(subtags[idx]) == 2 && !isalpha((unsigned char)subtags[idx][j])) is_region = 0;
-                if (strlen(subtags[idx]) == 3 && !isdigit((unsigned char)subtags[idx][j])) is_region = 0;
-            }
-            if (is_region) region = subtags[idx++];
-        }
-        likely = locale_get_likely_subtags(lang, script, region);
-        if (likely) {
-            js_intl_dbuf_init(ctx, &db);
-            dbuf_putstr(&db, likely);
-            /* append remaining variants */
-            for (; idx < n; idx++) {
-                dbuf_putc(&db, (uint8_t)'-');
-                dbuf_putstr(&db, subtags[idx]);
-            }
-            dbuf_putc(&db, '\0');
-            if (dbuf_error(&db)) {
-                dbuf_free(&db);
-                return NULL;
-            }
-            return (char *)db.buf;
-        }
-    }
+    char res[256];
+    if (locale_maximize_to(base, res, sizeof(res)) == 0)
+        return js_strdup(ctx, res);
     return js_strdup(ctx, base);
 }
 
@@ -1761,104 +1660,42 @@ static JSValue js_locale_maximize(JSContext *ctx, JSValueConst this_val,
 
 static char *locale_minimize_base(JSContext *ctx, const char *base)
 {
-    char *max_full = locale_maximize_base(ctx, base);
-    char current[256];
-    int changed;
-    const char *max_lang;
-    if (!max_full) return js_strdup(ctx, base);
-    pstrcpy(current, sizeof(current), base);
-    /* Hard-coded special cases for minimize */
-    if (!strcmp(current, "zh-Hant")) {
-        js_free(ctx, max_full);
-        return js_strdup(ctx, "zh-TW");
+    LocaleNameParts name, maximal;
+    char max[256], test[256], res[256];
+
+    if (locale_parse_name(base, &name) < 0)
+        return js_strdup(ctx, base);
+    if (locale_maximize_parts(&name, name.lang, name.script, name.region,
+                              max, sizeof(max)) < 0)
+        return js_strdup(ctx, base);
+    if (locale_parse_name(max, &maximal) < 0)
+        return js_strdup(ctx, max);
+    /* Remove Likely Subtags: try to remove the script and the region first,
+       then the script only, then the region only. A subtag is removed only
+       if the result still maximizes back to the maximal form. */
+    if (locale_maximize_parts(&maximal, maximal.lang, NULL, NULL,
+                              test, sizeof(test)) == 0 &&
+        !strcmp(test, max)) {
+        locale_join_parts(&maximal, maximal.lang, NULL, NULL, res, sizeof(res));
+        return js_strdup(ctx, res);
     }
-    /* First, replace und with likely language */
-    max_lang = max_full;
-    {
-        char *dash = strchr(max_full, '-');
-        if (dash) {
-            static char mb[256];
-            pstrcpy(mb, sizeof(mb), max_full);
-            mb[dash - max_full] = '\0';
-            max_lang = mb;
-        }
+    if (maximal.region &&
+        locale_maximize_parts(&maximal, maximal.lang, NULL, maximal.region,
+                              test, sizeof(test)) == 0 &&
+        !strcmp(test, max)) {
+        locale_join_parts(&maximal, maximal.lang, NULL, maximal.region,
+                          res, sizeof(res));
+        return js_strdup(ctx, res);
     }
-    if (!strncmp(current, "und", 3) && (current[3] == '\0' || current[3] == '-') &&
-        strcmp(max_lang, "und")) {
-        char replaced[256];
-        replaced[0] = '\0';
-        pstrcpy(replaced, sizeof(replaced), max_lang);
-        if (current[3] == '-') {
-            pstrcat(replaced, sizeof(replaced), current + 3);
-        }
-        pstrcpy(current, sizeof(current), replaced);
+    if (maximal.script &&
+        locale_maximize_parts(&maximal, maximal.lang, maximal.script, NULL,
+                              test, sizeof(test)) == 0 &&
+        !strcmp(test, max)) {
+        locale_join_parts(&maximal, maximal.lang, maximal.script, NULL,
+                          res, sizeof(res));
+        return js_strdup(ctx, res);
     }
-    /* Try removing region, then script, restarting from region after each success */
-    do {
-        char tb[256];
-        char *ts[16];
-        int tn;
-        char without[256];
-        char *max_without;
-        changed = 0;
-        pstrcpy(tb, sizeof(tb), current);
-        tn = locale_split_subtags(tb, ts, 16);
-        /* Try removing region */
-        if (tn >= 2) {
-            int has_script = (strlen(ts[1]) == 4 && isalpha((unsigned char)ts[1][0]));
-            int is_region = 1;
-            int j;
-            int ridx = has_script ? 2 : 1;
-            if (ridx < tn) {
-                for (j = 0; j < (int)strlen(ts[ridx]); j++) {
-                    if (strlen(ts[ridx]) == 2 && !isalpha((unsigned char)ts[ridx][j])) is_region = 0;
-                    if (strlen(ts[ridx]) == 3 && !isdigit((unsigned char)ts[ridx][j])) is_region = 0;
-                }
-                if (is_region) {
-                    without[0] = '\0';
-                    pstrcpy(without, sizeof(without), ts[0]);
-                    if (has_script) {
-                        pstrcat(without, sizeof(without), "-");
-                        pstrcat(without, sizeof(without), ts[1]);
-                    }
-                    {
-                        int k = ridx + 1;
-                        for (; k < tn; k++) {
-                            pstrcat(without, sizeof(without), "-");
-                            pstrcat(without, sizeof(without), ts[k]);
-                        }
-                    }
-                    max_without = locale_maximize_base(ctx, without);
-                    if (max_without && !strcmp(max_without, max_full)) {
-                        pstrcpy(current, sizeof(current), without);
-                        changed = 1;
-                    }
-                    js_free(ctx, max_without);
-                }
-            }
-        }
-        if (changed) continue;
-        /* Try removing script */
-        if (tn >= 2 && strlen(ts[1]) == 4 && isalpha((unsigned char)ts[1][0])) {
-            without[0] = '\0';
-            pstrcpy(without, sizeof(without), ts[0]);
-            {
-                int k = 2;
-                for (; k < tn; k++) {
-                    pstrcat(without, sizeof(without), "-");
-                    pstrcat(without, sizeof(without), ts[k]);
-                }
-            }
-            max_without = locale_maximize_base(ctx, without);
-            if (max_without && !strcmp(max_without, max_full)) {
-                pstrcpy(current, sizeof(current), without);
-                changed = 1;
-            }
-            js_free(ctx, max_without);
-        }
-    } while (changed);
-    js_free(ctx, max_full);
-    return js_strdup(ctx, current);
+    return js_strdup(ctx, max);
 }
 
 static JSValue js_locale_minimize(JSContext *ctx, JSValueConst this_val,
@@ -1895,6 +1732,503 @@ static JSValue js_locale_minimize(JSContext *ctx, JSValueConst this_val,
         return result;
     }
     return JS_DupValue(ctx, this_val);
+}
+
+/* --------------------------------------------------------------------- */
+/* Intl.Locale info methods (ECMA-402)                                    */
+/* --------------------------------------------------------------------- */
+
+/* Create an Array holding the n first strings of items. */
+static JSValue locale_new_string_array(JSContext *ctx, const char *const *items, int n)
+{
+    JSValue arr = JS_NewArray(ctx);
+    int i;
+    if (JS_IsException(arr))
+        return arr;
+    for (i = 0; i < n; i++) {
+        if (JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i,
+                                          JS_NewString(ctx, items[i]),
+                                          JS_PROP_C_W_E) < 0) {
+            JS_FreeValue(ctx, arr);
+            return JS_EXCEPTION;
+        }
+    }
+    return arr;
+}
+
+/* Split a space separated list, modifying buf. */
+static int locale_split_list(char *buf, char **items, int max_items)
+{
+    int n = 0;
+    char *p = buf;
+    while (*p && n < max_items) {
+        char *start = p;
+        while (*p && *p != ' ')
+            p++;
+        items[n++] = start;
+        if (*p == ' ') {
+            *p = '\0';
+            p++;
+        }
+    }
+    return n;
+}
+
+static int cmp_string(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* Find the entry matching key in a table sorted by key. */
+static const IntlPrefData *locale_find_pref(const IntlPrefData *tab, int count,
+                                            const char *key)
+{
+    int lo = 0, hi = count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int c = strcmp(tab[mid].key, key);
+        if (c == 0)
+            return &tab[mid];
+        if (c < 0)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return NULL;
+}
+
+static const IntlWeekData *locale_find_week(const char *region)
+{
+    int lo = 0, hi = week_data_count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int c = strcmp(week_data_tab[mid].region, region);
+        if (c == 0)
+            return &week_data_tab[mid];
+        if (c < 0)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return NULL;
+}
+
+/* LookupMatchingLocaleByPrefix: return the locale data matching the
+   unicode_language_id of locale, or NULL if there is no match. */
+static const LocaleData *locale_match_data(const char *locale)
+{
+    char base[256], suffix[256];
+    int i;
+    locale_split_base_suffix(locale, base, sizeof(base), suffix, sizeof(suffix));
+    for (i = 0; i < locale_data_count; i++) {
+        if (!strcmp(locale_data_table[i].locale, base))
+            return &locale_data_table[i];
+    }
+    for (i = 0; i < locale_data_count; i++) {
+        const char *p = locale_data_table[i].locale;
+        int len = (int)strlen(p);
+        if (!strncmp(base, p, (size_t)len) && (base[len] == '\0' || base[len] == '-'))
+            return &locale_data_table[i];
+    }
+    return NULL;
+}
+
+/* CanonicalUnicodeSubdivision (ECMA-402): return the region carried by the
+   "sd" or "rg" keyword of the locale, or NULL. */
+static char *locale_canonical_subdivision(JSContext *ctx, const char *locale,
+                                          const char *key)
+{
+    char *value = js_intl_locale_get_unicode_key(ctx, locale, key);
+    char buf[64], *parts[3], rbuf[8];
+    int n, i, len;
+
+    if (!value)
+        return NULL;
+    pstrcpy(buf, sizeof(buf), value);
+    js_free(ctx, value);
+    /* unicode_subdivision_id = [unicode_region_subtag "-"] unicode_subdivision_subtag */
+    n = locale_split_subtags(buf, parts, 3);
+    rbuf[0] = '\0';
+    if (n == 2) {
+        if (is_region_subtag(parts[0]) && is_alphanum_len(parts[1], 4, 8))
+            pstrcpy(rbuf, sizeof(rbuf), parts[0]);
+    } else if (n == 1 && is_alphanum_len(parts[0], 4, 8)) {
+        /* the region is the longest prefix matching unicode_region_subtag */
+        len = (int)strlen(parts[0]);
+        for (i = 3; i >= 2; i--) {
+            if (len < i)
+                continue;
+            pstrcpy(rbuf, sizeof(rbuf), parts[0]);
+            rbuf[i] = '\0';
+            if (is_region_subtag(rbuf))
+                break;
+            rbuf[0] = '\0';
+        }
+    }
+    if (!rbuf[0])
+        return NULL;
+    for (i = 0; rbuf[i]; i++)
+        rbuf[i] = toupper((unsigned char)rbuf[i]);
+    return js_strdup(ctx, rbuf);
+}
+
+/* RegionPreference (ECMA-402): compute the region used to look up the
+   calendar, time and week preference data, and the "rg" region override.
+   The override must be freed by the caller. */
+static void locale_region_preference(JSContext *ctx, JSLocaleData *s,
+                                     char *region, int region_size, char **override)
+{
+    char base[256], suffix[256], max[256];
+    char *sd;
+    LocaleNameParts name;
+
+    region[0] = '\0';
+    *override = locale_canonical_subdivision(ctx, s->locale, "rg");
+    if (s->region)
+        pstrcpy(region, region_size, s->region);
+    if (!region[0]) {
+        sd = locale_canonical_subdivision(ctx, s->locale, "sd");
+        if (sd) {
+            pstrcpy(region, region_size, sd);
+            js_free(ctx, sd);
+        }
+    }
+    if (!region[0]) {
+        locale_split_base_suffix(s->locale, base, sizeof(base), suffix, sizeof(suffix));
+        if (locale_maximize_to(base, max, sizeof(max)) == 0 &&
+            locale_parse_name(max, &name) == 0 && name.region)
+            pstrcpy(region, region_size, name.region);
+    }
+    if (!region[0])
+        pstrcpy(region, region_size, "001");
+}
+
+static BOOL calendar_is_available(const char *name)
+{
+    int i;
+    for (i = 0; i < CAL_COUNT; i++) {
+        const char *c = ti_calendar_enum_to_string(i);
+        if (c && !strcmp(c, name))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/* WeekdayUValueToNumber (ECMA-402): convert a Unicode First Day Identifier
+   to an ISO 8601 day of week, or -1. */
+static int weekday_u_value_to_number(const char *s)
+{
+    static const char *const names[7] = {
+        "mon", "tue", "wed", "thu", "fri", "sat", "sun"
+    };
+    int i;
+    for (i = 0; i < 7; i++) {
+        if (!strcmp(s, names[i]))
+            return i + 1;
+    }
+    return -1;
+}
+
+static JSValue js_locale_getCalendars(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    const char *language, *items[16];
+    const IntlPrefData *entry = NULL;
+    const char *regions[2];
+    char region[16], *override, key[64], list[128], id[32];
+    char *parts[16], ids[16][32];
+    int i, j, n = 0, nregions, nparts;
+
+    if (!s)
+        return JS_EXCEPTION;
+    if (s->calendar) {
+        items[0] = s->calendar;
+        return locale_new_string_array(ctx, items, 1);
+    }
+    locale_region_preference(ctx, s, region, sizeof(region), &override);
+    language = s->language ? s->language : "und";
+    nregions = 0;
+    if (override && locale_find_pref(cal_pref_tab, cal_pref_count, override))
+        regions[nregions++] = override;
+    regions[nregions++] = region;
+    for (i = 0; i < nregions && !entry; i++) {
+        snprintf(key, sizeof(key), "%s-%s", language, regions[i]);
+        entry = locale_find_pref(cal_pref_tab, cal_pref_count, key);
+        if (!entry)
+            entry = locale_find_pref(cal_pref_tab, cal_pref_count, regions[i]);
+    }
+    js_free(ctx, override);
+    if (entry) {
+        pstrcpy(list, sizeof(list), entry->value);
+        nparts = locale_split_list(list, parts, 16);
+        for (i = 0; i < nparts; i++) {
+            const char *canon;
+            pstrcpy(id, sizeof(id), parts[i]);
+            to_lower_case(id);
+            canon = canonicalize_keyword_value("ca", id);
+            if (!calendar_is_available(canon))
+                continue;
+            for (j = 0; j < n; j++) {
+                if (!strcmp(items[j], canon))
+                    break;
+            }
+            if (j == n && n < 16) {
+                pstrcpy(ids[n], sizeof(ids[0]), canon);
+                items[n] = ids[n];
+                n++;
+            }
+        }
+    }
+    if (n == 0)
+        items[n++] = "gregory";
+    return locale_new_string_array(ctx, items, n);
+}
+
+/* The canonical zone identifiers commonly used in region, sorted. */
+static JSValue locale_region_time_zones(JSContext *ctx, const char *region)
+{
+    JSValue arr;
+    const char *p;
+    int lo = 0, hi = ti_tz_region_count - 1, idx = -1, n = 0;
+
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int c = strcmp(ti_tz_region_tab[mid].region, region);
+        if (c == 0) {
+            idx = mid;
+            break;
+        }
+        if (c < 0)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    arr = JS_NewArray(ctx);
+    if (JS_IsException(arr))
+        return arr;
+    if (idx >= 0) {
+        for (p = ti_tz_region_tab[idx].zones; *p; ) {
+            const char *end = p + strlen(p);
+            if (JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)n,
+                                             JS_NewStringLen(ctx, p, end - p),
+                                             JS_PROP_C_W_E) < 0) {
+                JS_FreeValue(ctx, arr);
+                return JS_EXCEPTION;
+            }
+            n++;
+            if (!*end)
+                break;
+            p = end + 1;
+        }
+    }
+    return arr;
+}
+
+static JSValue js_locale_getTimeZones(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    if (!s)
+        return JS_EXCEPTION;
+    /* TimeZonesOfLocale returns undefined if the locale has no region subtag */
+    if (!s->region)
+        return JS_UNDEFINED;
+    return locale_region_time_zones(ctx, s->region);
+}
+
+static JSValue js_locale_getTextInfo(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    const char *script;
+    char base[256], suffix[256], max[256];
+    LocaleNameParts name;
+    JSValue obj;
+    int i;
+
+    if (!s)
+        return JS_EXCEPTION;
+    script = s->script;
+    obj = JS_NewObject(ctx);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    if (!script) {
+        /* the script comes from the Add Likely Subtags algorithm */
+        locale_split_base_suffix(s->locale, base, sizeof(base), suffix, sizeof(suffix));
+        if (locale_maximize_to(base, max, sizeof(max)) == 0 &&
+            locale_parse_name(max, &name) == 0)
+            script = name.script;
+    }
+    for (i = 0; script && i < script_dir_count; i++) {
+        if (!strcmp(script_dir_tab[i].script, script)) {
+            JS_DefinePropertyValueStr(ctx, obj, "direction",
+                                      JS_NewString(ctx, script_dir_tab[i].dir ? "rtl" : "ltr"),
+                                      JS_PROP_C_W_E);
+            return obj;
+        }
+    }
+    /* the direction of an unknown script cannot be determined */
+    JS_DefinePropertyValueStr(ctx, obj, "direction", JS_UNDEFINED, JS_PROP_C_W_E);
+    return obj;
+}
+
+static JSValue js_locale_getCollations(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    const LocaleData *ld;
+    const char *items[8];
+    int i, n = 0;
+
+    if (!s)
+        return JS_EXCEPTION;
+    if (s->collation) {
+        items[0] = s->collation;
+        return locale_new_string_array(ctx, items, 1);
+    }
+    /* [[SortLocaleData]].[[co]] starts with the default collation, which is
+       null and not part of the returned list, followed by the collations
+       available for the locale. The root collations are inherited by every
+       locale; if the locale does not match any locale data, only the root
+       collations are returned. */
+    ld = locale_match_data(s->locale);
+    items[n++] = "emoji";
+    items[n++] = "eor";
+    for (i = 0; ld && i < intl_supported_collations_count; i++) {
+        const char *c = intl_supported_collations[i];
+        int j;
+        if (!js_intl_collation_is_supported(c, ld->locale))
+            continue;
+        for (j = 0; j < n; j++) {
+            if (!strcmp(items[j], c))
+                break;
+        }
+        if (j == n && n < 8)
+            items[n++] = c;
+    }
+    qsort(items, n, sizeof(items[0]), cmp_string);
+    return locale_new_string_array(ctx, items, n);
+}
+
+static JSValue js_locale_getHourCycles(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    const IntlPrefData *entry = NULL;
+    const char *language, *regions[2], *items[8];
+    char region[16], *override, key[64], list[64];
+    char *parts[8];
+    int i, n = 0, nregions, nparts;
+
+    if (!s)
+        return JS_EXCEPTION;
+    if (s->hourCycle) {
+        items[0] = s->hourCycle;
+        return locale_new_string_array(ctx, items, 1);
+    }
+    locale_region_preference(ctx, s, region, sizeof(region), &override);
+    language = s->language ? s->language : "und";
+    nregions = 0;
+    if (override && locale_find_pref(time_data_tab, time_data_count, override))
+        regions[nregions++] = override;
+    regions[nregions++] = region;
+    for (i = 0; i < nregions && !entry; i++) {
+        snprintf(key, sizeof(key), "%s-%s", language, regions[i]);
+        entry = locale_find_pref(time_data_tab, time_data_count, key);
+        if (!entry)
+            entry = locale_find_pref(time_data_tab, time_data_count, regions[i]);
+    }
+    js_free(ctx, override);
+    if (!entry) {
+        items[n++] = "h23";
+    } else {
+        pstrcpy(list, sizeof(list), entry->value);
+        nparts = locale_split_list(list, parts, 8);
+        for (i = 0; i < nparts && n < 8; i++)
+            items[n++] = parts[i];
+    }
+    return locale_new_string_array(ctx, items, n);
+}
+
+static JSValue js_locale_getNumberingSystems(JSContext *ctx, JSValueConst this_val,
+                                             int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    const char *items[1];
+
+    if (!s)
+        return JS_EXCEPTION;
+    if (s->numberingSystem) {
+        items[0] = s->numberingSystem;
+        return locale_new_string_array(ctx, items, 1);
+    }
+    /* The first numbering system ([[nu]][0]) of the matched NumberFormat
+       locale data, or "latn" if there is no match. Our number formatter uses
+       "latn" as the default numbering system of every locale. */
+    items[0] = "latn";
+    return locale_new_string_array(ctx, items, 1);
+}
+
+static JSValue js_locale_getWeekInfo(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv)
+{
+    JSLocaleData *s = JS_GetOpaque2(ctx, this_val, js_locale_class_id);
+    const IntlWeekData *wd = NULL;
+    char region[16], *override;
+    int firstDay, weekendStart, weekendEnd, days[7], ndays;
+    int i;
+    JSValue obj, weekend;
+
+    if (!s)
+        return JS_EXCEPTION;
+    locale_region_preference(ctx, s, region, sizeof(region), &override);
+    if (override)
+        wd = locale_find_week(override);
+    if (!wd)
+        wd = locale_find_week(region);
+    if (!wd)
+        wd = locale_find_week("001");
+    js_free(ctx, override);
+    firstDay = wd ? wd->firstDay : 1;
+    weekendStart = wd ? wd->weekendStart : 6;
+    weekendEnd = wd ? wd->weekendEnd : 7;
+    if (s->firstDayOfWeek) {
+        int d = weekday_u_value_to_number(s->firstDayOfWeek);
+        if (d > 0)
+            firstDay = d;
+    }
+    obj = JS_NewObject(ctx);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    JS_DefinePropertyValueStr(ctx, obj, "firstDay", JS_NewInt32(ctx, firstDay),
+                              JS_PROP_C_W_E);
+    /* the weekend runs from weekendStart to weekendEnd, wrapping around */
+    ndays = 0;
+    for (;;) {
+        days[ndays++] = weekendStart;
+        if (weekendStart == weekendEnd)
+            break;
+        weekendStart = weekendStart % 7 + 1;
+    }
+    /* sorted in ascending numeric order */
+    for (i = 0; i < ndays; i++) {
+        int j, v = days[i];
+        for (j = i; j > 0 && days[j - 1] > v; j--)
+            days[j] = days[j - 1];
+        days[j] = v;
+    }
+    weekend = JS_NewArray(ctx);
+    if (JS_IsException(weekend)) {
+        JS_FreeValue(ctx, obj);
+        return JS_EXCEPTION;
+    }
+    for (i = 0; i < ndays; i++) {
+        JS_DefinePropertyValueUint32(ctx, weekend, (uint32_t)i,
+                                     JS_NewInt32(ctx, days[i]), JS_PROP_C_W_E);
+    }
+    JS_DefinePropertyValueStr(ctx, obj, "weekend", weekend, JS_PROP_C_W_E);
+    return obj;
 }
 
 static JSValue js_locale_toString(JSContext *ctx, JSValueConst this_val,

@@ -296,6 +296,23 @@ def collect_zone_names():
     return sorted(names)
 
 
+def collect_region_zones():
+    """Map ISO 3166 country codes to the zone identifiers of zone.tab."""
+    regions = {}
+    with open('/usr/share/zoneinfo/zone.tab', encoding='utf-8') as fp:
+        for line in fp:
+            line = line.rstrip('\n')
+            if not line or line.startswith('#'):
+                continue
+            fields = line.split('\t')
+            if len(fields) < 3:
+                continue
+            regions.setdefault(fields[0], []).append(fields[2])
+    for zones in regions.values():
+        zones.sort()
+    return regions
+
+
 def collect_all_zones():
     """Return set of canonical zones plus aliases."""
     zones = set(NEEDED_ZONES)
@@ -405,9 +422,19 @@ def main():
         for name in zone_names:
             f.write(f'    "{name}",\n')
         f.write('};\n')
-        f.write('const int ti_tz_name_count = countof(ti_tz_names);\n')
+        f.write('const int ti_tz_name_count = countof(ti_tz_names);\n\n')
 
-    print(f"Generated {out_path}: {len(canonical_list)} canonical zones, {len(alias_list)} aliases, {len(zone_names)} zone names", file=sys.stderr)
+        # Zones commonly used in each region (Intl.Locale.prototype.getTimeZones)
+        region_zones = collect_region_zones()
+        f.write('/* Zone identifiers commonly used in each region, sorted and zero separated */\n')
+        f.write('const TiTzRegion ti_tz_region_tab[] = {\n')
+        for region in sorted(region_zones):
+            zones = '\\000'.join(region_zones[region])
+            f.write(f'    {{ "{region}", "{zones}" }},\n')
+        f.write('};\n')
+        f.write('const int ti_tz_region_count = countof(ti_tz_region_tab);\n')
+
+    print(f"Generated {out_path}: {len(canonical_list)} canonical zones, {len(alias_list)} aliases, {len(zone_names)} zone names, {len(region_zones)} regions", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

@@ -28,6 +28,13 @@ extern const int ti_tz_alias_count;
 extern const char * const ti_tz_names[];
 extern const int ti_tz_name_count;
 
+typedef struct {
+    const char *region;
+    const char *zones; /* zone names, zero separated, sorted */
+} TiTzRegion;
+extern const TiTzRegion ti_tz_region_tab[];
+extern const int ti_tz_region_count;
+
 /* Lookup functions */
 int ti_tz_find_id(const char *name);
 int ti_tz_offset_at_sec(int tz_id, int64_t epoch_sec);

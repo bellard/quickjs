@@ -6,6 +6,7 @@
 #define QUICKJS_INTL_PRIVATE_H
 
 #include "../quickjs.h"
+#include "../cutils.h"
 
 JSValue js_canonicalizeLocaleList(JSContext *ctx, JSValueConst locales);
 int js_canonicalizeLocaleList_c(JSContext *ctx, JSValueConst locales,
@@ -56,6 +57,7 @@ char *js_intl_locale_get_numbering_system(JSContext *ctx, const char *locale);
 char *js_intl_locale_get_unicode_key(JSContext *ctx, const char *locale, const char *key);
 const char *js_intl_find_u_extension(const char *locale);
 int js_intl_locale_has_key(const char *locale, const char *key);
+BOOL js_intl_collation_is_supported(const char *collation, const char *locale);
 
 extern const char *intl_all_numbering_systems[];
 extern const int intl_all_numbering_systems_count;
@@ -334,6 +336,38 @@ static inline const char *strpool_get(const char *pool, int n) {
 #define LD_DAYPERIOD_NARROW(ld, i) strpool_get(dayperiod_narrow_tab[(ld)->dayperiod_narrow_idx], (i))
 
 const LocaleData *js_intl_find_locale_data(const char *locale);
+
+/* UTS 35 supplemental data (see gen-locale-data.js) */
+
+typedef struct {
+    const char *key;   /* locale or region subtag */
+    const char *value; /* space separated list, most preferred first */
+} IntlPrefData;
+
+extern const char *const likely_subtags_tab[]; /* "key\000value" entries, sorted */
+extern const int likely_subtags_count;
+extern const IntlPrefData cal_pref_tab[];
+extern const int cal_pref_count;
+extern const IntlPrefData time_data_tab[];
+extern const int time_data_count;
+
+typedef struct {
+    const char *region;
+    uint8_t firstDay;     /* ISO 8601 day of week, 1 (Monday) .. 7 (Sunday) */
+    uint8_t weekendStart;
+    uint8_t weekendEnd;
+} IntlWeekData;
+
+extern const IntlWeekData week_data_tab[];
+extern const int week_data_count;
+
+typedef struct {
+    const char *script;
+    uint8_t dir; /* 0 = left-to-right, 1 = right-to-left */
+} IntlScriptDir;
+
+extern const IntlScriptDir script_dir_tab[];
+extern const int script_dir_count;
 int js_intl_get_currency_digits(const char *currency);
 const char *js_intl_get_currency_symbol(const char *currency, const char *locale);
 

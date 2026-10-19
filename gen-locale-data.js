@@ -921,6 +921,105 @@ for (const dnLocale of dnDataEntries) {
 out += `};\n`;
 out += `const int display_names_count = sizeof(display_names_data) / sizeof(display_names_data[0]);\n`;
 
+/* ------------------------------------------------------------------ */
+/* UTS 35 supplemental data: likely subtags, calendar preference,      */
+/* time data, week data and script direction.                          */
+/* ------------------------------------------------------------------ */
+const CLDR_CORE_BASE = path.join(path.dirname(CLDR_BASE), '..', 'cldr-core');
+
+function readSupplementalJSON(rel) {
+    return JSON.parse(fs.readFileSync(path.join(CLDR_CORE_BASE, rel), 'utf8'));
+}
+
+/* --- Likely subtags --- */
+const likelySubtags = readSupplementalJSON('supplemental/likelySubtags.json')['supplemental']['likelySubtags'];
+const likelySubtagKeys = Object.keys(likelySubtags).sort();
+out += `\n/* Add Likely Subtags data (UTS 35). Each entry is "key\\000value" where the\n`
+     + `   key is language[-script][-region] and the value is language-script-region. */\n`;
+out += `const char *const likely_subtags_tab[] = {\n`;
+for (const k of likelySubtagKeys) {
+    out += `    "${escapeCString(k)}\\000${escapeCString(likelySubtags[k])}",\n`;
+}
+out += `};\n`;
+out += `const int likely_subtags_count = sizeof(likely_subtags_tab) / sizeof(likely_subtags_tab[0]);\n`;
+
+/* --- Calendar preference data (UTS 35 Part 4, Calendar Preference Data) --- */
+const calendarPreference = readSupplementalJSON('supplemental/calendarPreferenceData.json')['supplemental']['calendarPreferenceData'];
+const calPrefKeys = Object.keys(calendarPreference).sort();
+out += `\n/* Calendar preference data: locale or region -> calendars by descending preference */\n`;
+out += `const IntlPrefData cal_pref_tab[] = {\n`;
+for (const k of calPrefKeys) {
+    out += `    { "${escapeCString(k)}", "${escapeCString(calendarPreference[k].join(' '))}" },\n`;
+}
+out += `};\n`;
+out += `const int cal_pref_count = sizeof(cal_pref_tab) / sizeof(cal_pref_tab[0]);\n`;
+
+/* --- Time data (UTS 35 Part 4, Time Data) --- */
+const timeData = readSupplementalJSON('supplemental/timeData.json')['supplemental']['timeData'];
+function hourCycleOf(token) {
+    switch (token) {
+    case 'h': case 'hb': case 'hB': return 'h12';
+    case 'H': return 'h23';
+    case 'K': return 'h11';
+    case 'k': return 'h24';
+    default: return null;
+    }
+}
+const timeDataKeys = Object.keys(timeData).sort();
+out += `\n/* Time data: locale or region -> hour cycles by descending preference */\n`;
+out += `const IntlPrefData time_data_tab[] = {\n`;
+for (const k of timeDataKeys) {
+    const entry = timeData[k];
+    const ordered = (entry['_preferred'] + ' ' + entry['_allowed']).split(/\s+/);
+    const cycles = [];
+    for (const tok of ordered) {
+        const hc = hourCycleOf(tok);
+        if (hc && !cycles.includes(hc)) cycles.push(hc);
+    }
+    if (cycles.length == 0) continue;
+    out += `    { "${escapeCString(k)}", "${cycles.join(' ')}" },\n`;
+}
+out += `};\n`;
+out += `const int time_data_count = sizeof(time_data_tab) / sizeof(time_data_tab[0]);\n`;
+
+/* --- Week data (UTS 35 Part 4, Week Data) --- */
+const weekData = readSupplementalJSON('supplemental/weekData.json')['supplemental']['weekData'];
+const dayToNumber = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
+const firstDay001 = dayToNumber[weekData['firstDay']['001']];
+const weekendStart001 = dayToNumber[weekData['weekendStart']['001']];
+const weekendEnd001 = dayToNumber[weekData['weekendEnd']['001']];
+const weekRegions = new Set();
+for (const name of ['firstDay', 'weekendStart', 'weekendEnd']) {
+    for (const region of Object.keys(weekData[name])) {
+        if (region.indexOf('-') < 0) weekRegions.add(region);
+    }
+}
+const weekRegionKeys = Array.from(weekRegions).sort();
+out += `\n/* Week data: region -> first day of week and weekend range (ISO 8601 days) */\n`;
+out += `const IntlWeekData week_data_tab[] = {\n`;
+for (const region of weekRegionKeys) {
+    const fd = dayToNumber[weekData['firstDay'][region]] || firstDay001;
+    const ws = dayToNumber[weekData['weekendStart'][region]] || weekendStart001;
+    const we = dayToNumber[weekData['weekendEnd'][region]] || weekendEnd001;
+    out += `    { "${escapeCString(region)}", ${fd}, ${ws}, ${we} },\n`;
+}
+out += `};\n`;
+out += `const int week_data_count = sizeof(week_data_tab) / sizeof(week_data_tab[0]);\n`;
+
+/* --- Script direction (UTS 35 Part 1, Script Metadata) --- */
+const scriptMetadata = readSupplementalJSON('scriptMetadata.json')['scriptMetadata'];
+const scriptDirKeys = Object.keys(scriptMetadata).filter(s => {
+    const rtl = scriptMetadata[s].rtl;
+    return rtl === 'YES' || rtl === 'NO';
+}).sort();
+out += `\n/* Script direction: script -> 0 for left-to-right, 1 for right-to-left */\n`;
+out += `const IntlScriptDir script_dir_tab[] = {\n`;
+for (const s of scriptDirKeys) {
+    out += `    { "${escapeCString(s)}", ${scriptMetadata[s].rtl === 'YES' ? 1 : 0} },\n`;
+}
+out += `};\n`;
+out += `const int script_dir_count = sizeof(script_dir_tab) / sizeof(script_dir_tab[0]);\n`;
+
 const displayCurrencyCodesSorted = Array.from(allDisplayCurrencyCodes).sort();
 out += `\nconst char *intl_supported_currencies[] = {\n`;
 for (let i = 0; i < displayCurrencyCodesSorted.length; i++) {

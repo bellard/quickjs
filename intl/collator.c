@@ -82,11 +82,19 @@ static int is_collation_supported(const char *collation, const char *locale)
 {
     if (!strcmp(collation, "default"))
         return 1;
+    /* the root collations are inherited by every locale */
+    if (!strcmp(collation, "emoji") || !strcmp(collation, "eor"))
+        return 1;
     if (!strcmp(locale, "de") || !strncmp(locale, "de-", 3)) {
-        if (!strcmp(collation, "phonebk") || !strcmp(collation, "eor"))
+        if (!strcmp(collation, "phonebk"))
             return 1;
     }
     return 0;
+}
+
+BOOL js_intl_collation_is_supported(const char *collation, const char *locale)
+{
+    return is_collation_supported(collation, locale);
 }
 
 static JSClassDef js_collator_class = {

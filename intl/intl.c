@@ -135,7 +135,7 @@ const char *intl_all_numbering_systems[] = {
 const int intl_all_numbering_systems_count = countof(intl_all_numbering_systems);
 
 const char *intl_supported_collations[] = {
-    "eor", "phonebk"
+    "emoji", "eor", "phonebk"
 };
 const int intl_supported_collations_count = countof(intl_supported_collations);
 
