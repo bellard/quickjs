@@ -252,6 +252,31 @@ static const char *canonicalize_keyword_value(const char *key, const char *value
     return value;
 }
 
+/* CanonicalizeUValue (ecma402): ASCII-lowercase the value, then canonicalize
+   it as a value of key per UTS35 Annex C. A value which canonicalizes to
+   "true" is removed, i.e. the empty String is returned.
+   Returns a newly allocated string. */
+static char *canonicalize_u_value(JSContext *ctx, const char *key, const char *value)
+{
+    char *lower = js_strdup(ctx, value);
+    const char *canon;
+    if (!lower)
+        return NULL;
+    to_lower_case(lower);
+    canon = canonicalize_keyword_value(key, lower);
+    if (canon != lower) {
+        js_free(ctx, lower);
+        lower = js_strdup(ctx, canon);
+        if (!lower)
+            return NULL;
+    }
+    if (!strcmp(lower, "true")) {
+        js_free(ctx, lower);
+        lower = js_strdup(ctx, "");
+    }
+    return lower;
+}
+
 static int locale_parse_u_keywords(JSContext *ctx, const char *u_ext, int u_len,
                                    UKeyword *keywords, int max_kw,
                                    char **attributes)
@@ -263,8 +288,8 @@ static int locale_parse_u_keywords(JSContext *ctx, const char *u_ext, int u_len,
         int j = i;
         while (j < u_len && u_ext[j] != '-') j++;
         int slen = j - i;
-        if (slen == 2 && isalpha((unsigned char)u_ext[i]) &&
-            (isalpha((unsigned char)u_ext[i+1]) || isdigit((unsigned char)u_ext[i+1]))) {
+        if (slen == 2 && isalnum((unsigned char)u_ext[i]) &&
+            isalpha((unsigned char)u_ext[i+1])) {
             /* keyword key */
             char key[3] = {u_ext[i], u_ext[i+1], '\0'};
             i = j + 1;
@@ -637,7 +662,12 @@ if (!str) goto fail;
                 goto fail;
             }
             {
-                const char *cal_val = canonicalize_keyword_value("ca", str);
+                const char *cal_val_raw = canonicalize_keyword_value("ca", str);
+                char *cal_val = canonicalize_u_value(ctx, "ca", cal_val_raw);
+                if (!cal_val) {
+                    JS_FreeCString(ctx, str);
+                    goto fail;
+                }
                 /* replace or add keyword */
                 for (i = 0; i < num_u_keywords; i++) {
                     if (!strcmp(u_keywords[i].key, "ca")) {
@@ -651,7 +681,9 @@ if (!str) goto fail;
                     u_keywords[num_u_keywords].value = js_strdup(ctx, cal_val);
                     num_u_keywords++;
                 }
+                js_free(ctx, out->calendar);
                 out->calendar = js_strdup(ctx, cal_val);
+                js_free(ctx, cal_val);
                 JS_FreeCString(ctx, str);
             }
         }
@@ -668,19 +700,33 @@ if (!str) goto fail;
                 JS_ThrowRangeError(ctx, "invalid collation");
                 goto fail;
             }
-            for (i = 0; i < num_u_keywords; i++) {
-                if (!strcmp(u_keywords[i].key, "co")) {
-                    js_free(ctx, u_keywords[i].value);
-                    u_keywords[i].value = js_strdup(ctx, str);
-                    break;
+            if (!is_valid_type(str)) {
+                JS_FreeCString(ctx, str);
+                JS_ThrowRangeError(ctx, "invalid collation");
+                goto fail;
+            }
+            {
+                char *co_val = canonicalize_u_value(ctx, "co", str);
+                if (!co_val) {
+                    JS_FreeCString(ctx, str);
+                    goto fail;
                 }
+                for (i = 0; i < num_u_keywords; i++) {
+                    if (!strcmp(u_keywords[i].key, "co")) {
+                        js_free(ctx, u_keywords[i].value);
+                        u_keywords[i].value = js_strdup(ctx, co_val);
+                        break;
+                    }
+                }
+                if (i == num_u_keywords && num_u_keywords < 16) {
+                    u_keywords[num_u_keywords].key = js_strdup(ctx, "co");
+                    u_keywords[num_u_keywords].value = js_strdup(ctx, co_val);
+                    num_u_keywords++;
+                }
+                js_free(ctx, out->collation);
+                out->collation = js_strdup(ctx, co_val);
+                js_free(ctx, co_val);
             }
-            if (i == num_u_keywords && num_u_keywords < 16) {
-                u_keywords[num_u_keywords].key = js_strdup(ctx, "co");
-                u_keywords[num_u_keywords].value = js_strdup(ctx, str);
-                num_u_keywords++;
-            }
-            out->collation = js_strdup(ctx, str);
             JS_FreeCString(ctx, str);
         }
 
@@ -693,6 +739,7 @@ JS_FreeValue(ctx, val);
 if (!str) goto fail;
             {
                 const char *fw_val = weekday_to_u_value(str);
+                char *fw_canon = NULL;
                 if (!fw_val) {
                     /* not a weekday name, validate as type */
                     if (!is_valid_type(str)) {
@@ -700,7 +747,12 @@ if (!str) goto fail;
                         JS_ThrowRangeError(ctx, "invalid firstDayOfWeek");
                         goto fail;
                     }
-                    fw_val = str;
+                    fw_canon = canonicalize_u_value(ctx, "fw", str);
+                    if (!fw_canon) {
+                        JS_FreeCString(ctx, str);
+                        goto fail;
+                    }
+                    fw_val = fw_canon;
                 }
                 for (i = 0; i < num_u_keywords; i++) {
                     if (!strcmp(u_keywords[i].key, "fw")) {
@@ -714,7 +766,9 @@ if (!str) goto fail;
                     u_keywords[num_u_keywords].value = js_strdup(ctx, fw_val);
                     num_u_keywords++;
                 }
+                js_free(ctx, out->firstDayOfWeek);
                 out->firstDayOfWeek = js_strdup(ctx, fw_val);
+                js_free(ctx, fw_canon);
             }
             JS_FreeCString(ctx, str);
         }
@@ -811,19 +865,33 @@ if (!str) goto fail;
                 JS_ThrowRangeError(ctx, "invalid numberingSystem");
                 goto fail;
             }
-            for (i = 0; i < num_u_keywords; i++) {
-                if (!strcmp(u_keywords[i].key, "nu")) {
-                    js_free(ctx, u_keywords[i].value);
-                    u_keywords[i].value = js_strdup(ctx, str);
-                    break;
+            if (!is_valid_type(str)) {
+                JS_FreeCString(ctx, str);
+                JS_ThrowRangeError(ctx, "invalid numberingSystem");
+                goto fail;
+            }
+            {
+                char *nu_val = canonicalize_u_value(ctx, "nu", str);
+                if (!nu_val) {
+                    JS_FreeCString(ctx, str);
+                    goto fail;
                 }
+                for (i = 0; i < num_u_keywords; i++) {
+                    if (!strcmp(u_keywords[i].key, "nu")) {
+                        js_free(ctx, u_keywords[i].value);
+                        u_keywords[i].value = js_strdup(ctx, nu_val);
+                        break;
+                    }
+                }
+                if (i == num_u_keywords && num_u_keywords < 16) {
+                    u_keywords[num_u_keywords].key = js_strdup(ctx, "nu");
+                    u_keywords[num_u_keywords].value = js_strdup(ctx, nu_val);
+                    num_u_keywords++;
+                }
+                js_free(ctx, out->numberingSystem);
+                out->numberingSystem = js_strdup(ctx, nu_val);
+                js_free(ctx, nu_val);
             }
-            if (i == num_u_keywords && num_u_keywords < 16) {
-                u_keywords[num_u_keywords].key = js_strdup(ctx, "nu");
-                u_keywords[num_u_keywords].value = js_strdup(ctx, str);
-                num_u_keywords++;
-            }
-            out->numberingSystem = js_strdup(ctx, str);
             JS_FreeCString(ctx, str);
         }
     }
