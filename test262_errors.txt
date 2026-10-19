@@ -25,6 +25,9 @@ test262/test/intl402/Locale/prototype/numberingSystem/canonicalize-case.js:26: T
 test262/test/intl402/NumberFormat/prototype/format/format-significant-digits-rounding-magnitude.js:93: Test262Error: Formatted value for 0.0009999, en-US-u-nu-latn and options {"useGrouping":false,"minimumSignificantDigits":3,"maximumSignificantDigits":3} is 0.001000; expected 0.00100.
 test262/test/intl402/NumberFormat/prototype/formatToParts/significant-digits-rounding-magnitude-en-US.js:32: Test262Error: Expected [Object {type: "integer", value: "10"}, Object {type: "decimal", value: "."}, Object {type: "fraction", value: "00"}] to be structurally equal to [Object {type: "integer", value: "10"}]. 9.999 with maximumSignificantDigits 3 is '10'
 test262/test/intl402/Temporal/PlainMonthDay/from/reference-date-noniso-calendar.js:16: Test262Error: referenceISOYear result: Expected SameValue(«2023», «1972») to be true
+test262/test/language/statements/await-using/initializer-Symbol.asyncDispose-disposed-at-end-of-imported-module.js:11: SyntaxError: exported variable 'resource' does not exist
+test262/test/language/statements/await-using/initializer-Symbol.dispose-disposed-at-end-of-imported-module.js:11: SyntaxError: exported variable 'resource' does not exist
+test262/test/language/statements/using/initializer-disposed-at-end-of-imported-module.js:11: SyntaxError: exported variable 'resource' does not exist
 test262/test/staging/sm/Function/arguments-parameter-shadowing.js:14: Test262Error: Expected SameValue(«true», «false») to be true
 test262/test/staging/sm/Function/constructor-binding.js:11: Test262Error: Expected SameValue(«"function"», «"undefined"») to be true
 test262/test/staging/sm/Function/function-bind.js:24: Test262Error: Conforms to NativeFunction Syntax: "function bound unbound() {\n    [native code]\n}"

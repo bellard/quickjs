@@ -256,6 +256,12 @@ DEF(             or, 1, 2, 1, none)
 DEF(is_undefined_or_null, 1, 1, 1, none)
 DEF(     private_in, 1, 2, 1, none)
 DEF(push_bigint_i32, 5, 0, 1, i32)
+DEF( using_dispose_init, 1, 0, 1, none)
+DEF(      using_dispose, 3, 1, 1, loc)
+DEF(using_dispose_async, 3, 0, 1, loc)
+DEF(using_dispose_merge, 1, 2, 1, none)
+DEF(  using_dispose_end, 1, 1, 0, none)
+DEF(        using_check, 2, 1, 2, u8) /* obj -> obj method */
 /* must be the last non short and non temporary opcode */
 DEF(            nop, 1, 0, 0, none)
 
