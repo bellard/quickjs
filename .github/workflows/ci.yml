@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build
@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build
@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Install gcc-multilib
@@ -83,7 +83,7 @@ jobs:
   linux-asan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build
@@ -98,7 +98,7 @@ jobs:
   linux-msan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build
@@ -115,7 +115,7 @@ jobs:
   linux-ubsan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Build
@@ -133,7 +133,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y
@@ -151,7 +151,7 @@ jobs:
   macos-asan:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_ASAN=y
@@ -164,7 +164,7 @@ jobs:
   macos-ubsan:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: |
           make -j$(getconf _NPROCESSORS_ONLN) CONFIG_WERROR=y CONFIG_UBSAN=y
@@ -177,7 +177,7 @@ jobs:
   freebsd:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build + test
         uses: vmactions/freebsd-vm@v1
         with:
@@ -197,15 +197,19 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Install Cosmopolitan
+        # https://cosmo.zip/pub/cosmocc/cosmocc.zip is no longer available
+        # get the release from github
+        env:
+          COSMOCC_VERSION: 4.0.2
         run: |
           mkdir ~/cosmocc
           cd ~/cosmocc
-          wget https://cosmo.zip/pub/cosmocc/cosmocc.zip
-          unzip cosmocc.zip
+          wget https://github.com/jart/cosmopolitan/releases/download/$COSMOCC_VERSION/cosmocc-$COSMOCC_VERSION.zip
+          unzip -q cosmocc-$COSMOCC_VERSION.zip
           echo "$HOME/cosmocc/bin" >> "$GITHUB_PATH"
       - name: Build
         run: |
@@ -224,7 +228,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Install MinGW and Wine
@@ -255,7 +259,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -289,7 +293,7 @@ jobs:
           - linux/ppc64le
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
             submodules: recursive
       - name: Get qemu
@@ -312,7 +316,7 @@ jobs:
           - linux/arm/v7
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
             submodules: recursive
       - name: Get qemu
