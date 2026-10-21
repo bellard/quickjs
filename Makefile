@@ -46,6 +46,9 @@ endif
 ifndef CONFIG_M32
 CONFIG_TEMPORAL_INTL=y
 endif
+# 64 bit NaN boxing of JSValue (pointers must fit in 44 bits), 32 bit targets
+# always use NaN boxing
+#CONFIG_NAN_BOXING_64=y
 
 # installation directory
 PREFIX?=/usr/local
@@ -169,6 +172,9 @@ endif
 endif
 ifdef CONFIG_TEMPORAL_INTL
 DEFINES+=-DCONFIG_TEMPORAL_INTL
+endif
+ifdef CONFIG_NAN_BOXING_64
+DEFINES+=-DJS_NAN_BOXING_64
 endif
 
 CFLAGS+=$(DEFINES)

@@ -503,6 +503,11 @@ static int output_executable(const char *out_filename, const char *cfilename,
         *arg++ = "CONFIG_TEMPORAL_INTL";
     }
 #endif
+#ifdef JS_NAN_BOXING_64
+    /* the JSValue layout must match the one quickjs.c was built with */
+    *arg++ = "-D";
+    *arg++ = "JS_NAN_BOXING_64";
+#endif
     *arg++ = "-I";
     *arg++ = inc_dir;
     *arg++ = "-o";
