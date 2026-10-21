@@ -10765,13 +10765,21 @@ static int JS_DefineAutoInitProperty(JSContext *ctx, JSValueConst this_obj,
     JSObject *p;
     JSProperty *pr;
 
-    if (JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT)
-        return FALSE;
+    if (JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT) {
+        JS_ThrowTypeErrorNotAnObject(ctx);
+        return -1;
+    }
 
     p = JS_VALUE_GET_OBJ(this_obj);
 
     if (find_own_property(&pr, p, prop)) {
         /* property already exists */
+        if (id == JS_AUTOINIT_ID_PROP) {
+            JSValue val = JS_InstantiateFunctionListItem2(ctx, p, prop, opaque);
+            if (JS_IsException(val))
+                return -1;
+            return JS_DefinePropertyValue(ctx, this_obj, prop, val, flags);
+        }
         abort();
         return FALSE;
     }
