@@ -179,6 +179,24 @@ function bjson_test_reference()
     }
 }
 
+function bjson_test_invalid_bytecode_count()
+{
+    var buf, rejected;
+
+    buf = new Uint8Array([
+        0x05, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0xff, 0xff, 0xff,
+        0xff, 0x0f, 0x00, 0x00,
+    ]);
+    rejected = false;
+    try {
+        bjson.read(buf.buffer, 0, buf.byteLength, false, true);
+    } catch(e) {
+        rejected = e instanceof SyntaxError;
+    }
+    assert(rejected);
+}
+
 function bjson_test_all()
 {
     var obj;
@@ -219,6 +237,7 @@ function bjson_test_all()
 
     bjson_test_arraybuffer();
     bjson_test_reference();
+    bjson_test_invalid_bytecode_count();
 }
 
 bjson_test_all();
