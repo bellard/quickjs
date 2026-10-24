@@ -39503,9 +39503,8 @@ static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
 
 static JSValue JS_ReadBigInt(BCReaderState *s)
 {
-    JSValue obj = JS_UNDEFINED;
     uint32_t len, i, n;
-    JSBigInt *p;
+    JSBigInt *p = NULL;
     js_limb_t v;
     uint8_t v8;
     
@@ -39549,7 +39548,7 @@ static JSValue JS_ReadBigInt(BCReaderState *s)
     bc_read_trace(s, "}\n");
     return JS_CompactBigInt(s->ctx, p);
  fail:
-    JS_FreeValue(s->ctx, obj);
+    js_free(s->ctx, p);
     return JS_EXCEPTION;
 }
 
