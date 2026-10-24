@@ -179,6 +179,22 @@ function bjson_test_reference()
     }
 }
 
+/* reading a truncated bigint must not leak it */
+function bjson_test_truncated_bigint()
+{
+    var buf, n, err;
+    buf = bjson.write(-(2n ** 100n));
+    for(n = 1; n < buf.byteLength; n++) {
+        err = false;
+        try {
+            bjson.read(buf, 0, n);
+        } catch(e) {
+            err = true;
+        }
+        assert(err);
+    }
+}
+
 function bjson_test_all()
 {
     var obj;
@@ -219,6 +235,7 @@ function bjson_test_all()
 
     bjson_test_arraybuffer();
     bjson_test_reference();
+    bjson_test_truncated_bigint();
 }
 
 bjson_test_all();
