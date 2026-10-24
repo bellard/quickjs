@@ -44862,17 +44862,11 @@ static JSValue js_array_sort(JSContext *ctx, JSValueConst this_val,
 
     /* XXX: should special case fast arrays */
     while (n < pos) {
-        if (array[n].str)
-            JS_FreeValue(ctx, JS_MKPTR(JS_TAG_STRING, array[n].str));
-        if (array[n].pos == n) {
-            JS_FreeValue(ctx, array[n].val);
-        } else {
-            if (JS_SetPropertyInt64(ctx, obj, n, array[n].val) < 0) {
-                n++;
-                goto exception;
-            }
-        }
-        n++;
+        i = n++;
+        if (array[i].str)
+            JS_FreeValue(ctx, JS_MKPTR(JS_TAG_STRING, array[i].str));
+        if (JS_SetPropertyInt64(ctx, obj, i, array[i].val) < 0)
+            goto exception;
     }
     js_free(ctx, array);
     for (i = n; undefined_count-- > 0; i++) {
