@@ -1213,6 +1213,31 @@ static JSValue js_std_file_printObject(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+/* for testing only */
+
+static void js_sprint_value_write(void *opaque, const char *buf, size_t len)
+{
+    DynBuf *dbuf = opaque;
+    dbuf_put(dbuf, (const uint8_t *)buf, len);
+}
+
+static JSValue js_std_file_sprintObject(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv)
+{
+    DynBuf dbuf;
+    JSValue res;
+
+    dbuf_init2(&dbuf, JS_GetRuntime(ctx), (DynBufReallocFunc *)js_realloc_rt);
+    JS_PrintValue(ctx, js_sprint_value_write, &dbuf, argv[0], NULL);
+    if (dbuf_error(&dbuf)) {
+        res = JS_ThrowOutOfMemory(ctx);
+    } else {
+        res = JS_NewStringLen(ctx, (const char *)dbuf.buf, dbuf.size);
+    }
+    dbuf_free(&dbuf);
+    return res;
+}
+
 static JSValue js_std_file_flush(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv)
 {
@@ -1671,6 +1696,7 @@ static const JSCFunctionListEntry js_std_funcs[] = {
     JS_PROP_INT32_DEF("SEEK_END", SEEK_END, JS_PROP_CONFIGURABLE ),
     JS_OBJECT_DEF("Error", js_std_error_props, countof(js_std_error_props), JS_PROP_CONFIGURABLE),
     JS_CFUNC_DEF("__printObject", 1, js_std_file_printObject ),
+    JS_CFUNC_DEF("__sprintObject", 1, js_std_file_sprintObject ),
 };
 
 static const JSCFunctionListEntry js_std_file_proto_funcs[] = {

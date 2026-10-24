@@ -322,6 +322,53 @@ function test_async_promise_rejection()
     os.setTimeout(() => { assert(counter, 3) }, 10);
 }
 
+function remove_line_nums(s)
+{
+    return s.replace(/:[0-9]+/g, "")
+}
+
+function test_print_value()
+{
+    var v;
+
+    v = {x:1, y:1};
+    Object.defineProperty(v, "z", { value: 3, writable: true, configurable: true, enumerable: false });
+    
+    assert(std.__sprintObject(v), "{ x: 1, y: 1 }");
+    assert(std.__sprintObject([1, 2, 3]), "[ 1, 2, 3 ]");
+    assert(std.__sprintObject(-123456789321321323n), "-123456789321321323n");
+    assert(std.__sprintObject(Symbol("test")), 'Symbol("test")');
+    assert(std.__sprintObject({[Symbol("test")]:1, y: 2}), '{ [Symbol("test")]: 1, y: 2 }');
+
+    v = [1, 2, 3];
+    v.x = 4;
+    assert(std.__sprintObject(v), "[ 1, 2, 3, x: 4 ]");
+    
+    v = Error("test");
+    assert(remove_line_nums(std.__sprintObject(v)), "Error: test\n    at test_print_value (tests/test_std.js)\n    at <anonymous> (tests/test_std.js)");
+
+    v = new Int32Array([1, 2, 3]);
+    assert(std.__sprintObject(v), "Int32Array(3) [ 1, 2, 3 ]");
+
+    v = new Date(1506098258091);
+    assert(std.__sprintObject(v), "2017-09-22T16:37:38.091Z");
+
+    v = new Map();
+    v.set("x", 1);
+    v.set("y", 1);
+    v.set(2, 3);
+    assert(std.__sprintObject(v), 'Map(3) { "x" => 1, "y" => 1, 2 => 3 }');
+
+    v = new Set();
+    v.add("x");
+    v.add(2);
+    assert(std.__sprintObject(v), 'Set(2) { "x", 2 }');
+
+    v = /abc[0-9]/;
+    assert(std.__sprintObject(v), '/abc[0-9]/');
+}
+
+
 test_printf();
 test_file1();
 test_file2();
@@ -333,4 +380,4 @@ test_timer();
 test_ext_json();
 test_async_gc();
 test_async_promise_rejection();
-
+test_print_value();

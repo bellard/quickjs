@@ -13995,7 +13995,7 @@ static BOOL is_ascii_ident(const JSString *p)
     return TRUE;
 }
 
-static void js_print_atom(JSPrintValueState *s, JSAtom atom)
+static void js_print_atom2(JSPrintValueState *s, JSAtom atom, BOOL is_property_name)
 {
     int i;
     if (__JS_AtomIsTaggedInt(atom)) {
@@ -14006,7 +14006,16 @@ static void js_print_atom(JSPrintValueState *s, JSAtom atom)
         assert(atom < s->rt->atom_size);
         JSString *p;
         p = s->rt->atom_array[atom];
-        if (is_ascii_ident(p)) {
+        if (p->atom_type == JS_ATOM_TYPE_GLOBAL_SYMBOL ||
+            p->atom_type == JS_ATOM_TYPE_SYMBOL) {
+            if (is_property_name)
+                js_putc(s, '[');
+            js_puts(s, "Symbol(\"");
+            js_print_string1(s, p, p->len, '\"');
+            js_puts(s, "\")");
+            if (is_property_name)
+                js_putc(s, ']');
+        } else if (is_ascii_ident(p)) {
             for(i = 0; i < p->len; i++) {
                 js_putc(s, string_get(p, i));
             }
@@ -14016,6 +14025,11 @@ static void js_print_atom(JSPrintValueState *s, JSAtom atom)
             js_putc(s, '"');
         }
     }
+}
+
+static void js_print_atom(JSPrintValueState *s, JSAtom atom)
+{
+    js_print_atom2(s, atom, FALSE);
 }
 
 /* return 0 if invalid length */
@@ -14332,7 +14346,7 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
                 if (j < s->options.max_item_count) {
                     pr = &p->prop[i];
                     js_print_comma(s, &comma_state);
-                    js_print_atom(s, prs->atom);
+                    js_print_atom2(s, prs->atom, TRUE);
                     js_printf(s, ": ");
                     
                     /* XXX: autoinit property */
@@ -14525,9 +14539,7 @@ static void js_print_value(JSPrintValueState *s, JSValueConst val)
     case JS_TAG_SYMBOL:
         {
             JSAtomStruct *p = JS_VALUE_GET_PTR(val);
-            js_puts(s, "Symbol(");
             js_print_atom(s, js_get_atom_index(s->rt, p));
-            js_putc(s, ')');
         }
         break;
     case JS_TAG_MODULE:
