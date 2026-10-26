@@ -7646,19 +7646,24 @@ static const char *get_prop_string(JSContext *ctx, JSValueConst obj, JSAtom prop
 
 /* if filename != NULL, an additional level is added with the filename
    and line number information (used for parse error). */
-static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
+static void build_backtrace(JSContext *ctx, JSValueConst error_val,
                             const char *filename, int line_num, int col_num,
                             int backtrace_flags)
 {
     JSStackFrame *sf;
-    JSValue str;
+    JSValue str, error_obj;
     DynBuf dbuf;
     const char *func_name_str;
     const char *str1;
     JSObject *p;
 
-    if (!JS_IsObject(error_obj))
+    if (!JS_IsObject(error_val))
         return; /* protection in the out of memory case */
+
+    /* hold a reference: the allocations below can raise an out of memory,
+       which frees the current exception, aliased by error_obj in the call
+       sites passing rt->current_exception */
+    error_obj = JS_DupValue(ctx, error_val);
     
     js_dbuf_init(ctx, &dbuf);
     if (filename) {
@@ -7668,7 +7673,7 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
         dbuf_putc(&dbuf, '\n');
         str = JS_NewString(ctx, filename);
         if (JS_IsException(str))
-            return;
+            goto done;
         /* Note: SpiderMonkey does that, could update once there is a standard */
         if (JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_fileName, str,
                                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0 ||
@@ -7676,7 +7681,7 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
                                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0 ||
             JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_columnNumber, JS_NewInt32(ctx, col_num),
                                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
-            return;
+            goto done;
         }
     }
     for(sf = ctx->rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
@@ -7725,6 +7730,8 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
     dbuf_free(&dbuf);
     JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_stack, str,
                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+ done:
+    JS_FreeValue(ctx, error_obj);
 }
 
 /* Note: it is important that no exception is returned by this function */
