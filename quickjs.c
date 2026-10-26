@@ -32560,6 +32560,7 @@ static __exception int js_parse_export(JSParseState *s)
     JSModuleDef *m = s->cur_func->module;
     JSAtom local_name, export_name;
     int first_export, idx, i, tok;
+    BOOL has_string_binding;
     JSExportEntry *me;
 
     if (next_token(s))
@@ -32583,12 +32584,23 @@ static __exception int js_parse_export(JSParseState *s)
     switch(tok) {
     case '{':
         first_export = m->export_entries_count;
+        has_string_binding = FALSE;
         while (s->token.val != '}') {
-            if (!token_is_ident(s->token.val)) {
-                js_parse_error(s, "identifier expected");
-                return -1;
+            if (s->token.val == TOK_STRING) {
+                if (js_string_find_invalid_codepoint(JS_VALUE_GET_STRING(s->token.u.str.str)) >= 0) {
+                    return js_parse_error(s, "contains unpaired surrogate");
+                }
+                local_name = JS_ValueToAtom(s->ctx, s->token.u.str.str);
+                if (local_name == JS_ATOM_NULL)
+                    return -1;
+                has_string_binding = TRUE;
+            } else {
+                if (!token_is_ident(s->token.val)) {
+                    js_parse_error(s, "identifier or string expected");
+                    return -1;
+                }
+                local_name = JS_DupAtom(ctx, s->token.u.ident.atom);
             }
-            local_name = JS_DupAtom(ctx, s->token.u.ident.atom);
             export_name = JS_ATOM_NULL;
             if (next_token(s))
                 goto fail;
@@ -32605,7 +32617,7 @@ static __exception int js_parse_export(JSParseState *s)
                         goto fail;
                 } else {
                     if (!token_is_ident(s->token.val)) {
-                        js_parse_error(s, "identifier expected");
+                        js_parse_error(s, "identifier or string expected");
                         goto fail;
                     }
                     export_name = JS_DupAtom(ctx, s->token.u.ident.atom);
@@ -32642,6 +32654,8 @@ static __exception int js_parse_export(JSParseState *s)
                 me->export_type = JS_EXPORT_TYPE_INDIRECT;
                 me->u.req_module_idx = idx;
             }
+        } else if (has_string_binding) {
+            return js_parse_error(s, "string export name only allowed with 'from' clause");
         }
         break;
     case '*':
@@ -32649,11 +32663,21 @@ static __exception int js_parse_export(JSParseState *s)
             /* export ns from */
             if (next_token(s))
                 return -1;
-            if (!token_is_ident(s->token.val)) {
-                js_parse_error(s, "identifier expected");
-                return -1;
+            if (s->token.val == TOK_STRING) {
+                if (js_string_find_invalid_codepoint(JS_VALUE_GET_STRING(s->token.u.str.str)) >= 0) {
+                    js_parse_error(s, "contains unpaired surrogate");
+                    return -1;
+                }
+                export_name = JS_ValueToAtom(s->ctx, s->token.u.str.str);
+                if (export_name == JS_ATOM_NULL)
+                    return -1;
+            } else {
+                if (!token_is_ident(s->token.val)) {
+                    js_parse_error(s, "identifier or string expected");
+                    return -1;
+                }
+                export_name = JS_DupAtom(ctx, s->token.u.ident.atom);
             }
-            export_name = JS_DupAtom(ctx, s->token.u.ident.atom);
             if (next_token(s))
                 goto fail1;
             idx = js_parse_from_clause(s, m);
