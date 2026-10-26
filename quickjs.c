@@ -47787,19 +47787,22 @@ static JSValue js_string_codePointAt(JSContext *ctx, JSValueConst this_val,
 static JSValue js_string_concat(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
+    StringBuffer b_s, *b = &b_s;
     JSValue r;
     int i;
 
-    /* XXX: Use more efficient method */
-    /* XXX: This method is OK if r has a single refcount */
-    /* XXX: should use string_buffer? */
+    string_buffer_init(ctx, b, 0);
     r = JS_ToStringCheckObject(ctx, this_val);
+    if (string_buffer_concat_value_free(b, r))
+        goto fail;
     for (i = 0; i < argc; i++) {
-        if (JS_IsException(r))
-            break;
-        r = JS_ConcatString(ctx, r, JS_DupValue(ctx, argv[i]));
+        if (string_buffer_concat_value(b, argv[i]))
+            goto fail;
     }
-    return r;
+    return string_buffer_end(b);
+ fail:
+    string_buffer_free(b);
+    return JS_EXCEPTION;
 }
 
 static int string_cmp(JSString *p1, JSString *p2, int x1, int x2, int len)
