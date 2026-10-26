@@ -786,6 +786,7 @@ static int intl_mv_round_fraction(JSContext *ctx, IntlMV *mv, int maxFD, int min
     /* For scale < 0, drop last k zeros (result is multiple of 10^k) */
     if (k > 0) {
         scaled_len -= k;
+        scaled_len = max_int(scaled_len, 0); /* XXX: fail safe */
         scaled_digits[scaled_len] = '\0';
     }
 
@@ -1133,6 +1134,7 @@ static int intl_mv_round_significant(JSContext *ctx, IntlMV *mv, int maxSD, int 
 
     /* Drop the last 'drop' zeros */
     scaled_len -= drop;
+    scaled_len = max_int(scaled_len, 0); /* XXX: fail safe */
     scaled_digits[scaled_len] = '\0';
 
     js_free(ctx, mv->digits);
@@ -1974,6 +1976,8 @@ static void add_grouping(DynBuf *db, const char *digits, int len, const char *gr
         remaining -= first;
         while (remaining > 0) {
             int g = remaining > gs2 ? gs2 : remaining;
+            if (num_groups >= countof(groups))
+                break; /* XXX: return an error or dynamic groups alloc ? */
             groups[num_groups++] = g;
             remaining -= g;
         }
@@ -2046,6 +2050,8 @@ static void nf_add_grouped_integer_parts(JSContext *ctx, JSValue parts, const ch
         remaining -= first;
         while (remaining > 0) {
             int g = remaining > gs2 ? gs2 : remaining;
+            if (num_groups >= countof(groups))
+                break; /* XXX: return an error or dynamic groups alloc ? */
             groups[num_groups++] = g;
             remaining -= g;
         }

@@ -364,17 +364,15 @@ static JSValue js_displaynames_of(JSContext *ctx, JSValueConst this_val,
     }
 
     if (!name) {
+        JSValue v;
         if (!strcmp(s->fallback, "none")) {
             JS_FreeCString(ctx, code);
             return JS_UNDEFINED;
         }
         /* fallback "code": return the code itself */
-        if (!strcmp(s->type, "currency")) {
-            JS_FreeCString(ctx, code);
-            return JS_NewString(ctx, code);
-        }
+        v = JS_NewString(ctx, code);
         JS_FreeCString(ctx, code);
-        return JS_NewString(ctx, code);
+        return v;
     }
 
     JS_FreeCString(ctx, code);

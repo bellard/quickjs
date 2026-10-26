@@ -137,7 +137,7 @@ static JSValue string_list_from_iterable(JSContext *ctx, JSValueConst iterable)
     JSValue iter = JS_UNDEFINED;
     JSValue next_method = JS_UNDEFINED;
     JSValue r = JS_UNDEFINED;
-    JSValue v = JS_UNDEFINED;
+    JSValue v;
     BOOL done;
     int64_t k;
 
@@ -157,9 +157,11 @@ static JSValue string_list_from_iterable(JSContext *ctx, JSValueConst iterable)
     for (k = 0;; k++) {
         v = JS_IteratorNext(ctx, iter, next_method, &done);
         if (JS_IsException(v))
-            goto exception_close;
-        if (done)
+            goto exception;
+        if (done) {
+            JS_FreeValue(ctx, v);
             break;
+        }
         if (!JS_IsString(v)) {
             JS_FreeValue(ctx, v);
             JS_ThrowTypeError(ctx, "iterable yielded non-string value");
@@ -178,7 +180,6 @@ static JSValue string_list_from_iterable(JSContext *ctx, JSValueConst iterable)
  exception:
     JS_FreeValue(ctx, r);
     r = JS_EXCEPTION;
-    JS_FreeValue(ctx, v);
     goto done;
 }
 
@@ -416,7 +417,7 @@ static JSValue js_listformat_format(JSContext *ctx, JSValueConst this_val,
     if (!s)
         return JS_EXCEPTION;
 
-    arr = string_list_from_iterable(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    arr = string_list_from_iterable(ctx, argv[0]);
     if (JS_IsException(arr))
         return JS_EXCEPTION;
 
@@ -493,7 +494,7 @@ static JSValue js_listformat_formatToParts(JSContext *ctx, JSValueConst this_val
     if (!s)
         return JS_EXCEPTION;
 
-    arr = string_list_from_iterable(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    arr = string_list_from_iterable(ctx, argv[0]);
     if (JS_IsException(arr))
         return JS_EXCEPTION;
 

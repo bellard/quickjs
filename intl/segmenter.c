@@ -233,7 +233,7 @@ static JSValue create_segment_data(JSContext *ctx, JSValueConst str_val,
 /* Returns 1 if c is "word-like" (letter, digit, non-ASCII, or some punct) */
 static int is_word_char(int c)
 {
-    return isalnum(c) || c > 127 ||
+    return c > 127 || isalnum(c) ||
            c == '.' || c == '-' || c == '+' ||
            c == '%' || c == '$' || c == '_' || c == '\'';
 }
