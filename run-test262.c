@@ -619,7 +619,8 @@ static void *agent_start(void *arg)
     JSContext *ctx;
     JSValue ret_val;
     int ret;
-
+    int64_t delay;
+    
     rt = JS_NewRuntime();
     if (rt == NULL) {
         fatal(1, "JS_NewRuntime failure");
@@ -648,8 +649,14 @@ static void *agent_start(void *arg)
         if (ret < 0) {
             test262_dump_error(ctx);
             break;
-        } else if (ret == 0) {
+        }
+        delay = JS_AtomicsPollWaiters(ctx);
+        if (ret == 0) {
             if (JS_IsUndefined(agent->broadcast_func)) {
+                if (delay >= 0) {
+                    /* don't exit if there are asynchronous waiters left */
+                    continue;
+                }
                 break;
             } else {
                 JSValue args[2];
@@ -1435,7 +1442,8 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
     int ret, error_line, pos, pos_line;
     BOOL is_error, has_error_line, ret_promise;
     const char *error_name;
-
+    int64_t delay;
+    
     pos = skip_comments(buf, 1, &pos_line);
     error_line = pos_line;
     has_error_line = FALSE;
@@ -1460,7 +1468,13 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
             if (ret < 0) {
                 res_val = JS_EXCEPTION;
                 break;
-            } else if (ret == 0) {
+            } 
+            delay = JS_AtomicsPollWaiters(ctx);
+            if (ret == 0) {
+                if (delay >= 0) {
+                    /* don't exit if there are asynchronous waiters left */
+                    continue;
+                }
                 if (is_async) {
                     /* test if the test called $DONE() once */
                     if (tls->async_done != 1) {
@@ -2094,7 +2108,8 @@ int run_test262_harness_test(ThreadLocalStorage *tls,
     size_t buf_len;
     int eval_flags, ret_code, ret;
     JSValue res_val;
-
+    int64_t delay;
+    
     outfile = stdout; /* for js_print */
 
     rt = JS_NewRuntime();
@@ -2140,7 +2155,10 @@ int run_test262_harness_test(ThreadLocalStorage *tls,
             if (ret < 0) {
                 test262_dump_error(ctx);
                 ret_code = 1;
-            } else if (ret == 0) {
+                break;
+            }
+            delay = JS_AtomicsPollWaiters(ctx);
+            if (ret == 0 && delay < 0) {
                 break;
             }
         }

@@ -155,6 +155,9 @@ typedef struct JSThreadState {
     int next_timer_id; /* for setTimeout() */
     /* not used in the main thread */
     JSWorkerMessagePipe *recv_pipe, *send_pipe;
+    /* used by Atomics.notify to wake up other JSRuntimes for
+       Atomics.waitAsync() */
+    JSWaker atomics_async_waker;
 #if !defined(_WIN32)
     struct pollfd *poll_fds;
     int poll_fds_size;
@@ -2457,14 +2460,19 @@ static int js_os_poll(JSContext *ctx)
 
     /* XXX: handle signals if useful */
 
+    delay = JS_AtomicsPollWaiters(ctx);
+
     if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
-        list_empty(&ts->port_list)) {
+        list_empty(&ts->port_list) && delay < 0) {
         return -1; /* no more events */
     }
     
+    min_delay = 10000;
+    if (delay >= 0 && delay < min_delay)
+        min_delay = delay;
+
     if (!list_empty(&ts->os_timers)) {
         cur_time = get_time_ms();
-        min_delay = 10000;
         list_for_each(el, &ts->os_timers) {
             JSOSTimer *th = list_entry(el, JSOSTimer, link);
             delay = th->timeout - cur_time;
@@ -2481,17 +2489,15 @@ static int js_os_poll(JSContext *ctx)
                 min_delay = delay;
             }
         }
-    } else {
-        min_delay = -1;
     }
 
     count = 0;
     list_for_each(el, &ts->os_rw_handlers) {
         rh = list_entry(el, JSOSRWHandler, link);
         if (rh->fd == 0 && !JS_IsNull(rh->rw_func[0])) {
-            handles[count++] = (HANDLE)_get_osfhandle(rh->fd); // stdin
             if (count == (int)countof(handles))
                 break;
+            handles[count++] = (HANDLE)_get_osfhandle(rh->fd); // stdin
         }
     }
 
@@ -2499,11 +2505,15 @@ static int js_os_poll(JSContext *ctx)
         JSWorkerMessageHandler *port = list_entry(el, JSWorkerMessageHandler, link);
         if (JS_IsNull(port->on_message_func))
             continue;
-        handles[count++] = port->recv_pipe->waker.handle;
         if (count == (int)countof(handles))
             break;
+        handles[count++] = port->recv_pipe->waker.handle;
     }
 
+    if (count < (int)countof(handles)) {
+        handles[count++] = ts->atomics_async_waker.handle;
+    }
+    
     if (count > 0) {
         DWORD ret, timeout = INFINITE;
         if (min_delay != -1)
@@ -2529,6 +2539,10 @@ static int js_os_poll(JSContext *ctx)
                             goto done;
                     }
                 }
+            }
+
+            if (ts->atomics_async_waker.handle == handles[ret]) {
+                js_waker_clear(&ts->atomics_async_waker);
             }
         }
     } else {
@@ -2596,13 +2610,18 @@ static int js_os_poll(JSContext *ctx)
         }
     }
 
+    delay = JS_AtomicsPollWaiters(ctx);
+
     if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
-        list_empty(&ts->port_list))
+        list_empty(&ts->port_list) && delay < 0)
         return -1; /* no more events */
 
+    min_delay = 10000;
+    if (delay >= 0 && delay < min_delay)
+        min_delay = delay;
+    
     if (!list_empty(&ts->os_timers)) {
         cur_time = get_time_ms();
-        min_delay = 10000;
         list_for_each(el, &ts->os_timers) {
             JSOSTimer *th = list_entry(el, JSOSTimer, link);
             delay = th->timeout - cur_time;
@@ -2619,10 +2638,8 @@ static int js_os_poll(JSContext *ctx)
                 min_delay = delay;
             }
         }
-    } else {
-        min_delay = -1; /* infinite */
     }
-
+    
     nfds = 0;
     list_for_each(el, &ts->os_rw_handlers) {
         int events;
@@ -2650,6 +2667,9 @@ static int js_os_poll(JSContext *ctx)
         }
     }
 
+    if (js_poll_add_poll_fd(ts, &nfds, ts->atomics_async_waker.read_fd, POLLIN))
+        return -1;
+
     nfds = poll(ts->poll_fds, nfds, min_delay);
     if (nfds > 0) {
         list_for_each(el, &ts->os_rw_handlers) {
@@ -2676,6 +2696,9 @@ static int js_os_poll(JSContext *ctx)
                         goto done;
                 }
             }
+        }
+        if (ts->poll_fds[ts->atomics_async_waker.read_fd].revents != 0) {
+            js_waker_clear(&ts->atomics_async_waker);
         }
     }
  done:
@@ -4156,6 +4179,14 @@ void js_std_add_helpers(JSContext *ctx, int argc, char **argv)
     JS_FreeValue(ctx, global_obj);
 }
 
+static void js_std_atomics_waker(JSRuntime *rt, void *opaque)
+{
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+    if (ts) {
+        js_waker_signal(&ts->atomics_async_waker);
+    }
+}
+
 void js_std_init_handlers(JSRuntime *rt)
 {
     JSThreadState *ts;
@@ -4173,6 +4204,13 @@ void js_std_init_handlers(JSRuntime *rt)
     init_list_head(&ts->rejected_promise_list);
     ts->next_timer_id = 1;
 
+    if (js_waker_init(&ts->atomics_async_waker)) {
+        fprintf(stderr, "Could not create atomics_async_waker\n");
+        exit(1);
+    }
+    /* Note: could be done once */
+    JS_AtomicsSetAsyncWaker(js_std_atomics_waker, NULL);
+    
     JS_SetRuntimeOpaque(rt, ts);
 
 #ifdef USE_WORKER
@@ -4227,6 +4265,8 @@ void js_std_free_handlers(JSRuntime *rt)
     }
 #endif
 
+    js_waker_close(&ts->atomics_async_waker);
+    
 #if !defined(_WIN32)
     free(ts->poll_fds);
 #endif

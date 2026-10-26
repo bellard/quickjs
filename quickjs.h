@@ -940,7 +940,10 @@ typedef struct {
 } JSSharedArrayBufferFunctions;
 void JS_SetSharedArrayBufferFunctions(JSRuntime *rt,
                                       const JSSharedArrayBufferFunctions *sf);
-
+int64_t JS_AtomicsPollWaiters(JSContext *ctx);
+typedef void JS_AtomicsAsyncWaker(JSRuntime *rt, void *opaque);
+void JS_AtomicsSetAsyncWaker(JS_AtomicsAsyncWaker *cb, void *opaque);
+                             
 typedef enum JSPromiseStateEnum {
     JS_PROMISE_PENDING,
     JS_PROMISE_FULFILLED,
