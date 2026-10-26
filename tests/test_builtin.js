@@ -609,6 +609,79 @@ function test_json()
     assert_json_error('\n{ "a": @x }"');
 }
 
+function test_date_timezone_offset_cache()
+{
+    if (typeof std === "undefined" ||
+        typeof std.getenv !== "function" ||
+        typeof std.setenv !== "function" ||
+        typeof std.unsetenv !== "function") {
+        return;
+    }
+
+    var old_tz = std.getenv("TZ");
+    function restore_tz()
+    {
+        if (old_tz === undefined)
+            std.unsetenv("TZ");
+        else
+            std.setenv("TZ", old_tz);
+    }
+
+    try {
+        var i, d, tz;
+        var utc_tz = "UTC0";
+        var fixed_pacific_tz = "QST8";
+        var dst_pacific_tz = "PST8PDT,M3.2.0/2,M11.1.0/2";
+        var t = 1234567890000;
+
+        std.setenv("TZ", utc_tz);
+        d = new Date(t);
+        for (i = 0; i < 16; i++)
+            assert(d.getTimezoneOffset(), 0, "UTC timezone offset cache");
+
+        std.setenv("TZ", fixed_pacific_tz);
+        assert(d.getTimezoneOffset(), 480, "TZ change invalidates timezone offset cache");
+        assert(Date.parse(d.toString()), t, "TZ change local string roundtrip");
+
+        std.setenv("TZ", utc_tz);
+        assert(d.getTimezoneOffset(), 0, "TZ change invalidates timezone offset cache back to UTC");
+
+        std.setenv("TZ", dst_pacific_tz);
+        var dst_cases = [
+            ["2020-03-08T09:59:59Z", 480],
+            ["2020-03-08T10:00:00Z", 420],
+            ["2020-11-01T08:59:59Z", 420],
+            ["2020-11-01T09:00:00Z", 480],
+        ];
+        var supports_dst_tz = true;
+        for (i = 0; i < dst_cases.length; i++) {
+            d = new Date(Date.parse(dst_cases[i][0]));
+            if (d.getTimezoneOffset() !== dst_cases[i][1])
+                supports_dst_tz = false;
+        }
+        if (supports_dst_tz) {
+            for (i = 0; i < dst_cases.length; i++) {
+                d = new Date(Date.parse(dst_cases[i][0]));
+                assert(d.getTimezoneOffset(), dst_cases[i][1], "DST transition timezone offset");
+                assert(Date.parse(d.toString()), d.getTime(), "DST transition local string roundtrip");
+            }
+        }
+
+        var extreme_times = [
+            -8640000000000000,
+            8640000000000000,
+        ];
+        for (i = 0; i < extreme_times.length; i++) {
+            d = new Date(extreme_times[i]);
+            tz = d.getTimezoneOffset();
+            assert(typeof tz, "number", "Date limit timezone offset type");
+            assert(isFinite(tz), true, "Date limit timezone offset finite");
+        }
+    } finally {
+        restore_tz();
+    }
+}
+
 function test_date()
 {
     // Date Time String format is YYYY-MM-DDTHH:mm:ss.sssZ
@@ -663,6 +736,32 @@ function test_date()
     assert(d.toISOString(), "2017-09-22T18:10:11.091Z");
     var a = Date.parse(d.toISOString());
     assert((new Date(a)).toISOString(), d.toISOString());
+
+    var roundtrip_times = [
+        0,
+        1000,
+        946684800000,
+        1234567890000,
+        -1234567890000,
+        1583650799000,
+        1583650800000,
+        1604210399000,
+        1604210400000,
+    ];
+    var i, t, s, tz;
+    for (i = 0; i < roundtrip_times.length; i++) {
+        t = roundtrip_times[i];
+        d = new Date(t);
+        s = d.toString();
+        assert(Date.parse(s), t, "Date local string roundtrip");
+    }
+
+    d = new Date(1234567890000);
+    tz = d.getTimezoneOffset();
+    for (i = 0; i < 1000; i++)
+        assert(d.getTimezoneOffset(), tz, "repeated timezone offset");
+
+    test_date_timezone_offset_cache();
 
     assert((new Date("2020-01-01T01:01:01.123Z")).toISOString(),
                      "2020-01-01T01:01:01.123Z");
