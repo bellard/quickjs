@@ -375,6 +375,38 @@ function test_template_skip()
     assert(b, "BaraBarbaz");
 }
 
+function test_template_tostring_order()
+{
+    /* each substitution is converted with ToString right after it is
+       evaluated (ECMA-262 13.2.8.6), and String.prototype.concat is not
+       involved */
+    var log = [];
+    var o = { toString() { log.push("o"); return "O"; } };
+    assert(`${o}${(log.push("next"), "n")}`, "On");
+    assert(log.join(), "o,next");
+
+    var c = { n: 0, toString() { return "" + this.n; } };
+    assert(`${c} ${c.n++}`, "0 0");
+
+    var d = new Date(2024, 0, 15, 12);
+    assert(`${d}|${d.setFullYear(2000)}`.indexOf("2024"), 11);
+
+    var p = { [Symbol.toPrimitive](hint) { return hint; } };
+    assert(`${p}`, "string");
+    var v = { valueOf() { return 1; }, toString() { return "s"; } };
+    assert(`${v}`, "s");
+
+    var concat = String.prototype.concat;
+    String.prototype.concat = function() { return "concat"; };
+    try {
+        assert(`a${1}b${2}`, "a1b2");
+    } finally {
+        String.prototype.concat = concat;
+    }
+
+    assert_throws(TypeError, () => `${Symbol()}`);
+}
+
 function test_object_literal()
 {
     var x = 0, get = 1, set = 2, async = 3;
@@ -1004,6 +1036,7 @@ test_arguments();
 test_class();
 test_template();
 test_template_skip();
+test_template_tostring_order();
 test_object_literal();
 test_regexp_skip();
 test_labels();
