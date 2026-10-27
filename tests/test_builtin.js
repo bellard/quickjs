@@ -962,6 +962,39 @@ function test_weak_map_cycles()
     std.gc();
 }
 
+/* a WeakMap value must only be kept alive while its key is reachable */
+function test_weak_map_ephemeron()
+{
+    var map, w1, w2, key, i;
+
+    map = new WeakMap();
+    (function () {
+        /* the value references its own key */
+        var k = {};
+        map.set(k, { backRef: k });
+        w1 = new WeakRef(k);
+
+        /* chain of entries: each value references the next key */
+        k = {};
+        for(i = 0; i < 20; i++) {
+            var next = {};
+            map.set(k, { child: next });
+            k = next;
+        }
+        w2 = new WeakRef(k);
+    })();
+    std.gc();
+    assert(w1.deref(), undefined);
+    assert(w2.deref(), undefined);
+
+    /* the value of a live key is kept */
+    key = {};
+    map.set(key, { backRef: key, data: [1, 2, 3] });
+    std.gc();
+    assert(map.get(key).backRef, key);
+    assert(map.get(key).data[2], 3);
+}
+
 function test_weak_ref()
 {
     var w1, w2, o, i;
@@ -1193,6 +1226,7 @@ test_symbol();
 test_map();
 test_weak_map();
 test_weak_map_cycles();
+test_weak_map_ephemeron();
 test_weak_ref();
 test_finalization_registry();
 test_generator();
