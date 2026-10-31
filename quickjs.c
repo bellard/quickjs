@@ -954,21 +954,25 @@ typedef struct JSJobEntry {
     JSValue argv[0];
 } JSJobEntry;
 
+typedef struct {
+    JSObject *getter; /* NULL if undefined */
+    JSObject *setter; /* NULL if undefined */
+} JSPropertyGetSet;
+
+typedef struct {
+    /* in order to use only 2 pointers, we compress the realm
+       and the init function pointer */
+    uintptr_t realm_and_id; /* realm and init_id (JS_AUTOINIT_ID_x)
+                               in the 2 low bits */
+    void *opaque;
+} JSPropertyAutoInit;
+
 typedef struct JSProperty {
     union {
         JSValue value;      /* JS_PROP_NORMAL */
-        struct {            /* JS_PROP_GETSET */
-            JSObject *getter; /* NULL if undefined */
-            JSObject *setter; /* NULL if undefined */
-        } getset;
+        JSPropertyGetSet *getset;            /* JS_PROP_GETSET */
         JSVarRef *var_ref;  /* JS_PROP_VARREF */
-        struct {            /* JS_PROP_AUTOINIT */
-            /* in order to use only 2 pointers, we compress the realm
-               and the init function pointer */
-            uintptr_t realm_and_id; /* realm and init_id (JS_AUTOINIT_ID_x)
-                                       in the 2 low bits */
-            void *opaque;
-        } init;
+        JSPropertyAutoInit *init;            /* JS_PROP_AUTOINIT */
     } u;
 } JSProperty;
 
@@ -6188,17 +6192,18 @@ JSValue JS_NewCFunctionData(JSContext *ctx, JSCFunctionData *func,
 
 static JSContext *js_autoinit_get_realm(JSProperty *pr)
 {
-    return (JSContext *)(pr->u.init.realm_and_id & ~3);
+    return (JSContext *)(pr->u.init->realm_and_id & ~3);
 }
 
 static JSAutoInitIDEnum js_autoinit_get_id(JSProperty *pr)
 {
-    return pr->u.init.realm_and_id & 3;
+    return pr->u.init->realm_and_id & 3;
 }
 
 static void js_autoinit_free(JSRuntime *rt, JSProperty *pr)
 {
     JS_FreeContext(js_autoinit_get_realm(pr));
+    js_free_rt(rt, pr->u.init);
 }
 
 static void js_autoinit_mark(JSRuntime *rt, JSProperty *pr,
@@ -6211,10 +6216,12 @@ static void free_property(JSRuntime *rt, JSProperty *pr, int prop_flags)
 {
     if (unlikely(prop_flags & JS_PROP_TMASK)) {
         if ((prop_flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
-            if (pr->u.getset.getter)
-                JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter));
-            if (pr->u.getset.setter)
-                JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.setter));
+            JSPropertyGetSet *getset = pr->u.getset;
+            if (getset->getter)
+                JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->getter));
+            if (getset->setter)
+                JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->setter));
+            js_free_rt(rt, getset);
         } else if ((prop_flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
             free_var_ref(rt, pr->u.var_ref);
         } else if ((prop_flags & JS_PROP_TMASK) == JS_PROP_AUTOINIT) {
@@ -6697,10 +6704,10 @@ static void mark_children(JSRuntime *rt, JSGCObjectHeader *gp,
                 if (prs->atom != JS_ATOM_NULL) {
                     if (prs->flags & JS_PROP_TMASK) {
                         if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
-                            if (pr->u.getset.getter)
-                                mark_func(rt, &pr->u.getset.getter->header);
-                            if (pr->u.getset.setter)
-                                mark_func(rt, &pr->u.getset.setter->header);
+                            if (pr->u.getset->getter)
+                                mark_func(rt, &pr->u.getset->getter->header);
+                            if (pr->u.getset->setter)
+                                mark_func(rt, &pr->u.getset->setter->header);
                         } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
                             /* Note: the tag does not matter
                                provided it is a GC object */
@@ -8306,7 +8313,7 @@ static int JS_AutoInitProperty(JSContext *ctx, JSObject *p, JSAtom prop,
     id = js_autoinit_get_id(pr);
     func = js_autoinit_func_table[id];
     /* 'func' shall not modify the object properties 'pr' */
-    val = func(realm, p, prop, pr->u.init.opaque);
+    val = func(realm, p, prop, pr->u.init->opaque);
     if (JS_IsException(val))
         return -1;
     if (id == JS_AUTOINIT_ID_MODULE_NS &&
@@ -8403,10 +8410,10 @@ JSValue JS_GetPropertyInternal(JSContext *ctx, JSValueConst obj,
             /* found */
             if (unlikely(prs->flags & JS_PROP_TMASK)) {
                 if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
-                    if (unlikely(!pr->u.getset.getter)) {
+                    if (unlikely(!pr->u.getset->getter)) {
                         return JS_UNDEFINED;
                     } else {
-                        JSValue func = JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter);
+                        JSValue func = JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->getter);
                         /* Note: the field could be removed in the getter */
                         func = JS_DupValue(ctx, func);
                         return JS_CallFree(ctx, func, this_obj, 0, NULL);
@@ -8975,10 +8982,10 @@ retry:
             if (unlikely(prs->flags & JS_PROP_TMASK)) {
                 if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
                     desc->flags |= JS_PROP_GETSET;
-                    if (pr->u.getset.getter)
-                        desc->getter = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter));
-                    if (pr->u.getset.setter)
-                        desc->setter = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.setter));
+                    if (pr->u.getset->getter)
+                        desc->getter = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->getter));
+                    if (pr->u.getset->setter)
+                        desc->setter = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->setter));
                 } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
                     JSValue val = *pr->u.var_ref->pvalue;
                     if (unlikely(JS_IsUninitialized(val))) {
@@ -9860,7 +9867,7 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
             assert(prop == JS_ATOM_length);
             return set_array_length(ctx, p, val, flags);
         } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
-            return call_setter(ctx, pr->u.getset.setter, this_obj, val, flags);
+            return call_setter(ctx, pr->u.getset->setter, this_obj, val, flags);
         } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
             /* XXX: already use var_ref->is_const. Cannot simplify use the
                writable flag for JS_CLASS_MODULE_NS. */
@@ -9984,7 +9991,7 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
         prs = find_own_property(&pr, p1, prop);
         if (prs) {
             if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
-                return call_setter(ctx, pr->u.getset.setter, this_obj, val, flags);
+                return call_setter(ctx, pr->u.getset->setter, this_obj, val, flags);
             } else if ((prs->flags & JS_PROP_TMASK) == JS_PROP_AUTOINIT) {
                 /* Instantiate property and retry (potentially useless) */
                 if (JS_AutoInitProperty(ctx, p1, prop, pr, prs)) {
@@ -10282,7 +10289,8 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
     int ret, prop_flags;
     JSVarRef *var_ref;
     JSObject *delete_obj;
-    
+    JSPropertyGetSet *getset = NULL;
+
     /* add a new property or modify an existing exotic one */
     if (p->is_exotic) {
         if (p->class_id == JS_CLASS_ARRAY) {
@@ -10382,21 +10390,31 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
             prop_flags |= JS_PROP_VARREF;
         }
     }
+
+    if (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
+        /* allocate before to avoid problems in case of memory error */
+        getset = js_malloc(ctx, sizeof(JSPropertyGetSet));
+        if (!getset)
+            return -1;
+    }
+    
     pr = add_property(ctx, p, prop, prop_flags);
     if (unlikely(!pr)) {
         if (var_ref)
             free_var_ref(ctx->rt, var_ref);
+        js_free(ctx, getset);
         return -1;
     }
     if (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) {
-        pr->u.getset.getter = NULL;
+        pr->u.getset = getset; /* fail safe if malloc error */
+        getset->getter = NULL;
         if ((flags & JS_PROP_HAS_GET) && JS_IsFunction(ctx, getter)) {
-            pr->u.getset.getter =
+            getset->getter =
                 JS_VALUE_GET_OBJ(JS_DupValue(ctx, getter));
         }
-        pr->u.getset.setter = NULL;
+        getset->setter = NULL;
         if ((flags & JS_PROP_HAS_SET) && JS_IsFunction(ctx, setter)) {
-            pr->u.getset.setter =
+            getset->setter =
                 JS_VALUE_GET_OBJ(JS_DupValue(ctx, setter));
         }
     } else if (p->class_id == JS_CLASS_GLOBAL_OBJECT) {
@@ -10558,6 +10576,7 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
                 }
 
                 if ((prs->flags & JS_PROP_TMASK) != JS_PROP_GETSET) {
+                    JSPropertyGetSet *getset;
                     if (js_shape_prepare_update(ctx, p, &prs))
                         return -1;
                     /* convert to getset */
@@ -10570,36 +10589,40 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
                     } else {
                         JS_FreeValue(ctx, pr->u.value);
                     }
+                    getset = js_malloc(ctx, sizeof(JSPropertyGetSet));
+                    if (!getset)
+                        return -1;
                     prs->flags = (prs->flags &
                                   (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) |
                         JS_PROP_GETSET;
-                    pr->u.getset.getter = NULL;
-                    pr->u.getset.setter = NULL;
+                    pr->u.getset = getset;
+                    getset->getter = NULL;
+                    getset->setter = NULL;
                 } else {
                     if (!(prs->flags & JS_PROP_CONFIGURABLE)) {
                         if ((flags & JS_PROP_HAS_GET) &&
-                            new_getter != pr->u.getset.getter) {
+                            new_getter != pr->u.getset->getter) {
                             goto not_configurable;
                         }
                         if ((flags & JS_PROP_HAS_SET) &&
-                            new_setter != pr->u.getset.setter) {
+                            new_setter != pr->u.getset->setter) {
                             goto not_configurable;
                         }
                     }
                 }
                 if (flags & JS_PROP_HAS_GET) {
-                    if (pr->u.getset.getter)
-                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter));
+                    if (pr->u.getset->getter)
+                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->getter));
                     if (new_getter)
                         JS_DupValue(ctx, getter);
-                    pr->u.getset.getter = new_getter;
+                    pr->u.getset->getter = new_getter;
                 }
                 if (flags & JS_PROP_HAS_SET) {
-                    if (pr->u.getset.setter)
-                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.setter));
+                    if (pr->u.getset->setter)
+                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->setter));
                     if (new_setter)
                         JS_DupValue(ctx, setter);
-                    pr->u.getset.setter = new_setter;
+                    pr->u.getset->setter = new_setter;
                 }
             } else {
                 if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
@@ -10617,10 +10640,11 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
                             free_var_ref(ctx->rt, var_ref);
                         return -1;
                     }
-                    if (pr->u.getset.getter)
-                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter));
-                    if (pr->u.getset.setter)
-                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.setter));
+                    if (pr->u.getset->getter)
+                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->getter));
+                    if (pr->u.getset->setter)
+                        JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->setter));
+                    js_free(ctx, pr->u.getset);
                     if (var_ref) {
                         prs->flags = (prs->flags & ~JS_PROP_TMASK) |
                             JS_PROP_VARREF | JS_PROP_WRITABLE;
@@ -10801,7 +10825,8 @@ static int JS_DefineAutoInitProperty(JSContext *ctx, JSValueConst this_obj,
 {
     JSObject *p;
     JSProperty *pr;
-
+    JSPropertyAutoInit *init;
+    
     if (JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT)
         return FALSE;
 
@@ -10813,15 +10838,19 @@ static int JS_DefineAutoInitProperty(JSContext *ctx, JSValueConst this_obj,
         return FALSE;
     }
 
+    init = js_malloc(ctx, sizeof(*init));
+    if (!init)
+        return -1;
     /* Specialized CreateProperty */
     pr = add_property(ctx, p, prop, (flags & JS_PROP_C_W_E) | JS_PROP_AUTOINIT);
     if (unlikely(!pr))
         return -1;
-    pr->u.init.realm_and_id = (uintptr_t)JS_DupContext(ctx);
-    assert((pr->u.init.realm_and_id & 3) == 0);
+    pr->u.init = init;
+    init->realm_and_id = (uintptr_t)JS_DupContext(ctx);
+    assert((init->realm_and_id & 3) == 0);
     assert(id <= 3);
-    pr->u.init.realm_and_id |= id;
-    pr->u.init.opaque = opaque;
+    init->realm_and_id |= id;
+    init->opaque = opaque;
     return TRUE;
 }
 
@@ -14396,11 +14425,11 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
                     if ((prs->flags & JS_PROP_TMASK) == JS_PROP_GETSET) {
                         if (s->options.raw_dump) {
                             js_printf(s, "[Getter %p Setter %p]",
-                                    pr->u.getset.getter, pr->u.getset.setter);
+                                    pr->u.getset->getter, pr->u.getset->setter);
                         } else {
-                            if (pr->u.getset.getter && pr->u.getset.setter) {
+                            if (pr->u.getset->getter && pr->u.getset->setter) {
                                 js_printf(s, "[Getter/Setter]");
-                            } else if (pr->u.getset.setter) {
+                            } else if (pr->u.getset->setter) {
                                 js_printf(s, "[Setter]");
                             } else {
                                 js_printf(s, "[Getter]");
@@ -14417,7 +14446,7 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
                             js_printf(s, "[autoinit %p %d %p]",
                                     (void *)js_autoinit_get_realm(pr),
                                     js_autoinit_get_id(pr),
-                                    (void *)pr->u.init.opaque);
+                                    (void *)pr->u.init->opaque);
                         } else {
                             /* XXX: could autoinit but need to restart
                                the iteration */
@@ -16458,13 +16487,18 @@ static JSValue js_build_arguments(JSContext *ctx, int argc, JSValueConst *argv)
 {
     JSValue val, *tab;
     JSProperty props[3];
+    JSPropertyGetSet *getset;
     JSObject *p;
     int i;
 
+    getset = js_malloc(ctx, sizeof(*getset));
+    if (!getset)
+        return JS_EXCEPTION;
     props[0].u.value = JS_NewInt32(ctx, argc); /* length */
     props[1].u.value = JS_DupValue(ctx, ctx->array_proto_values); /* Symbol.iterator */
-    props[2].u.getset.getter = JS_VALUE_GET_OBJ(JS_DupValue(ctx, ctx->throw_type_error)); /* callee */
-    props[2].u.getset.setter = JS_VALUE_GET_OBJ(JS_DupValue(ctx, ctx->throw_type_error)); /* callee */
+    getset->getter = JS_VALUE_GET_OBJ(JS_DupValue(ctx, ctx->throw_type_error)); /* callee */
+    getset->setter = JS_VALUE_GET_OBJ(JS_DupValue(ctx, ctx->throw_type_error)); /* callee */
+    props[2].u.getset = getset;
     
     val = JS_NewObjectFromShape(ctx, js_dup_shape(ctx->arguments_shape),
                                 JS_CLASS_ARGUMENTS, props);
@@ -51353,9 +51387,9 @@ static BOOL check_regexp_getter(JSContext *ctx,
         return FALSE;
     if ((prs->flags & JS_PROP_TMASK) != JS_PROP_GETSET)
         return FALSE;
-    if (!pr->u.getset.getter)
+    if (!pr->u.getset->getter)
         return FALSE;
-    return JS_IsCFunction(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset.getter),
+    return JS_IsCFunction(ctx, JS_MKPTR(JS_TAG_OBJECT, pr->u.getset->getter),
                           func, magic);
 }
 

@@ -60,8 +60,13 @@ typedef uint32_t JSAtom;
 #define JS_PTR64_DEF(a)
 #endif
 
-#ifndef JS_PTR64
+#if !defined(JS_PTR64)
 #define JS_NAN_BOXING
+#define JS_NAN_BOX_TAG_SHIFT 32
+#elif defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+/* we assume pointers fit on 47 bits */
+#define JS_NAN_BOXING
+#define JS_NAN_BOX_TAG_SHIFT 47
 #endif
 
 #if defined(__SIZEOF_INT128__) && (INTPTR_MAX >= INT64_MAX)
@@ -70,15 +75,20 @@ typedef uint32_t JSAtom;
 #define JS_LIMB_BITS 32
 #endif
 
+#if defined(JS_NAN_BOXING)
+#define JS_SHORT_BIG_INT_BITS 32
+#else
 #define JS_SHORT_BIG_INT_BITS JS_LIMB_BITS
-    
+#endif
+
 enum {
     /* all tags with a reference count are negative */
-    JS_TAG_FIRST       = -9, /* first negative tag */
-    JS_TAG_BIG_INT     = -9,
-    JS_TAG_SYMBOL      = -8,
-    JS_TAG_STRING      = -7,
-    JS_TAG_STRING_ROPE = -6,
+    JS_TAG_FIRST       = -8, /* first negative tag */
+    JS_TAG_UNUSED0     = -8, /* currently unused */
+    JS_TAG_BIG_INT     = -7,
+    JS_TAG_SYMBOL      = -6,
+    JS_TAG_STRING      = -5,
+    JS_TAG_STRING_ROPE = -4,
     JS_TAG_MODULE      = -3, /* used internally */
     JS_TAG_FUNCTION_BYTECODE = -2, /* used internally */
     JS_TAG_OBJECT      = -1,
@@ -148,16 +158,16 @@ typedef uint64_t JSValue;
 
 #define JSValueConst JSValue
 
-#define JS_VALUE_GET_TAG(v) (int)((v) >> 32)
+#define JS_VALUE_GET_TAG(v) (int)((int64_t)(v) >> JS_NAN_BOX_TAG_SHIFT)
 #define JS_VALUE_GET_INT(v) (int)(v)
 #define JS_VALUE_GET_BOOL(v) (int)(v)
 #define JS_VALUE_GET_SHORT_BIG_INT(v) (int)(v)
-#define JS_VALUE_GET_PTR(v) (void *)(intptr_t)(v)
+#define JS_VALUE_GET_PTR(v) (void *)(intptr_t)((v) & (((uint64_t)1 << JS_NAN_BOX_TAG_SHIFT) - 1))
 
-#define JS_MKVAL(tag, val) (((uint64_t)(tag) << 32) | (uint32_t)(val))
-#define JS_MKPTR(tag, ptr) (((uint64_t)(tag) << 32) | (uintptr_t)(ptr))
+#define JS_MKVAL(tag, val) (((uint64_t)(tag) << JS_NAN_BOX_TAG_SHIFT) | (uint32_t)(val))
+#define JS_MKPTR(tag, ptr) (((uint64_t)(tag) << JS_NAN_BOX_TAG_SHIFT) | (uintptr_t)(ptr))
 
-#define JS_FLOAT64_TAG_ADDEND (0x7ff80000 - JS_TAG_FIRST + 1) /* quiet NaN encoding */
+#define JS_FLOAT64_ADDEND (0x7ff8000000000000 + ((uint64_t)(-JS_TAG_FIRST) << JS_NAN_BOX_TAG_SHIFT))
 
 static inline double JS_VALUE_GET_FLOAT64(JSValue v)
 {
@@ -166,11 +176,11 @@ static inline double JS_VALUE_GET_FLOAT64(JSValue v)
         double d;
     } u;
     u.v = v;
-    u.v += (uint64_t)JS_FLOAT64_TAG_ADDEND << 32;
+    u.v += JS_FLOAT64_ADDEND;
     return u.d;
 }
 
-#define JS_NAN (0x7ff8000000000000 - ((uint64_t)JS_FLOAT64_TAG_ADDEND << 32))
+#define JS_NAN (0xfff8000000000000 - JS_FLOAT64_ADDEND)
 
 static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
 {
@@ -184,7 +194,7 @@ static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
     if (js_unlikely((u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000))
         v = JS_NAN;
     else
-        v = u.u64 - ((uint64_t)JS_FLOAT64_TAG_ADDEND << 32);
+        v = u.u64 - JS_FLOAT64_ADDEND;
     return v;
 }
 
@@ -205,7 +215,7 @@ static inline JS_BOOL JS_VALUE_IS_NAN(JSValue v)
 {
     uint32_t tag;
     tag = JS_VALUE_GET_TAG(v);
-    return tag == (JS_NAN >> 32);
+    return tag == (uint32_t)((int64_t)JS_NAN >> JS_NAN_BOX_TAG_SHIFT);
 }
 
 static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int32_t d)
