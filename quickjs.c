@@ -47103,7 +47103,8 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
 
                 item = JS_IteratorNext(ctx, it->inner, it->inner_next, pdone);
                 if (JS_IsException(item)) {
-                    JS_IteratorClose(ctx, it->inner, FALSE);
+                    /* the inner iterator is only marked done, the outer one is
+                       closed by the |fail| label */
                     JS_FreeValue(ctx, it->inner);
                     JS_FreeValue(ctx, it->inner_next);
                     it->inner = JS_UNDEFINED;
