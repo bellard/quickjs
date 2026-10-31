@@ -11398,7 +11398,7 @@ static inline int to_digit(int c)
 
 #define JS_BIGINT_MAX_SIZE ((1024 * 1024) / JS_LIMB_BITS) /* in limbs */
 
-/* it is currently assumed that JS_SHORT_BIG_INT_BITS = JS_LIMB_BITS */
+/* it is currently assumed that JS_SHORT_BIG_INT_BITS <= JS_LIMB_BITS */
 #if JS_SHORT_BIG_INT_BITS == 32
 #define JS_SHORT_BIG_INT_MIN INT32_MIN
 #define JS_SHORT_BIG_INT_MAX INT32_MAX
@@ -12865,7 +12865,9 @@ static JSValue js_bigint_to_string1(JSContext *ctx, JSValueConst val, int radix)
 static JSValue JS_CompactBigInt(JSContext *ctx, JSBigInt *p)
 {
     JSValue res;
-    if (p->len == 1) {
+    if (p->len == 1 &&
+        (js_slimb_t)p->tab[0] >= JS_SHORT_BIG_INT_MIN &&
+        (js_slimb_t)p->tab[0] <= JS_SHORT_BIG_INT_MAX) {
         res = __JS_NewShortBigInt(ctx, (js_slimb_t)p->tab[0]);
         js_free(ctx, p);
         return res;
