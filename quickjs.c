@@ -45412,7 +45412,7 @@ static JSValue js_iterator_constructor(JSContext *ctx, JSValueConst new_target,
 // note: deliberately doesn't use space-saving bit fields for
 // |index|, |count| and |running| because tcc miscompiles them
 typedef struct JSIteratorConcatData {
-    int index, count;             // elements (not pairs!) in values[] array
+    uint32_t index, count;             // elements (not pairs!) in values[] array
     BOOL running;
     JSValue iter, next, values[]; // array of (object, method) pairs
 } JSIteratorConcatData;
@@ -45424,7 +45424,7 @@ static void js_iterator_concat_finalizer(JSRuntime *rt, JSValue val)
     if (it) {
         JS_FreeValueRT(rt, it->iter);
         JS_FreeValueRT(rt, it->next);
-        for (int i = it->index; i < it->count; i++)
+        for (uint32_t i = it->index; i < it->count; i++)
             JS_FreeValueRT(rt, it->values[i]);
         js_free_rt(rt, it);
     }
@@ -45438,7 +45438,7 @@ static void js_iterator_concat_mark(JSRuntime *rt, JSValueConst val,
     if (it) {
         JS_MarkValue(rt, it->iter, mark_func);
         JS_MarkValue(rt, it->next, mark_func);
-        for (int i = it->index; i < it->count; i++)
+        for (uint32_t i = it->index; i < it->count; i++)
             JS_MarkValue(rt, it->values[i], mark_func);
     }
 }
@@ -45447,7 +45447,7 @@ static JSValue js_iterator_concat_next(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv,
                                        int *pdone, int magic)
 {
-    JSValue iter, item, next, val, *obj, *meth, ret;
+    JSValue item, val, ret;
     JSIteratorConcatData *it;
     int done;
 
@@ -45458,25 +45458,24 @@ static JSValue js_iterator_concat_next(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     if (it->running)
         return JS_ThrowTypeError(ctx, "already running");
-
+    
     if (magic == GEN_MAGIC_RETURN) {
         ret = JS_UNDEFINED;
         if (!JS_IsUndefined(it->iter)) {
+            /* IteratorClose: leaves the iterator alone when it has no .return
+               method and rejects a result that is not an object */
             it->running = TRUE;
-            ret = JS_GetProperty(ctx, it->iter, JS_ATOM_return);
-            if (JS_IsException(ret)) {
-                it->running = FALSE;
-                return JS_EXCEPTION;
-            }
-            ret = JS_CallFree(ctx, ret, it->iter, 0, NULL);
+            if (JS_IteratorClose(ctx, it->iter, /*is_exception_pending*/FALSE))
+                ret = JS_EXCEPTION;
             it->running = FALSE;
+            JS_FreeValue(ctx, it->iter);
+            JS_FreeValue(ctx, it->next);
+            it->iter = JS_UNDEFINED;
+            it->next = JS_UNDEFINED;
         }
         while (it->index < it->count)
             JS_FreeValue(ctx, it->values[it->index++]);
-        JS_FreeValue(ctx, it->iter);
-        JS_FreeValue(ctx, it->next);
-        it->iter = JS_UNDEFINED;
-        it->next = JS_UNDEFINED;
+        *pdone = TRUE;
         return ret;
     }
     
@@ -45487,23 +45486,18 @@ static JSValue js_iterator_concat_next(JSContext *ctx, JSValueConst this_val,
             ret = JS_UNDEFINED;
             break;
         }
-        obj = &it->values[it->index + 0];
-        meth = &it->values[it->index + 1];
-        iter = it->iter;
-        if (JS_IsUndefined(iter)) {
-            iter = JS_GetIterator2(ctx, *obj, *meth);
+        if (JS_IsUndefined(it->iter)) {
+            JSValue iter, next;
+            iter = JS_GetIterator2(ctx, it->values[it->index + 0], it->values[it->index + 1]);
             if (JS_IsException(iter))
                 goto fail;
             it->iter = iter;
-        }
-        next = it->next;
-        if (JS_IsUndefined(next)) {
             next = JS_GetProperty(ctx, iter, JS_ATOM_next);
             if (JS_IsException(next))
                 goto fail;
             it->next = next;
         }
-        item = JS_IteratorNext2(ctx, iter, next, 0, NULL, &done);
+        item = JS_IteratorNext2(ctx, it->iter, it->next, 0, NULL, &done);
         if (JS_IsException(item))
             goto fail;
         if (done == 0) {
@@ -45513,25 +45507,33 @@ static JSValue js_iterator_concat_next(JSContext *ctx, JSValueConst this_val,
             val = JS_GetProperty(ctx, item, JS_ATOM_done);
             if (JS_IsException(val)) {
                 JS_FreeValue(ctx, item);
-            fail:
-                ret = JS_EXCEPTION;
-                break;
+                goto fail;
             }
             done = JS_ToBoolFree(ctx, val);
             if (done)
                 goto done_next;
             ret = JS_GetProperty(ctx, item, JS_ATOM_value);
             JS_FreeValue(ctx, item);
+            if (JS_IsException(ret)) {
+            fail:
+                JS_FreeValue(ctx, it->iter);
+                JS_FreeValue(ctx, it->next);
+                it->iter = JS_UNDEFINED;
+                it->next = JS_UNDEFINED;
+                while (it->index < it->count)
+                    JS_FreeValue(ctx, it->values[it->index++]);
+                ret = JS_EXCEPTION;
+            }
             break;
         } else {
         done_next:
             JS_FreeValue(ctx, item);
-            JS_FreeValue(ctx, iter);
-            JS_FreeValue(ctx, next);
+            JS_FreeValue(ctx, it->iter);
+            JS_FreeValue(ctx, it->next);
             it->iter = JS_UNDEFINED;
             it->next = JS_UNDEFINED;
-            JS_FreeValue(ctx, *meth);
-            JS_FreeValue(ctx, *obj);
+            JS_FreeValue(ctx, it->values[it->index + 0]);
+            JS_FreeValue(ctx, it->values[it->index + 1]);
             it->index += 2;
         }
     }
@@ -45576,7 +45578,7 @@ static JSValue js_iterator_concat(JSContext *ctx, JSValueConst this_val,
     JS_SetOpaque(obj, it);
     return obj;
 fail:
-    for (int i = 0; i < it->count; i++)
+    for (uint32_t i = 0; i < it->count; i++)
         JS_FreeValue(ctx, it->values[i]);
     js_free(ctx, it);
     return JS_EXCEPTION;
