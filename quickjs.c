@@ -1996,7 +1996,7 @@ typedef struct JSClassShortDef {
 static JSClassShortDef const js_std_class_def[] = {
     { JS_ATOM_Object, NULL, NULL },                             /* JS_CLASS_OBJECT */
     { JS_ATOM_Array, js_array_finalizer, js_array_mark },       /* JS_CLASS_ARRAY */
-    { JS_ATOM_Error, NULL, NULL }, /* JS_CLASS_ERROR */
+    { JS_ATOM_Error, js_object_data_finalizer, js_object_data_mark }, /* JS_CLASS_ERROR */
     { JS_ATOM_Number, js_object_data_finalizer, js_object_data_mark }, /* JS_CLASS_NUMBER */
     { JS_ATOM_String, js_object_data_finalizer, js_object_data_mark }, /* JS_CLASS_STRING */
     { JS_ATOM_Boolean, js_object_data_finalizer, js_object_data_mark }, /* JS_CLASS_BOOLEAN */
@@ -5811,6 +5811,7 @@ static JSValue JS_NewObjectFromShape(JSContext *ctx, JSShape *sh, JSClassID clas
         p->u.array.u.ptr = NULL;
         p->u.array.count = 0;
         break;
+    case JS_CLASS_ERROR:
     case JS_CLASS_NUMBER:
     case JS_CLASS_STRING:
     case JS_CLASS_BOOLEAN:
@@ -7166,6 +7167,7 @@ void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s)
                 }
             }
             break;
+        case JS_CLASS_ERROR:             /* u.object_data */
         case JS_CLASS_NUMBER:            /* u.object_data */
         case JS_CLASS_STRING:            /* u.object_data */
         case JS_CLASS_BOOLEAN:           /* u.object_data */
@@ -7729,8 +7731,14 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_val,
     else
         str = JS_NewString(ctx, (char *)dbuf.buf);
     dbuf_free(&dbuf);
-    JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_stack, str,
-                           JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    if (JS_IsError(ctx, error_obj)) {
+        p = JS_VALUE_GET_OBJ(error_obj);
+        JS_FreeValue(ctx, p->u.object_data);
+        p->u.object_data = str;
+    } else {
+        JS_DefinePropertyValue(ctx, error_obj, JS_ATOM_stack, str,
+                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    }
  done:
     JS_FreeValue(ctx, error_obj);
 }
@@ -7744,7 +7752,7 @@ static BOOL is_backtrace_needed(JSContext *ctx, JSValueConst obj)
     p = JS_VALUE_GET_OBJ(obj);
     if (p->class_id != JS_CLASS_ERROR)
         return FALSE;
-    if (find_own_property1(p, JS_ATOM_stack))
+    if (!JS_IsUndefined(p->u.object_data))
         return FALSE;
     return TRUE;
 }
@@ -14179,7 +14187,8 @@ static void js_print_error(JSPrintValueState *s, JSObject *p)
 {
     const char *str;
     size_t len;
-
+    JSValueConst stack;
+    
     str = get_prop_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_name);
     if (!str) {
         js_puts(s, "Error");
@@ -14196,18 +14205,21 @@ static void js_print_error(JSPrintValueState *s, JSObject *p)
     JS_FreeCString(s->ctx, str);
 
     /* dump the stack if present */
-    str = get_prop_string(s->ctx, JS_MKPTR(JS_TAG_OBJECT, p), JS_ATOM_stack);
-    if (str) {
-        js_putc(s, '\n');
-        
-        /* XXX: should remove the last '\n' in stack as
-           v8. SpiderMonkey does not do it */
-        len = strlen(str);
-        if (len > 0 && str[len - 1] == '\n')
-            len--;
-        s->write_func(s->write_opaque, str, len);
-        
-        JS_FreeCString(s->ctx, str);
+    stack = p->u.object_data;
+    if (JS_IsString(stack)) {
+        str = JS_ToCString(s->ctx, stack);
+        if (str) {
+            js_putc(s, '\n');
+            
+            /* XXX: should remove the last '\n' in stack as
+               v8. SpiderMonkey does not do it */
+            len = strlen(str);
+            if (len > 0 && str[len - 1] == '\n')
+                len--;
+            s->write_func(s->write_opaque, str, len);
+            
+            JS_FreeCString(s->ctx, str);
+        }
     }
 }
 
@@ -42523,10 +42535,50 @@ static JSValue js_error_toString(JSContext *ctx, JSValueConst this_val,
     return JS_ConcatString(ctx, name, msg);
 }
 
+static JSValue js_error_get_stack(JSContext *ctx, JSValueConst this_val)
+{
+    JSObject *p;
+
+    if (!JS_IsObject(this_val))
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    p = JS_VALUE_GET_OBJ(this_val);
+    if (p->class_id != JS_CLASS_ERROR)
+        return JS_UNDEFINED;
+    return JS_DupValue(ctx, p->u.object_data);
+}
+
+static JSValue js_error_set_stack(JSContext *ctx, JSValueConst this_val,
+                                  JSValueConst value)
+{
+    int ret;
+
+    if (!JS_IsObject(this_val))
+        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (!JS_IsString(value))
+        return JS_ThrowTypeError(ctx, "Error.prototype.stack setter expects a string");
+    if (js_same_value(ctx, this_val, ctx->class_proto[JS_CLASS_ERROR]))
+        return JS_ThrowTypeError(ctx, "Error.prototype.stack setter called on the home object");
+    ret = JS_GetOwnPropertyInternal(ctx, NULL, JS_VALUE_GET_OBJ(this_val),
+                                    JS_ATOM_stack);
+    if (ret < 0)
+        return JS_EXCEPTION;
+    if (ret == 0) {
+        if (JS_DefinePropertyValue(ctx, this_val, JS_ATOM_stack, JS_DupValue(ctx, value),
+                                   JS_PROP_C_W_E | JS_PROP_THROW) < 0)
+            return JS_EXCEPTION;
+    } else {
+        if (JS_SetPropertyInternal(ctx, this_val, JS_ATOM_stack, JS_DupValue(ctx, value),
+                                   this_val, JS_PROP_THROW) < 0)
+            return JS_EXCEPTION;
+    }
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry js_error_proto_funcs[] = {
     JS_CFUNC_DEF("toString", 0, js_error_toString ),
     JS_PROP_STRING_DEF("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE ),
     JS_PROP_STRING_DEF("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE ),
+    JS_CGETSET_DEF("stack", js_error_get_stack, js_error_set_stack ),
 };
 
 /* 2 entries for each native error class */
