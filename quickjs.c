@@ -15088,7 +15088,8 @@ static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
                 {
                     JSBigIntBuf buf2;
                     JSBigInt *p2;
-                    p2 = js_bigint_set_si(&buf2, 2 * (op - OP_dec) - 1);
+                    v = 2 * (op - OP_dec) - 1;
+                    p2 = js_bigint_set_si(&buf2, v);
                     r = js_bigint_add(ctx, p1, p2, 0);
                 }
                 break;
