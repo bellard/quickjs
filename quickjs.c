@@ -63966,7 +63966,7 @@ static JSValue js_dataview_get_byteLength(JSContext *ctx, JSValueConst this_val)
     if (!p)
         return JS_EXCEPTION;
     if (dataview_is_oob(p))
-        return JS_ThrowTypeErrorArrayBufferOOB(ctx);
+        return JS_NewInt32(ctx, 0);
     ta = p->u.typed_array;
     if (ta->track_rab) {
         abuf = ta->buffer->u.array_buffer;
@@ -63984,7 +63984,7 @@ static JSValue js_dataview_get_byteOffset(JSContext *ctx, JSValueConst this_val)
     if (!p)
         return JS_EXCEPTION;
     if (dataview_is_oob(p))
-        return JS_ThrowTypeErrorArrayBufferOOB(ctx);
+        return JS_NewInt32(ctx, 0);
     ta = p->u.typed_array;
     return JS_NewUint32(ctx, ta->offset);
 }
