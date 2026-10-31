@@ -46652,7 +46652,7 @@ static JSValue js_iterator_proto_reduce(JSContext *ctx, JSValueConst this_val,
             goto exception_no_close;
         if (done) {
             JS_ThrowTypeError(ctx, "empty iterator");
-            goto exception;
+            goto exception_no_close;
         }
         idx = 1;
     }
