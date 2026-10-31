@@ -97,6 +97,11 @@ function test_bigint1()
 
     r = 1n << 32n;
     assert(r, 4294967296n, "1 << 32n === 4294967296n");
+
+    assert(-0.5 < -1n, false);
+    assert(-1n > -0.5, false);
+    assert(-2147483648 < -1n, true);
+    assert(-1n < -2147483648, false);
 }
 
 function test_bigint2()
