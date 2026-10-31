@@ -9580,6 +9580,44 @@ static int call_setter(JSContext *ctx, JSObject *setter,
     }
 }
 
+static void delete_property_no_move(JSContext *ctx, JSObject *p, JSShapeProperty *pr_del)
+{
+    JSShape *sh;
+    JSShapeProperty *pr, *lpr, *prop;
+    JSProperty *pr1;
+    intptr_t h, h1;
+
+    sh = p->shape;
+    h1 = pr_del->atom & sh->prop_hash_mask;
+    h = sh->hash_table[h1];
+    prop = get_shape_prop(sh);
+    lpr = NULL;
+    while (h != 0) {
+        pr = &prop[h - 1];
+        if (pr == pr_del) {
+            /* remove property */
+            if (lpr) {
+                lpr->hash_next = pr->hash_next;
+            } else {
+                sh->hash_table[h1] = pr->hash_next;
+            }
+            sh->deleted_prop_count++;
+            /* free the entry */
+            pr1 = &p->prop[h - 1];
+            free_property(ctx->rt, pr1, pr->flags);
+            JS_FreeAtom(ctx, pr->atom);
+            /* put default values */
+            pr->flags = 0;
+            pr->atom = JS_ATOM_NULL;
+            pr1->u.value = JS_UNDEFINED;
+            return;
+        }
+        lpr = pr;
+        h = pr->hash_next;
+    }
+    abort();
+}
+
 /* set the array length and remove the array elements if necessary. */
 static int set_array_length(JSContext *ctx, JSObject *p, JSValue val,
                             int flags)
@@ -9632,7 +9670,7 @@ static int set_array_length(JSContext *ctx, JSObject *p, JSValue val,
                 }
             } else {
                 /* faster to iterate thru all the properties. Need two
-                   passes in case one of the property is not
+                   passes in case one of the properties is not
                    configurable */
                 cur_len = len;
                 for(i = 0, pr = get_shape_prop(sh); i < sh->prop_count;
@@ -9646,18 +9684,25 @@ static int set_array_length(JSContext *ctx, JSObject *p, JSValue val,
                     }
                 }
 
+                if (js_shape_prepare_update(ctx, p, NULL))
+                    return -1;
+                sh = p->shape;
+                
                 for(i = 0, pr = get_shape_prop(sh); i < sh->prop_count;
                     i++, pr++) {
                     if (pr->atom != JS_ATOM_NULL &&
                         JS_AtomIsArrayIndex(ctx, &idx, pr->atom)) {
                         if (idx >= cur_len) {
-                            /* remove the property */
-                            delete_property(ctx, p, pr->atom);
-                            /* WARNING: the shape may have been modified */
-                            sh = p->shape;
-                            pr = get_shape_prop(sh) + i;
+                            /* remove the property without compaction (cannot fail) */
+                            delete_property_no_move(ctx, p, pr);
                         }
                     }
+                }
+
+                /* compact the properties if too many deleted properties */
+                if (sh->deleted_prop_count >= 8 &&
+                    sh->deleted_prop_count >= ((unsigned)sh->prop_count / 2)) {
+                    compact_properties(ctx, p);
                 }
             }
         } else {
