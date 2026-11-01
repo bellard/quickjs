@@ -9169,7 +9169,8 @@ JSAtom JS_ValueToAtom(JSContext *ctx, JSValueConst val)
         if (JS_IsException(str))
             return JS_ATOM_NULL;
         if (JS_VALUE_GET_TAG(str) == JS_TAG_SYMBOL) {
-            atom = js_symbol_to_atom(ctx, str);
+            atom = JS_DupAtom(ctx, js_symbol_to_atom(ctx, str));
+            JS_FreeValue(ctx, str);
         } else {
             atom = JS_NewAtomStr(ctx, JS_VALUE_GET_STRING(str));
         }
