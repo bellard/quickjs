@@ -574,7 +574,7 @@ typedef struct JSClassDef {
 #define JS_INVALID_CLASS_ID 0
 JSClassID JS_NewClassID(JSClassID *pclass_id);
 /* Returns the class ID if `v` is an object, otherwise returns JS_INVALID_CLASS_ID. */
-JSClassID JS_GetClassID(JSValue v);
+JSClassID JS_GetClassID(JSValueConst v);
 int JS_NewClass(JSRuntime *rt, JSClassID class_id, const JSClassDef *class_def);
 int JS_IsRegisteredClass(JSRuntime *rt, JSClassID class_id);
 
@@ -920,6 +920,11 @@ JSValue JS_NewArrayBuffer(JSContext *ctx, uint8_t *buf, size_t len,
 JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len);
 void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj);
 uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj);
+JS_BOOL JS_IsArrayBuffer(JSValueConst obj);
+// returns true or false if obj is an ArrayBuffer, -1 otherwise
+int JS_IsImmutableArrayBuffer(JSValueConst obj);
+// returns 0 if obj is an ArrayBuffer, -1 otherwise
+int JS_SetImmutableArrayBuffer(JSValueConst obj, JS_BOOL immutable);
 
 typedef enum JSTypedArrayEnum {
     JS_TYPED_ARRAY_UINT8C = 0,
@@ -942,6 +947,13 @@ JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
                                size_t *pbyte_offset,
                                size_t *pbyte_length,
                                size_t *pbytes_per_element);
+/* returns -1 if not a typed array otherwise return a JSTypedArrayEnum value */
+int JS_GetTypedArrayType(JSValueConst obj);
+JSValue JS_NewUint8Array(JSContext *ctx, uint8_t *buf, size_t len,
+                         JSFreeArrayBufferDataFunc *free_func,
+                         void *opaque, JS_BOOL is_shared);
+JSValue JS_NewUint8ArrayCopy(JSContext *ctx, const uint8_t *buf, size_t len);
+JSValue JS_NewUint8ArrayCopy2(JSContext *ctx, const uint8_t *buf, size_t len, JS_BOOL is_immutable);
 typedef struct {
     void *(*sab_alloc)(void *opaque, size_t size);
     void (*sab_free)(void *opaque, void *ptr);

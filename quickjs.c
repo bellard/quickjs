@@ -3925,7 +3925,7 @@ JSClassID JS_NewClassID(JSClassID *pclass_id)
     return class_id;
 }
 
-JSClassID JS_GetClassID(JSValue v)
+JSClassID JS_GetClassID(JSValueConst v)
 {
     JSObject *p;
     if (JS_VALUE_GET_TAG(v) != JS_TAG_OBJECT)
@@ -60694,6 +60694,11 @@ JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len)
                                         TRUE);
 }
 
+BOOL JS_IsArrayBuffer(JSValueConst obj)
+{
+    return JS_GetClassID(obj) == JS_CLASS_ARRAY_BUFFER;
+}
+
 static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_target,
                                             int argc, JSValueConst *argv,
                                             JSClassID class_id)
@@ -60931,6 +60936,23 @@ void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj)
     abuf->byte_length = 0;
     abuf->detached = TRUE;
     js_array_buffer_update_typed_arrays(abuf);
+}
+
+int JS_IsImmutableArrayBuffer(JSValueConst obj)
+{
+    JSArrayBuffer *abuf = JS_GetOpaque(obj, JS_CLASS_ARRAY_BUFFER);
+    if (!abuf)
+        return -1;
+    return abuf->immutable;
+}
+
+int JS_SetImmutableArrayBuffer(JSValueConst obj, BOOL immutable)
+{
+    JSArrayBuffer *abuf = JS_GetOpaque(obj, JS_CLASS_ARRAY_BUFFER);
+    if (!abuf)
+        return -1;
+    abuf->immutable = (immutable != 0);
+    return 0;
 }
 
 /* get an ArrayBuffer or SharedArrayBuffer */
@@ -63246,18 +63268,11 @@ static size_t u8a_hex_decode(const char *src, size_t src_len,
     return written;
 }
 
-static JSValue JS_NewUint8ArrayCopy(JSContext *ctx, const uint8_t *buf, size_t len)
+static JSValue js_new_uint8array(JSContext *ctx, JSValue buffer)
 {
-    JSValue buffer, obj;
+    JSValue obj;
     JSArrayBuffer *abuf;
 
-    buffer = js_array_buffer_constructor3(ctx, JS_UNDEFINED, len, NULL,
-                                          JS_CLASS_ARRAY_BUFFER,
-                                          (uint8_t *)buf,
-                                          js_array_buffer_free, NULL,
-                                          TRUE);
-    if (JS_IsException(buffer))
-        return JS_EXCEPTION;
     obj = JS_CreateFromConstructor(ctx, JS_UNDEFINED, JS_CLASS_UINT8_ARRAY);
     if (JS_IsException(obj)) {
         JS_FreeValue(ctx, buffer);
@@ -63271,6 +63286,49 @@ static JSValue JS_NewUint8ArrayCopy(JSContext *ctx, const uint8_t *buf, size_t l
         return JS_EXCEPTION;
     }
     return obj;
+}
+
+JSValue JS_NewUint8Array(JSContext *ctx, uint8_t *buf, size_t len,
+                         JSFreeArrayBufferDataFunc *free_func,
+                         void *opaque, BOOL is_shared)
+{
+    JSClassID class_id =
+        is_shared ? JS_CLASS_SHARED_ARRAY_BUFFER : JS_CLASS_ARRAY_BUFFER;
+    JSValue buffer = js_array_buffer_constructor3(ctx, JS_UNDEFINED, len, NULL,
+                                                  class_id, buf, free_func,
+                                                  opaque, FALSE);
+    if (JS_IsException(buffer))
+        return JS_EXCEPTION;
+    return js_new_uint8array(ctx, buffer);
+}
+
+JSValue JS_NewUint8ArrayCopy2(JSContext *ctx, const uint8_t *buf, size_t len, BOOL is_immutable)
+{
+    JSValue buffer = js_array_buffer_constructor3(ctx, JS_UNDEFINED, len, NULL,
+                                                  JS_CLASS_ARRAY_BUFFER,
+                                                  (uint8_t *)buf,
+                                                  js_array_buffer_free, NULL,
+                                                  TRUE);
+    if (JS_IsException(buffer))
+        return JS_EXCEPTION;
+    if (is_immutable) {
+        JS_SetImmutableArrayBuffer(buffer, TRUE);
+    }
+    return js_new_uint8array(ctx, buffer);
+}
+
+JSValue JS_NewUint8ArrayCopy(JSContext *ctx, const uint8_t *buf, size_t len)
+{
+    return JS_NewUint8ArrayCopy2(ctx, buf, len, FALSE);
+}
+
+int JS_GetTypedArrayType(JSValueConst obj)
+{
+    JSClassID class_id = JS_GetClassID(obj);
+    if (class_id >= JS_CLASS_UINT8C_ARRAY && class_id <= JS_CLASS_FLOAT64_ARRAY)
+        return class_id - JS_CLASS_UINT8C_ARRAY;
+    else
+        return -1;
 }
 
 /* Validate that this_val is a Uint8Array (type check only, no detach check).
