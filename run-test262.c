@@ -1051,6 +1051,9 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
     case JS_IMPORT_TYPE_TEXT:
         val = JS_NewStringLen(ctx, (char *)buf, buf_len);
         break;
+    case JS_IMPORT_TYPE_BYTES:
+        val = JS_NewUint8ArrayCopy2(ctx, (uint8_t *)buf, buf_len, TRUE);
+        break;
     default:
         val = JS_ThrowInternalError(ctx, "unhandled import type");
         break;

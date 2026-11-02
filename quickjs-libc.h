@@ -49,6 +49,7 @@ enum {
     JS_IMPORT_TYPE_JSON,
     JS_IMPORT_TYPE_JSON5,
     JS_IMPORT_TYPE_TEXT,
+    JS_IMPORT_TYPE_BYTES,
 };
 int js_module_import_type(JSContext *ctx, JSValueConst attributes);
 

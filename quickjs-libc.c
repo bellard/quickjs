@@ -681,6 +681,8 @@ int js_module_import_type(JSContext *ctx, JSValueConst attributes)
         res = JS_IMPORT_TYPE_JSON5;
     } else if (len == 4 && !memcmp(cstr, "text", len)) {
         res = JS_IMPORT_TYPE_TEXT;
+    } else if (len == 5 && !memcmp(cstr, "bytes", len)) {
+        res = JS_IMPORT_TYPE_BYTES;
     } else {
         /* unknown type - throw error */
         JS_ThrowTypeError(ctx, "unsupported module type: '%s'", cstr);
@@ -740,6 +742,9 @@ JSModuleDef *js_module_loader(JSContext *ctx,
             break;
         case JS_IMPORT_TYPE_TEXT:
             val = JS_NewStringLen(ctx, (char *)buf, buf_len);
+            break;
+        case JS_IMPORT_TYPE_BYTES:
+            val = JS_NewUint8ArrayCopy2(ctx, (uint8_t *)buf, buf_len, TRUE);
             break;
         default:
             val = JS_ThrowInternalError(ctx, "unhandled import type");
