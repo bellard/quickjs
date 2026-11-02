@@ -1014,7 +1014,9 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
     uint8_t *buf;
     JSModuleDef *m;
     char *filename, *slash, path[1024];
-
+    int type;
+    JSValue val;
+    
     // interpret import("bar.js") from path/to/foo.js as
     // import("path/to/bar.js") but leave import("./bar.js") untouched
     filename = opaque;
@@ -1027,6 +1029,10 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
         }
     }
 
+    type = js_module_import_type(ctx, attributes);
+    if (type < 0)
+        return NULL;
+    
     buf = js_load_file(ctx, &buf_len, module_name);
     if (!buf) {
         JS_ThrowReferenceError(ctx, "could not load module filename '%s'",
@@ -1034,13 +1040,31 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
         return NULL;
     }
 
-    if (js_module_test_json(ctx, attributes) == 1) {
-        /* compile as JSON */
-        JSValue val;
+    switch(type) {
+    case JS_IMPORT_TYPE_JS:
+        val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
+                      JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        break;
+    case JS_IMPORT_TYPE_JSON:
         val = JS_ParseJSON(ctx, (char *)buf, buf_len, module_name);
-        js_free(ctx, buf);
-        if (JS_IsException(val))
-            return NULL;
+        break;
+    case JS_IMPORT_TYPE_TEXT:
+        val = JS_NewStringLen(ctx, (char *)buf, buf_len);
+        break;
+    default:
+        val = JS_ThrowInternalError(ctx, "unhandled import type");
+        break;
+    }
+
+    js_free(ctx, buf);
+    if (JS_IsException(val))
+        return NULL;
+
+    if (type == JS_IMPORT_TYPE_JS) {
+        /* the module is already referenced, so we must free it */
+        m = JS_VALUE_GET_PTR(val);
+        JS_FreeValue(ctx, val);
+    } else {
         m = JS_NewCModule(ctx, module_name, json_module_init_test);
         if (!m) {
             JS_FreeValue(ctx, val);
@@ -1049,17 +1073,6 @@ static JSModuleDef *js_module_loader_test(JSContext *ctx,
         /* only export the "default" symbol which will contain the JSON object */
         JS_AddModuleExport(ctx, m, "default");
         JS_SetModulePrivateValue(ctx, m, val);
-    } else {
-        JSValue func_val;
-        /* compile the module */
-        func_val = JS_Eval(ctx, (char *)buf, buf_len, module_name,
-                           JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-        js_free(ctx, buf);
-        if (JS_IsException(func_val))
-            return NULL;
-        /* the module is already referenced, so we must free it */
-        m = JS_VALUE_GET_PTR(func_val);
-        JS_FreeValue(ctx, func_val);
     }
     return m;
 }
