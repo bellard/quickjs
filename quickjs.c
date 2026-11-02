@@ -771,6 +771,7 @@ typedef struct JSArrayBuffer {
     int byte_length; /* 0 if detached */
     int max_byte_length; /* -1 if not resizable; >= byte_length otherwise */
     uint8_t detached;
+    uint8_t immutable;
     uint8_t shared; /* if shared, the array buffer cannot be detached */
     uint8_t *data; /* NULL if detached */
     struct list_head array_list;
@@ -785,6 +786,7 @@ typedef struct JSTypedArray {
     uint32_t offset; /* byte offset in the array buffer */
     uint32_t length; /* byte length in the array buffer */
     BOOL track_rab; /* auto-track length of backing array buffer */
+    uint32_t write_count; /* same as JSObject.u.array.count except for immutable arrays where it is 0 */
 } JSTypedArray;
 
 typedef struct JSGlobalObject {
@@ -10189,7 +10191,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
                 return -1;
             /* Note: the conversion can detach the typed array, so the
                array bound check must be done after */
-            if (unlikely(idx >= (uint32_t)p->u.array.count))
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                 goto ta_out_of_bound;
             p->u.array.u.uint8_ptr[idx] = v;
             break;
@@ -10197,7 +10199,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         case JS_CLASS_UINT8_ARRAY:
             if (JS_ToInt32Free(ctx, &v, val))
                 return -1;
-            if (unlikely(idx >= (uint32_t)p->u.array.count))
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                 goto ta_out_of_bound;
             p->u.array.u.uint8_ptr[idx] = v;
             break;
@@ -10205,7 +10207,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         case JS_CLASS_UINT16_ARRAY:
             if (JS_ToInt32Free(ctx, &v, val))
                 return -1;
-            if (unlikely(idx >= (uint32_t)p->u.array.count))
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                 goto ta_out_of_bound;
             p->u.array.u.uint16_ptr[idx] = v;
             break;
@@ -10213,7 +10215,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         case JS_CLASS_UINT32_ARRAY:
             if (JS_ToInt32Free(ctx, &v, val))
                 return -1;
-            if (unlikely(idx >= (uint32_t)p->u.array.count))
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                 goto ta_out_of_bound;
             p->u.array.u.uint32_ptr[idx] = v;
             break;
@@ -10224,7 +10226,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
                 int64_t v;
                 if (JS_ToBigInt64Free(ctx, &v, val))
                     return -1;
-                if (unlikely(idx >= (uint32_t)p->u.array.count))
+                if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                     goto ta_out_of_bound;
                 p->u.array.u.uint64_ptr[idx] = v;
             }
@@ -10232,23 +10234,26 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         case JS_CLASS_FLOAT16_ARRAY:
             if (JS_ToFloat64Free(ctx, &d, val))
                 return -1;
-            if (unlikely(idx >= (uint32_t)p->u.array.count))
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                 goto ta_out_of_bound;
             p->u.array.u.fp16_ptr[idx] = tofp16(d);
             break;
         case JS_CLASS_FLOAT32_ARRAY:
             if (JS_ToFloat64Free(ctx, &d, val))
                 return -1;
-            if (unlikely(idx >= (uint32_t)p->u.array.count))
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count))
                 goto ta_out_of_bound;
             p->u.array.u.float_ptr[idx] = d;
             break;
         case JS_CLASS_FLOAT64_ARRAY:
             if (JS_ToFloat64Free(ctx, &d, val))
                 return -1;
-            if (unlikely(idx >= (uint32_t)p->u.array.count)) {
+            if (unlikely(idx >= (uint32_t)p->u.typed_array->write_count)) {
             ta_out_of_bound:
-                return TRUE;
+                if (p->u.typed_array->buffer->u.array_buffer->immutable)
+                    return FALSE;
+                else
+                    return TRUE;
             }
             p->u.array.u.double_ptr[idx] = d;
             break;
@@ -43868,7 +43873,8 @@ exception:
 
 static JSValue js_typed_array___speciesCreate(JSContext *ctx,
                                               JSValueConst this_val,
-                                              int argc, JSValueConst *argv);
+                                              int argc, JSValueConst *argv,
+                                              BOOL require_mutable);
 
 static JSValue js_array_every(JSContext *ctx, JSValueConst this_val,
                               int argc, JSValueConst *argv, int special)
@@ -43921,7 +43927,7 @@ static JSValue js_array_every(JSContext *ctx, JSValueConst this_val,
     case special_map | special_TA:
         args[0] = obj;
         args[1] = JS_NewInt32(ctx, len);
-        ret = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, 2, args);
+        ret = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, 2, args, TRUE);
         if (JS_IsException(ret))
             goto exception;
         break;
@@ -44000,7 +44006,7 @@ done:
         JSValue arr;
         args[0] = obj;
         args[1] = JS_NewInt32(ctx, n);
-        arr = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, 2, args);
+        arr = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, 2, args, TRUE);
         if (JS_IsException(arr))
             goto exception;
         args[0] = ret;
@@ -60631,6 +60637,7 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
     }
     init_list_head(&abuf->array_list);
     abuf->detached = FALSE;
+    abuf->immutable = FALSE;
     abuf->shared = (class_id == JS_CLASS_SHARED_ARRAY_BUFFER);
     abuf->opaque = opaque;
     abuf->free_func = free_func;
@@ -60759,6 +60766,7 @@ static void js_array_buffer_finalizer(JSRuntime *rt, JSValue val)
             p1 = ta->obj;
             /* Note: the typed array length and offset fields are not modified */
             if (p1->class_id != JS_CLASS_DATAVIEW) {
+                ta->write_count = 0;
                 p1->u.array.count = 0;
                 p1->u.array.u.ptr = NULL;
             }
@@ -60800,6 +60808,11 @@ static JSValue JS_ThrowTypeErrorDetachedArrayBuffer(JSContext *ctx)
     return JS_ThrowTypeError(ctx, "ArrayBuffer is detached");
 }
 
+static JSValue JS_ThrowTypeErrorImmutableArrayBuffer(JSContext *ctx)
+{
+    return JS_ThrowTypeError(ctx, "ArrayBuffer is immutable");
+}
+
 static JSValue JS_ThrowTypeErrorArrayBufferOOB(JSContext *ctx)
 {
     return JS_ThrowTypeError(ctx, "ArrayBuffer is detached or resized");
@@ -60815,6 +60828,15 @@ static JSValue js_array_buffer_get_detached(JSContext *ctx,
     if (abuf->shared)
         return JS_ThrowTypeError(ctx, "detached called on SharedArrayBuffer");
     return JS_NewBool(ctx, abuf->detached);
+}
+
+static JSValue js_array_buffer_get_immutable(JSContext *ctx,
+                                             JSValueConst this_val)
+{
+    JSArrayBuffer *abuf = JS_GetOpaque2(ctx, this_val, JS_CLASS_ARRAY_BUFFER);
+    if (!abuf)
+        return JS_EXCEPTION;
+    return JS_NewBool(ctx, abuf->immutable);
 }
 
 static JSValue js_array_buffer_get_byteLength(JSContext *ctx,
@@ -60888,6 +60910,10 @@ static void js_array_buffer_update_typed_arrays(JSArrayBuffer *abuf)
                     p->u.array.u.ptr = &data[ta->offset];
                 }
             }
+            if (abuf->immutable)
+                ta->write_count = 0;
+            else
+                ta->write_count = p->u.array.count;
         }
     }
     
@@ -60946,11 +60972,17 @@ static BOOL array_buffer_is_resizable(const JSArrayBuffer *abuf)
     return abuf->max_byte_length >= 0;
 }
 
+enum {
+    JS_ARRAY_BUFFER_TRANSFER,
+    JS_ARRAY_BUFFER_TRANSFER_TO_IMMUTABLE,
+    JS_ARRAY_BUFFER_TRANSFER_TO_FIXED_LENGTH,
+};
+
 // ES #sec-arraybuffer.prototype.transfer
 static JSValue js_array_buffer_transfer(JSContext *ctx,
                                         JSValueConst this_val,
                                         int argc, JSValueConst *argv,
-                                        int transfer_to_fixed_length)
+                                        int magic)
 {
     JSArrayBuffer *abuf;
     uint64_t new_len, *pmax_len, max_len;
@@ -60965,10 +60997,12 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
         new_len = abuf->byte_length;
     else if (JS_ToIndex(ctx, &new_len, argv[0]))
         return JS_EXCEPTION;
+    if (abuf->immutable)
+        return JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
     if (abuf->detached)
         return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
     pmax_len = NULL;
-    if (!transfer_to_fixed_length) {
+    if (magic == JS_ARRAY_BUFFER_TRANSFER) {
         if (array_buffer_is_resizable(abuf)) { // carry over maxByteLength
             max_len = abuf->max_byte_length;
             if (new_len > max_len)
@@ -61042,6 +61076,12 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
         abuf->detached = TRUE;
         js_array_buffer_update_typed_arrays(abuf);
     }
+    if (magic == JS_ARRAY_BUFFER_TRANSFER_TO_IMMUTABLE && !JS_IsException(res)) {
+        abuf = JS_GetOpaque2(ctx, res, JS_CLASS_ARRAY_BUFFER);
+        if (!abuf)
+            return JS_EXCEPTION;
+        abuf->immutable = TRUE;
+    }
     return res;
 }
 
@@ -61055,6 +61095,8 @@ static JSValue js_array_buffer_resize(JSContext *ctx, JSValueConst this_val,
     abuf = JS_GetOpaque2(ctx, this_val, class_id);
     if (!abuf)
         return JS_EXCEPTION;
+    if (abuf->immutable)
+        return JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
     if (JS_ToIndex(ctx, &len, argv[0]))
         return JS_EXCEPTION;
     if (abuf->detached)
@@ -61097,17 +61139,27 @@ static JSValue js_array_buffer_resize(JSContext *ctx, JSValueConst this_val,
 
 static JSValue js_array_buffer_slice(JSContext *ctx,
                                      JSValueConst this_val,
-                                     int argc, JSValueConst *argv, int class_id)
+                                     int argc, JSValueConst *argv, int magic)
 {
     JSArrayBuffer *abuf, *new_abuf;
     int64_t len, start, end, new_len;
     JSValue ctor, new_obj;
-
+    BOOL immutable;
+    int class_id;
+    
+    immutable = magic & 1;
+    if (magic & 2)
+        class_id = JS_CLASS_SHARED_ARRAY_BUFFER;
+    else
+        class_id = JS_CLASS_ARRAY_BUFFER;
+    
     abuf = JS_GetOpaque2(ctx, this_val, class_id);
     if (!abuf)
         return JS_EXCEPTION;
     if (abuf->detached)
         return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+    if (abuf->immutable)
+        return JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
     len = abuf->byte_length;
 
     if (JS_ToInt64Clamp(ctx, &start, argv[0], 0, len, len))
@@ -61119,9 +61171,13 @@ static JSValue js_array_buffer_slice(JSContext *ctx,
             return JS_EXCEPTION;
     }
     new_len = max_int64(end - start, 0);
-    ctor = JS_SpeciesConstructor(ctx, this_val, JS_UNDEFINED);
-    if (JS_IsException(ctor))
-        return ctor;
+    if (immutable) {
+        ctor = JS_UNDEFINED;
+    } else {
+        ctor = JS_SpeciesConstructor(ctx, this_val, JS_UNDEFINED);
+        if (JS_IsException(ctor))
+            return ctor;
+    }
     if (JS_IsUndefined(ctor)) {
         new_obj = js_array_buffer_constructor2(ctx, JS_UNDEFINED, new_len,
                                                NULL, class_id);
@@ -61137,6 +61193,10 @@ static JSValue js_array_buffer_slice(JSContext *ctx,
     new_abuf = JS_GetOpaque2(ctx, new_obj, class_id);
     if (!new_abuf)
         goto fail;
+    if (new_abuf->immutable) {
+        JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+        goto fail;
+    }
     if (js_same_value(ctx, new_obj, this_val)) {
         JS_ThrowTypeError(ctx, "cannot use identical ArrayBuffer");
         goto fail;
@@ -61150,11 +61210,19 @@ static JSValue js_array_buffer_slice(JSContext *ctx,
         goto fail;
     }
     /* must test again because of side effects */
-    if (abuf->detached || abuf->byte_length < start + new_len) {
+    if (abuf->detached) {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         goto fail;
     }
+    if (abuf->byte_length < start + new_len) {
+        if (immutable)
+            JS_ThrowRangeError(ctx, "invalid array buffer length");
+        else
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        goto fail;
+    }
     memcpy(new_abuf->data, abuf->data + start, new_len);
+    new_abuf->immutable = immutable;
     return new_obj;
  fail:
     JS_FreeValue(ctx, new_obj);
@@ -61166,10 +61234,13 @@ static const JSCFunctionListEntry js_array_buffer_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("maxByteLength", js_array_buffer_get_maxByteLength, NULL, JS_CLASS_ARRAY_BUFFER ),
     JS_CGETSET_MAGIC_DEF("resizable", js_array_buffer_get_resizable, NULL, JS_CLASS_ARRAY_BUFFER ),
     JS_CGETSET_DEF("detached", js_array_buffer_get_detached, NULL ),
+    JS_CGETSET_DEF("immutable", js_array_buffer_get_immutable, NULL ),
     JS_CFUNC_MAGIC_DEF("resize", 1, js_array_buffer_resize, JS_CLASS_ARRAY_BUFFER ),
-    JS_CFUNC_MAGIC_DEF("slice", 2, js_array_buffer_slice, JS_CLASS_ARRAY_BUFFER ),
-    JS_CFUNC_MAGIC_DEF("transfer", 0, js_array_buffer_transfer, 0 ),
-    JS_CFUNC_MAGIC_DEF("transferToFixedLength", 0, js_array_buffer_transfer, 1 ),
+    JS_CFUNC_MAGIC_DEF("slice", 2, js_array_buffer_slice, 0 ),
+    JS_CFUNC_MAGIC_DEF("sliceToImmutable", 2, js_array_buffer_slice, 1 ),
+    JS_CFUNC_MAGIC_DEF("transfer", 0, js_array_buffer_transfer, JS_ARRAY_BUFFER_TRANSFER ),
+    JS_CFUNC_MAGIC_DEF("transferToImmutable", 0, js_array_buffer_transfer, JS_ARRAY_BUFFER_TRANSFER_TO_IMMUTABLE ),
+    JS_CFUNC_MAGIC_DEF("transferToFixedLength", 0, js_array_buffer_transfer, JS_ARRAY_BUFFER_TRANSFER_TO_FIXED_LENGTH ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE ),
 };
 
@@ -61184,7 +61255,7 @@ static const JSCFunctionListEntry js_shared_array_buffer_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("maxByteLength", js_array_buffer_get_maxByteLength, NULL, JS_CLASS_SHARED_ARRAY_BUFFER ),
     JS_CGETSET_MAGIC_DEF("growable", js_array_buffer_get_resizable, NULL, JS_CLASS_SHARED_ARRAY_BUFFER ),
     JS_CFUNC_MAGIC_DEF("grow", 1, js_array_buffer_resize, JS_CLASS_SHARED_ARRAY_BUFFER ),
-    JS_CFUNC_MAGIC_DEF("slice", 2, js_array_buffer_slice, JS_CLASS_SHARED_ARRAY_BUFFER ),
+    JS_CFUNC_MAGIC_DEF("slice", 2, js_array_buffer_slice, 2 ),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "SharedArrayBuffer", JS_PROP_CONFIGURABLE ),
 };
 
@@ -61201,6 +61272,19 @@ static JSObject *get_typed_array(JSContext *ctx, JSValueConst this_val)
         return NULL;
     }
     return p;
+}
+
+// |p| must be a typed array, *not* a DataView
+static BOOL typed_array_is_immutable(JSObject *p)
+{
+    JSArrayBuffer *abuf;
+    JSTypedArray *ta;
+
+    assert(p->class_id >= JS_CLASS_UINT8C_ARRAY);
+    assert(p->class_id <= JS_CLASS_FLOAT64_ARRAY);
+    ta = p->u.typed_array;
+    abuf = ta->buffer->u.array_buffer;
+    return abuf->immutable;
 }
 
 // is the typed array detached or out of bounds relative to its RAB?
@@ -61252,17 +61336,26 @@ static int js_typed_array_get_length_unsafe(JSContext *ctx, JSValueConst obj)
     return p->u.array.count;
 }
 
+static int validate_typed_array2(JSContext *ctx, JSObject *p, BOOL is_write)
+{
+    if (is_write && typed_array_is_immutable(p)) {
+        JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+        return -1;
+    }
+    if (typed_array_is_oob(p)) {
+        JS_ThrowTypeErrorArrayBufferOOB(ctx);
+        return -1;
+    }
+    return 0;
+}
+
 static int validate_typed_array(JSContext *ctx, JSValueConst this_val)
 {
     JSObject *p;
     p = get_typed_array(ctx, this_val);
     if (!p)
         return -1;
-    if (typed_array_is_oob(p)) {
-        JS_ThrowTypeErrorArrayBufferOOB(ctx);
-        return -1;
-    }
-    return 0;
+    return validate_typed_array2(ctx, p, FALSE);
 }
 
 static JSValue js_typed_array_get_length(JSContext *ctx,
@@ -61383,6 +61476,10 @@ static JSValue js_typed_array_set_internal(JSContext *ctx,
     p = get_typed_array(ctx, dst);
     if (!p)
         goto fail;
+    if (typed_array_is_immutable(p)) {
+        JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+        goto fail;
+    }
     if (JS_ToInt64Sat(ctx, &offset, off))
         goto fail;
     if (offset < 0)
@@ -61538,7 +61635,8 @@ static JSValue js_create_typed_array_iterator(JSContext *ctx, JSValueConst this_
 }
 
 static JSValue js_typed_array_create(JSContext *ctx, JSValueConst ctor,
-                                     int argc, JSValueConst *argv)
+                                     int argc, JSValueConst *argv,
+                                     BOOL require_mutable)
 {
     JSValue ret;
     int new_len;
@@ -61551,6 +61649,10 @@ static JSValue js_typed_array_create(JSContext *ctx, JSValueConst ctor,
     new_len = js_typed_array_get_length_unsafe(ctx, ret);
     if (new_len < 0)
         goto fail;
+    if (require_mutable && typed_array_is_immutable(JS_VALUE_GET_OBJ(ret))) {
+        JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+        goto fail;
+    }
     if (argc == 1) {
         /* ensure that it is large enough */
         if (JS_ToLengthFree(ctx, &len, JS_DupValue(ctx, argv[0])))
@@ -61565,18 +61667,10 @@ static JSValue js_typed_array_create(JSContext *ctx, JSValueConst ctor,
     return ret;
 }
 
-#if 0
-static JSValue js_typed_array___create(JSContext *ctx,
-                                       JSValueConst this_val,
-                                       int argc, JSValueConst *argv)
-{
-    return js_typed_array_create(ctx, argv[0], max_int(argc - 1, 0), argv + 1);
-}
-#endif
-
 static JSValue js_typed_array___speciesCreate(JSContext *ctx,
                                               JSValueConst this_val,
-                                              int argc, JSValueConst *argv)
+                                              int argc, JSValueConst *argv,
+                                              BOOL require_mutable)
 {
     JSValueConst obj;
     JSObject *p;
@@ -61595,7 +61689,7 @@ static JSValue js_typed_array___speciesCreate(JSContext *ctx,
         ret = js_typed_array_constructor(ctx, JS_UNDEFINED, argc1, argv + 1,
                                          p->class_id);
     } else {
-        ret = js_typed_array_create(ctx, ctor, argc1, argv + 1);
+        ret = js_typed_array_create(ctx, ctor, argc1, argv + 1, require_mutable);
         JS_FreeValue(ctx, ctor);
     }
     return ret;
@@ -61650,7 +61744,7 @@ static JSValue js_typed_array_from(JSContext *ctx, JSValueConst this_val,
     }
     v = JS_NewInt64(ctx, len);
     args[0] = v;
-    r = js_typed_array_create(ctx, this_val, 1, args);
+    r = js_typed_array_create(ctx, this_val, 1, args, TRUE);
     JS_FreeValue(ctx, v);
     if (JS_IsException(r))
         goto exception;
@@ -61688,7 +61782,7 @@ static JSValue js_typed_array_of(JSContext *ctx, JSValueConst this_val,
     int i;
 
     args[0] = JS_NewInt32(ctx, argc);
-    obj = js_typed_array_create(ctx, this_val, 1, args);
+    obj = js_typed_array_create(ctx, this_val, 1, args, TRUE);
     if (JS_IsException(obj))
         return obj;
 
@@ -61710,8 +61804,8 @@ static JSValue js_typed_array_copyWithin(JSContext *ctx, JSValueConst this_val,
     p = get_typed_array(ctx, this_val);
     if (!p)
         return JS_EXCEPTION;
-    if (typed_array_is_oob(p))
-        return JS_ThrowTypeErrorArrayBufferOOB(ctx);
+    if (validate_typed_array2(ctx, p, TRUE))
+        return JS_EXCEPTION;
     len = p->u.array.count;
 
     if (JS_ToInt32Clamp(ctx, &to, argv[0], 0, len, len))
@@ -61752,8 +61846,8 @@ static JSValue js_typed_array_fill(JSContext *ctx, JSValueConst this_val,
     p = get_typed_array(ctx, this_val);
     if (!p)
         return JS_EXCEPTION;
-    if (typed_array_is_oob(p))
-        return JS_ThrowTypeErrorArrayBufferOOB(ctx);
+    if (validate_typed_array2(ctx, p, TRUE))
+        return JS_EXCEPTION;
     len = p->u.array.count;
 
     if (p->class_id == JS_CLASS_UINT8C_ARRAY) {
@@ -62275,9 +62369,13 @@ static JSValue js_typed_array_reverse(JSContext *ctx, JSValueConst this_val,
     JSObject *p;
     int len;
 
-    len = js_typed_array_get_length_unsafe(ctx, this_val);
-    if (len < 0)
+    p = get_typed_array(ctx, this_val);
+    if (!p)
         return JS_EXCEPTION;
+    if (validate_typed_array2(ctx, p, TRUE))
+        return JS_EXCEPTION;
+    len = p->u.array.count;
+
     if (len > 0) {
         p = JS_VALUE_GET_OBJ(this_val);
         switch (typed_array_size_log2(p->class_id)) {
@@ -62391,7 +62489,7 @@ static JSValue js_typed_array_slice(JSContext *ctx, JSValueConst this_val,
 
     args[0] = this_val;
     args[1] = JS_NewInt32(ctx, count);
-    arr = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, 2, args);
+    arr = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, 2, args, TRUE);
     if (JS_IsException(arr))
         goto exception;
 
@@ -62463,7 +62561,7 @@ static JSValue js_typed_array_subarray(JSContext *ctx, JSValueConst this_val,
     args[1] = ta_buffer;
     args[2] = JS_NewInt32(ctx, offset);
     args[3] = JS_NewInt32(ctx, count);
-    arr = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, is_auto ? 3 : 4, args);
+    arr = js_typed_array___speciesCreate(ctx, JS_UNDEFINED, is_auto ? 3 : 4, args, FALSE);
     JS_FreeValue(ctx, ta_buffer);
     return arr;
 
@@ -62651,9 +62749,13 @@ static JSValue js_typed_array_sort(JSContext *ctx, JSValueConst this_val,
 
     if (!JS_IsUndefined(tsc.cmp) && check_function(ctx, tsc.cmp))
         return JS_EXCEPTION;
-    len = js_typed_array_get_length_unsafe(ctx, this_val);
-    if (len < 0)
+
+    p = get_typed_array(ctx, this_val);
+    if (!p)
         return JS_EXCEPTION;
+    if (validate_typed_array2(ctx, p, TRUE))
+        return JS_EXCEPTION;
+    len = p->u.array.count;
 
     if (len > 1) {
         p = JS_VALUE_GET_OBJ(this_val);
@@ -63173,7 +63275,7 @@ static JSValue JS_NewUint8ArrayCopy(JSContext *ctx, const uint8_t *buf, size_t l
 
 /* Validate that this_val is a Uint8Array (type check only, no detach check).
    Returns the JSObject pointer or NULL on error (throws). */
-static JSObject *check_uint8array(JSContext *ctx, JSValueConst this_val)
+static JSObject *check_uint8array(JSContext *ctx, JSValueConst this_val, BOOL is_write)
 {
     JSObject *p;
 
@@ -63182,6 +63284,10 @@ static JSObject *check_uint8array(JSContext *ctx, JSValueConst this_val)
     p = JS_VALUE_GET_OBJ(this_val);
     if (p->class_id != JS_CLASS_UINT8_ARRAY)
         goto fail;
+    if (is_write && typed_array_is_immutable(p)) {
+        JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+        return NULL;
+    }
     return p;
 fail:
     JS_ThrowTypeError(ctx, "not a Uint8Array");
@@ -63310,7 +63416,7 @@ static JSValue js_uint8array_to_base64(JSContext *ctx, JSValueConst this_val,
     JSString *ostr;
     char *dst;
 
-    p = check_uint8array(ctx, this_val);
+    p = check_uint8array(ctx, this_val, FALSE);
     if (!p)
         return JS_EXCEPTION;
 
@@ -63364,7 +63470,7 @@ static JSValue js_uint8array_to_hex(JSContext *ctx, JSValueConst this_val,
     JSObject *p;
     JSString *ostr;
 
-    p = check_uint8array(ctx, this_val);
+    p = check_uint8array(ctx, this_val, FALSE);
     if (!p)
         return JS_EXCEPTION;
     if (get_uint8array_bytes(ctx, p, &data, &len))
@@ -63509,7 +63615,7 @@ static JSValue js_uint8array_set_from_base64(JSContext *ctx,
     int alphabet, last_chunk, err;
     JSValueConst options;
 
-    p = check_uint8array(ctx, this_val);
+    p = check_uint8array(ctx, this_val, TRUE);
     if (!p)
         return JS_EXCEPTION;
 
@@ -63565,7 +63671,7 @@ static JSValue js_uint8array_set_from_hex(JSContext *ctx,
     JSObject *p;
     int err;
 
-    p = check_uint8array(ctx, this_val);
+    p = check_uint8array(ctx, this_val, TRUE);
     if (!p)
         return JS_EXCEPTION;
 
@@ -63692,6 +63798,10 @@ static int typed_array_init(JSContext *ctx, JSValueConst obj,
     p->u.typed_array = ta;
     p->u.array.count = len;
     p->u.array.u.ptr = abuf->data + offset;
+    if (abuf->immutable)
+        ta->write_count = 0;
+    else
+        ta->write_count = p->u.array.count;
     return 0;
 }
 
@@ -64236,6 +64346,10 @@ static JSValue js_dataview_setValue(JSContext *ctx,
     ta = JS_GetOpaque2(ctx, this_obj, JS_CLASS_DATAVIEW);
     if (!ta)
         return JS_EXCEPTION;
+    abuf = ta->buffer->u.array_buffer;
+    if (abuf->immutable)
+        return JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+    
     size = 1 << typed_array_size_log2(class_id);
     if (JS_ToIndex(ctx, &pos, argv[0]))
         return JS_EXCEPTION;
@@ -64269,7 +64383,6 @@ static JSValue js_dataview_setValue(JSContext *ctx,
     }
     littleEndian = argc > 2 && JS_ToBool(ctx, argv[2]);
     is_swap = littleEndian ^ !is_be();
-    abuf = ta->buffer->u.array_buffer;
     if (abuf->detached)
         return JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
     // order matters: this check should come before the next one
@@ -64359,7 +64472,7 @@ typedef enum AtomicsOpEnum {
 
 static JSObject *js_atomics_get_buf(JSContext *ctx, 
                                     JSValueConst obj, JSValueConst idx_val,
-                                    uint64_t *pidx, int is_waitable)
+                                    uint64_t *pidx, int is_waitable, BOOL is_write)
 {
     JSObject *p;
     JSTypedArray *ta;
@@ -64384,6 +64497,10 @@ static JSObject *js_atomics_get_buf(JSContext *ctx,
     }
     ta = p->u.typed_array;
     abuf = ta->buffer->u.array_buffer;
+    if (is_write && abuf->immutable) {
+        JS_ThrowTypeErrorImmutableArrayBuffer(ctx);
+        return NULL;
+    }
     if (!abuf->shared) {
         if (is_waitable == 2) {
             JS_ThrowTypeError(ctx, "not a SharedArrayBuffer TypedArray");
@@ -64430,7 +64547,7 @@ static JSValue js_atomics_op(JSContext *ctx,
     JSValue ret;
     JSObject *p;
     
-    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 0);
+    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 0, (op != ATOMICS_OP_LOAD));
     if (!p)
         return JS_EXCEPTION;
     size_log2 = typed_array_size_log2(p->class_id);
@@ -64578,7 +64695,7 @@ static JSValue js_atomics_store(JSContext *ctx,
     uint64_t idx;
     int64_t v;
 
-    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 0);
+    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 0, TRUE);
     if (!p)
         return JS_EXCEPTION;
     size_log2 = typed_array_size_log2(p->class_id);
@@ -64740,7 +64857,7 @@ static JSValue js_atomics_wait(JSContext *ctx,
     int ret, size_log2, res;
     double d;
 
-    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 2);
+    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 2, FALSE);
     if (!p)
         return JS_EXCEPTION;
     size_log2 = typed_array_size_log2(p->class_id);
@@ -64862,7 +64979,7 @@ static JSValue js_atomics_waitAsync(JSContext *ctx,
     expected_val = argc > 2 ? argv[2] : JS_UNDEFINED;
     timeout_val = argc > 3 ? argv[3] : JS_UNDEFINED;
 
-    p = js_atomics_get_buf(ctx, ta, idx_val, &idx, 2);
+    p = js_atomics_get_buf(ctx, ta, idx_val, &idx, 2, FALSE);
     if (!p)
         return JS_EXCEPTION;
     size_log2 = typed_array_size_log2(p->class_id);
@@ -65053,7 +65170,7 @@ static JSValue js_atomics_notify(JSContext *ctx,
     JSArrayBuffer *abuf;
     JSObject *p;
     
-    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 1);
+    p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 1, FALSE);
     if (!p)
         return JS_EXCEPTION;
     size_log2 = typed_array_size_log2(p->class_id);
