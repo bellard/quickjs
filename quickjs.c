@@ -15594,6 +15594,27 @@ static no_inline __exception int js_add_slow(JSContext *ctx, JSValue *sp)
     return -1;
 }
 
+/* ToInt32() of an int or float64 value (the bit pattern is also the
+   ToUint32() result). Return FALSE if the value is not a number or is
+   outside the range handled here (NaN, infinities, huge values): the
+   caller then uses the generic conversion. */
+static force_inline BOOL js_number_to_int32_fast(JSValue v, uint32_t *pres)
+{
+    double d;
+    if (JS_VALUE_GET_TAG(v) == JS_TAG_INT) {
+        *pres = JS_VALUE_GET_INT(v);
+        return TRUE;
+    }
+    if (!JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(v)))
+        return FALSE;
+    d = JS_VALUE_GET_FLOAT64(v);
+    /* NaN and infinities fail this test */
+    if (!(d > -9.2e18 && d < 9.2e18))
+        return FALSE;
+    *pres = (uint32_t)(int64_t)d;
+    return TRUE;
+}
+
 static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
                                                       JSValue *sp,
                                                       OPCodeEnum op)
@@ -15663,6 +15684,10 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
         sp[-2] = __JS_NewShortBigInt(ctx, v);
         return 0;
     }
+    /* fast path for numbers: no conversion side effect */
+    if (js_number_to_int32_fast(op1, &v1) &&
+        js_number_to_int32_fast(op2, &v2))
+        goto int32_logic;
     op1 = JS_ToNumericFree(ctx, op1);
     if (JS_IsException(op1)) {
         JS_FreeValue(ctx, op2);
@@ -15727,6 +15752,7 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
         }
         if (unlikely(JS_ToInt32Free(ctx, (int32_t *)&v2, op2)))
             goto exception;
+    int32_logic:
         switch(op) {
         case OP_shl:
             r = v1 << (v2 & 0x1f);
@@ -16122,6 +16148,9 @@ static no_inline int js_shr_slow(JSContext *ctx, JSValue *sp)
 
     op1 = sp[-2];
     op2 = sp[-1];
+    if (js_number_to_int32_fast(op1, &v1) &&
+        js_number_to_int32_fast(op2, &v2))
+        goto shr_done;
     op1 = JS_ToNumericFree(ctx, op1);
     if (JS_IsException(op1)) {
         JS_FreeValue(ctx, op2);
@@ -16144,6 +16173,7 @@ static no_inline int js_shr_slow(JSContext *ctx, JSValue *sp)
     /* cannot give an exception */
     JS_ToUint32Free(ctx, &v1, op1);
     JS_ToUint32Free(ctx, &v2, op2);
+ shr_done:
     r = v1 >> (v2 & 0x1f);
     sp[-2] = JS_NewUint32(ctx, r);
     return 0;
