@@ -19720,6 +19720,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 JSObject *p;                                            \
                 JSProperty *pr;                                         \
                 JSShapeProperty *prs;                                   \
+                uint32_t tag;                                           \
                                                                         \
                 if (is_length) {                                        \
                     atom = JS_ATOM_length;                              \
@@ -19729,8 +19730,18 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 }                                                       \
                                                                         \
                 obj = sp[-1];                                           \
-                if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT)) {   \
+                tag = JS_VALUE_GET_TAG(obj);                            \
+                if (likely(tag == JS_TAG_OBJECT)) {                     \
                     p = JS_VALUE_GET_OBJ(obj);                          \
+                    goto name ## _lookup;                               \
+                } else if (tag == JS_TAG_STRING &&                      \
+                           !__JS_AtomIsTaggedInt(atom)) {               \
+                    if (atom == JS_ATOM_length) {                       \
+                        val = JS_NewInt32(ctx, JS_VALUE_GET_STRING(obj)->len); \
+                        goto name ## _done;                             \
+                    }                                                   \
+                    p = JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_STRING]); \
+                    name ## _lookup:                                    \
                     for(;;) {                                           \
                         prs = find_own_property(&pr, p, atom);          \
                         if (prs) {                                      \
@@ -19741,12 +19752,15 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                             break;                                      \
                         }                                               \
                         if (unlikely(p->is_exotic)) {                   \
-                            /* XXX: should avoid the slow path for arrays \
-                               and typed arrays by ensuring that 'prop' is \
-                               not numeric */                           \
+                            /* an array has no exotic behavior for a     \
+                               non numeric property name */             \
+                            if (likely(p->class_id == JS_CLASS_ARRAY &&  \
+                                       !__JS_AtomIsTaggedInt(atom)))    \
+                                goto name ## _next_proto;               \
                             obj = JS_MKPTR(JS_TAG_OBJECT, p);           \
                             goto name ## _slow_path;                    \
                         }                                               \
+                        name ## _next_proto:                            \
                         p = p->shape->proto;                            \
                         if (!p) {                                       \
                             val = JS_UNDEFINED;                         \
@@ -19760,6 +19774,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     if (unlikely(JS_IsException(val)))                  \
                         goto exception;                                 \
                 }                                                       \
+                name ## _done:                                          \
                 if (keep) {                                             \
                     *sp++ = val;                                        \
                 } else {                                                \
