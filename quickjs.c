@@ -10910,6 +10910,22 @@ int JS_DefinePropertyValue(JSContext *ctx, JSValueConst this_obj,
                            JSAtom prop, JSValue val, int flags)
 {
     int ret;
+    if (likely(JS_VALUE_GET_TAG(this_obj) == JS_TAG_OBJECT)) {
+        /* fast path: new data property of an ordinary object */
+        JSObject *p = JS_VALUE_GET_OBJ(this_obj);
+        JSProperty *pr;
+        if (p->class_id == JS_CLASS_OBJECT && p->extensible &&
+            !(flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) &&
+            !find_own_property(&pr, p, prop)) {
+            pr = add_property(ctx, p, prop, flags & JS_PROP_C_W_E);
+            if (unlikely(!pr)) {
+                JS_FreeValue(ctx, val);
+                return -1;
+            }
+            pr->u.value = val;
+            return TRUE;
+        }
+    }
     ret = JS_DefineProperty(ctx, this_obj, prop, val, JS_UNDEFINED, JS_UNDEFINED,
                             flags | JS_PROP_HAS_VALUE | JS_PROP_HAS_CONFIGURABLE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_ENUMERABLE);
     JS_FreeValue(ctx, val);
@@ -10939,9 +10955,31 @@ int JS_DefinePropertyValueUint32(JSContext *ctx, JSValueConst this_obj,
                                        val, flags);
 }
 
+/* append 'val' at the end of a fast array. 'val' is consumed. Return FALSE
+   if the generic code must be used. */
+static inline BOOL js_define_fast_array_append(JSContext *ctx, JSValueConst this_obj,
+                                               int64_t idx, JSValue val,
+                                               int flags, int *pret)
+{
+    JSObject *p;
+    if (unlikely(JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT))
+        return FALSE;
+    p = JS_VALUE_GET_OBJ(this_obj);
+    if (!(p->class_id == JS_CLASS_ARRAY && p->fast_array && p->extensible &&
+          idx == p->u.array.count))
+        return FALSE;
+    if ((flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_C_W_E)) != JS_PROP_C_W_E)
+        return FALSE;
+    *pret = add_fast_array_element(ctx, p, val, flags);
+    return TRUE;
+}
+
 int JS_DefinePropertyValueInt64(JSContext *ctx, JSValueConst this_obj,
                                 int64_t idx, JSValue val, int flags)
 {
+    int ret;
+    if (js_define_fast_array_append(ctx, this_obj, idx, val, flags, &ret))
+        return ret;
     return JS_DefinePropertyValueValue(ctx, this_obj, JS_NewInt64(ctx, idx),
                                        val, flags);
 }
@@ -10978,6 +11016,10 @@ int JS_DefinePropertyGetSet(JSContext *ctx, JSValueConst this_obj,
 static int JS_CreateDataPropertyUint32(JSContext *ctx, JSValueConst this_obj,
                                        int64_t idx, JSValue val, int flags)
 {
+    int ret;
+    if (js_define_fast_array_append(ctx, this_obj, idx, val,
+                                    flags | JS_PROP_C_W_E, &ret))
+        return ret;
     return JS_DefinePropertyValueValue(ctx, this_obj, JS_NewInt64(ctx, idx),
                                        val, flags | JS_PROP_CONFIGURABLE |
                                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE);
