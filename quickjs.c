@@ -10910,6 +10910,22 @@ int JS_DefinePropertyValue(JSContext *ctx, JSValueConst this_obj,
                            JSAtom prop, JSValue val, int flags)
 {
     int ret;
+    if (likely(JS_VALUE_GET_TAG(this_obj) == JS_TAG_OBJECT)) {
+        /* fast path: new data property of an ordinary object */
+        JSObject *p = JS_VALUE_GET_OBJ(this_obj);
+        JSProperty *pr;
+        if (p->class_id == JS_CLASS_OBJECT && p->extensible &&
+            !(flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET)) &&
+            !find_own_property(&pr, p, prop)) {
+            pr = add_property(ctx, p, prop, flags & JS_PROP_C_W_E);
+            if (unlikely(!pr)) {
+                JS_FreeValue(ctx, val);
+                return -1;
+            }
+            pr->u.value = val;
+            return TRUE;
+        }
+    }
     ret = JS_DefineProperty(ctx, this_obj, prop, val, JS_UNDEFINED, JS_UNDEFINED,
                             flags | JS_PROP_HAS_VALUE | JS_PROP_HAS_CONFIGURABLE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_ENUMERABLE);
     JS_FreeValue(ctx, val);
@@ -10939,9 +10955,31 @@ int JS_DefinePropertyValueUint32(JSContext *ctx, JSValueConst this_obj,
                                        val, flags);
 }
 
+/* append 'val' at the end of a fast array. 'val' is consumed. Return FALSE
+   if the generic code must be used. */
+static inline BOOL js_define_fast_array_append(JSContext *ctx, JSValueConst this_obj,
+                                               int64_t idx, JSValue val,
+                                               int flags, int *pret)
+{
+    JSObject *p;
+    if (unlikely(JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT))
+        return FALSE;
+    p = JS_VALUE_GET_OBJ(this_obj);
+    if (!(p->class_id == JS_CLASS_ARRAY && p->fast_array && p->extensible &&
+          idx == p->u.array.count))
+        return FALSE;
+    if ((flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_C_W_E)) != JS_PROP_C_W_E)
+        return FALSE;
+    *pret = add_fast_array_element(ctx, p, val, flags);
+    return TRUE;
+}
+
 int JS_DefinePropertyValueInt64(JSContext *ctx, JSValueConst this_obj,
                                 int64_t idx, JSValue val, int flags)
 {
+    int ret;
+    if (js_define_fast_array_append(ctx, this_obj, idx, val, flags, &ret))
+        return ret;
     return JS_DefinePropertyValueValue(ctx, this_obj, JS_NewInt64(ctx, idx),
                                        val, flags);
 }
@@ -10978,6 +11016,10 @@ int JS_DefinePropertyGetSet(JSContext *ctx, JSValueConst this_obj,
 static int JS_CreateDataPropertyUint32(JSContext *ctx, JSValueConst this_obj,
                                        int64_t idx, JSValue val, int flags)
 {
+    int ret;
+    if (js_define_fast_array_append(ctx, this_obj, idx, val,
+                                    flags | JS_PROP_C_W_E, &ret))
+        return ret;
     return JS_DefinePropertyValueValue(ctx, this_obj, JS_NewInt64(ctx, idx),
                                        val, flags | JS_PROP_CONFIGURABLE |
                                        JS_PROP_ENUMERABLE | JS_PROP_WRITABLE);
@@ -15594,6 +15636,27 @@ static no_inline __exception int js_add_slow(JSContext *ctx, JSValue *sp)
     return -1;
 }
 
+/* ToInt32() of an int or float64 value (the bit pattern is also the
+   ToUint32() result). Return FALSE if the value is not a number or is
+   outside the range handled here (NaN, infinities, huge values): the
+   caller then uses the generic conversion. */
+static force_inline BOOL js_number_to_int32_fast(JSValue v, uint32_t *pres)
+{
+    double d;
+    if (JS_VALUE_GET_TAG(v) == JS_TAG_INT) {
+        *pres = JS_VALUE_GET_INT(v);
+        return TRUE;
+    }
+    if (!JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(v)))
+        return FALSE;
+    d = JS_VALUE_GET_FLOAT64(v);
+    /* NaN and infinities fail this test */
+    if (!(d > -9.2e18 && d < 9.2e18))
+        return FALSE;
+    *pres = (uint32_t)(int64_t)d;
+    return TRUE;
+}
+
 static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
                                                       JSValue *sp,
                                                       OPCodeEnum op)
@@ -15663,6 +15726,10 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
         sp[-2] = __JS_NewShortBigInt(ctx, v);
         return 0;
     }
+    /* fast path for numbers: no conversion side effect */
+    if (js_number_to_int32_fast(op1, &v1) &&
+        js_number_to_int32_fast(op2, &v2))
+        goto int32_logic;
     op1 = JS_ToNumericFree(ctx, op1);
     if (JS_IsException(op1)) {
         JS_FreeValue(ctx, op2);
@@ -15727,6 +15794,7 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
         }
         if (unlikely(JS_ToInt32Free(ctx, (int32_t *)&v2, op2)))
             goto exception;
+    int32_logic:
         switch(op) {
         case OP_shl:
             r = v1 << (v2 & 0x1f);
@@ -16122,6 +16190,9 @@ static no_inline int js_shr_slow(JSContext *ctx, JSValue *sp)
 
     op1 = sp[-2];
     op2 = sp[-1];
+    if (js_number_to_int32_fast(op1, &v1) &&
+        js_number_to_int32_fast(op2, &v2))
+        goto shr_done;
     op1 = JS_ToNumericFree(ctx, op1);
     if (JS_IsException(op1)) {
         JS_FreeValue(ctx, op2);
@@ -16144,6 +16215,7 @@ static no_inline int js_shr_slow(JSContext *ctx, JSValue *sp)
     /* cannot give an exception */
     JS_ToUint32Free(ctx, &v1, op1);
     JS_ToUint32Free(ctx, &v2, op2);
+ shr_done:
     r = v1 >> (v2 & 0x1f);
     sp[-2] = JS_NewUint32(ctx, r);
     return 0;
@@ -19690,6 +19762,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 JSObject *p;                                            \
                 JSProperty *pr;                                         \
                 JSShapeProperty *prs;                                   \
+                uint32_t tag;                                           \
                                                                         \
                 if (is_length) {                                        \
                     atom = JS_ATOM_length;                              \
@@ -19699,8 +19772,18 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 }                                                       \
                                                                         \
                 obj = sp[-1];                                           \
-                if (likely(JS_VALUE_GET_TAG(obj) == JS_TAG_OBJECT)) {   \
+                tag = JS_VALUE_GET_TAG(obj);                            \
+                if (likely(tag == JS_TAG_OBJECT)) {                     \
                     p = JS_VALUE_GET_OBJ(obj);                          \
+                    goto name ## _lookup;                               \
+                } else if (tag == JS_TAG_STRING &&                      \
+                           !__JS_AtomIsTaggedInt(atom)) {               \
+                    if (atom == JS_ATOM_length) {                       \
+                        val = JS_NewInt32(ctx, JS_VALUE_GET_STRING(obj)->len); \
+                        goto name ## _done;                             \
+                    }                                                   \
+                    p = JS_VALUE_GET_OBJ(ctx->class_proto[JS_CLASS_STRING]); \
+                    name ## _lookup:                                    \
                     for(;;) {                                           \
                         prs = find_own_property(&pr, p, atom);          \
                         if (prs) {                                      \
@@ -19711,12 +19794,15 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                             break;                                      \
                         }                                               \
                         if (unlikely(p->is_exotic)) {                   \
-                            /* XXX: should avoid the slow path for arrays \
-                               and typed arrays by ensuring that 'prop' is \
-                               not numeric */                           \
+                            /* an array has no exotic behavior for a     \
+                               non numeric property name */             \
+                            if (likely(p->class_id == JS_CLASS_ARRAY &&  \
+                                       !__JS_AtomIsTaggedInt(atom)))    \
+                                goto name ## _next_proto;               \
                             obj = JS_MKPTR(JS_TAG_OBJECT, p);           \
                             goto name ## _slow_path;                    \
                         }                                               \
+                        name ## _next_proto:                            \
                         p = p->shape->proto;                            \
                         if (!p) {                                       \
                             val = JS_UNDEFINED;                         \
@@ -19730,6 +19816,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     if (unlikely(JS_IsException(val)))                  \
                         goto exception;                                 \
                 }                                                       \
+                name ## _done:                                          \
                 if (keep) {                                             \
                     *sp++ = val;                                        \
                 } else {                                                \
@@ -20466,6 +20553,17 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     v2 = JS_VALUE_GET_INT(op2);
                     sp[-2] = JS_NewFloat64(ctx, (double)v1 / (double)v2);
                     sp--;
+                } else if ((JS_VALUE_GET_TAG(op1) == JS_TAG_INT ||
+                            JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(op1))) &&
+                           (JS_VALUE_GET_TAG(op2) == JS_TAG_INT ||
+                            JS_TAG_IS_FLOAT64(JS_VALUE_GET_TAG(op2)))) {
+                    double d1, d2;
+                    d1 = JS_VALUE_GET_TAG(op1) == JS_TAG_INT ?
+                        JS_VALUE_GET_INT(op1) : JS_VALUE_GET_FLOAT64(op1);
+                    d2 = JS_VALUE_GET_TAG(op2) == JS_TAG_INT ?
+                        JS_VALUE_GET_INT(op2) : JS_VALUE_GET_FLOAT64(op2);
+                    sp[-2] = __JS_NewFloat64(ctx, d1 / d2);
+                    sp--;
                 } else {
                     goto binary_arith_slow;
                 }
@@ -20482,9 +20580,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     v2 = JS_VALUE_GET_INT(op2);
                     /* We must avoid v2 = 0, v1 = INT32_MIN and v2 =
                        -1 and the cases where the result is -0. */
-                    if (unlikely(v1 < 0 || v2 <= 0))
+                    if (unlikely(v2 <= 0))
                         goto binary_arith_slow;
                     r = v1 % v2;
+                    if (unlikely(r == 0 && v1 < 0))
+                        goto binary_arith_slow;
                     sp[-2] = JS_NewInt32(ctx, r);
                     sp--;
                 } else {
