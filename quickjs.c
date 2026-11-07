@@ -40313,7 +40313,8 @@ static JSValue JS_ReadArray(BCReaderState *s, int tag)
             if (ret < 0)
                 goto fail;
         }
-        JS_PreventExtensions(ctx, obj);
+        if (seal_template_obj(ctx, obj))
+            goto fail;
     }
     return obj;
  fail:
