@@ -244,6 +244,7 @@ function test_array()
     assert(a.toString(), ",,,,,,,,,,2");
 
     test_array_extension();
+    test_array_iterator();
 }
 
 function test_array_extension()
@@ -267,6 +268,17 @@ function test_array_extension()
     var o = [1, , 3]; Object.preventExtensions(o);
     assert(Reflect.defineProperty(o, 7, { value: 1 }), false);
     assert(o.length, 3);
+}
+
+function test_array_iterator()
+{
+    var n = 0;
+    for (var x of Array.prototype.values.call({ length: -1, 0: "a" })) { if (++n > 3) break; }
+    assert(n, 0);
+
+    n = 0;
+    for (var k of Array.prototype.keys.call({ length: 2 ** 32 + 1 })) { if (++n > 5) break; }
+    assert(n, 6);
 }
 
 function test_string()
