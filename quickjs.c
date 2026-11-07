@@ -60765,10 +60765,10 @@ static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_tar
  {
     uint64_t len, max_len, *pmax_len = NULL;
     JSValue obj, val;
-    int64_t i;
-
-     if (JS_ToIndex(ctx, &len, argv[0]))
-         return JS_EXCEPTION;
+    int ret;
+    
+    if (JS_ToIndex(ctx, &len, argv[0]))
+        return JS_EXCEPTION;
     if (argc < 2)
         goto next;
     if (!JS_IsObject(argv[1]))
@@ -60782,12 +60782,12 @@ static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_tar
         return JS_EXCEPTION;
     if (JS_IsUndefined(val))
         goto next;
-    if (JS_ToInt64Free(ctx, &i, val))
+    ret = JS_ToIndex(ctx, &max_len, val);
+    JS_FreeValue(ctx, val);
+    if (ret)
         return JS_EXCEPTION;
-    // don't have to check i < 0 because len >= 0
-    if (len > i || i > MAX_SAFE_INTEGER)
+    if (len > max_len)
         return JS_ThrowRangeError(ctx, "invalid array buffer max length");
-    max_len = i;
     pmax_len = &max_len;
 next:
     return js_array_buffer_constructor2(ctx, new_target, len, pmax_len,
