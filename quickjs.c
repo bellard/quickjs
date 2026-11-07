@@ -42330,6 +42330,7 @@ static JSValue js_function_constructor(JSContext *ctx, JSValueConst new_target,
     return JS_EXCEPTION;
 }
 
+/* never use except where 'obj' is an Array or a string */
 static __exception int js_get_length32(JSContext *ctx, uint32_t *pres,
                                        JSValueConst obj)
 {
@@ -45353,7 +45354,7 @@ exception:
 typedef struct JSArrayIteratorData {
     JSValue obj;
     JSIteratorKindEnum kind;
-    uint32_t idx;
+    int64_t idx;
 } JSArrayIteratorData;
 
 static void js_array_iterator_finalizer(JSRuntime *rt, JSValue val)
@@ -45418,7 +45419,7 @@ static JSValue js_array_iterator_next(JSContext *ctx, JSValueConst this_val,
                                       BOOL *pdone, int magic)
 {
     JSArrayIteratorData *it;
-    uint32_t len, idx;
+    int64_t len, idx;
     JSValue val, obj;
     JSObject *p;
 
@@ -45436,7 +45437,7 @@ static JSValue js_array_iterator_next(JSContext *ctx, JSValueConst this_val,
         }
         len = p->u.array.count;
     } else {
-        if (js_get_length32(ctx, &len, it->obj)) {
+        if (js_get_length64(ctx, &len, it->obj)) {
         fail1:
             *pdone = FALSE;
             return JS_EXCEPTION;
@@ -45453,9 +45454,9 @@ static JSValue js_array_iterator_next(JSContext *ctx, JSValueConst this_val,
     it->idx = idx + 1;
     *pdone = FALSE;
     if (it->kind == JS_ITERATOR_KIND_KEY) {
-        return JS_NewUint32(ctx, idx);
+        return JS_NewInt64(ctx, idx);
     } else {
-        val = JS_GetPropertyUint32(ctx, it->obj, idx);
+        val = JS_GetPropertyInt64(ctx, it->obj, idx);
         if (JS_IsException(val))
             return JS_EXCEPTION;
         if (it->kind == JS_ITERATOR_KIND_VALUE) {
@@ -45463,7 +45464,7 @@ static JSValue js_array_iterator_next(JSContext *ctx, JSValueConst this_val,
         } else {
             JSValueConst args[2];
             JSValue num;
-            num = JS_NewUint32(ctx, idx);
+            num = JS_NewInt64(ctx, idx);
             args[0] = num;
             args[1] = val;
             obj = js_create_array(ctx, 2, args);
@@ -48535,8 +48536,10 @@ static JSValue js_string_match(JSContext *ctx, JSValueConst this_val,
     return result;
 }
 
-/* if captures != NULL, captures_val and matched are ignored. Otherwise,
-   captures_len is ignored */
+/* if captures != NULL, captures_val and matched are
+   ignored. Otherwise, captures_len is ignored. 'matched' is
+   JS_UNDEFINED or a string. 'captures_val' is JS_UNDEFINED or an
+   array. */
 static int js_string_GetSubstitution(JSContext *ctx,
                                      StringBuffer *b,
                                      JSValueConst matched,
@@ -48566,9 +48569,11 @@ static int js_string_GetSubstitution(JSContext *ctx,
     } else {
         captures_len = 0;
         if (!JS_IsUndefined(captures_val)) {
+            /* captures_val is always an Array if not undefined */
             if (js_get_length32(ctx, &captures_len, captures_val))
                 goto exception;
         }
+        /* 'matched' is a string */
         if (js_get_length32(ctx, &matched_len, matched))
             goto exception;
     }
@@ -51656,9 +51661,8 @@ static JSValue js_regexp_Symbol_replace(JSContext *ctx, JSValueConst this_val,
     JSString *p, *sp;
     StringBuffer b_s, *b = &b_s;
     ValueBuffer v_b, *results = &v_b;
-    int nextSourcePosition, n, j, functionalReplace, is_global, fullUnicode;
-    uint32_t nCaptures;
-    int64_t position;
+    int nextSourcePosition, j, functionalReplace, is_global, fullUnicode;
+    int64_t nCaptures, n, position;
 
     if (!JS_IsObject(rx))
         return JS_ThrowTypeErrorNotAnObject(ctx);
@@ -51738,7 +51742,7 @@ static JSValue js_regexp_Symbol_replace(JSContext *ctx, JSValueConst this_val,
     for(j = 0; j < results->len; j++) {
         JSValueConst result;
         result = results->arr[j];
-        if (js_get_length32(ctx, &nCaptures, result) < 0)
+        if (js_get_length64(ctx, &nCaptures, result) < 0)
             goto exception;
         JS_FreeValue(ctx, matched);
         matched = JS_ToStringFree(ctx, JS_GetPropertyInt64(ctx, result, 0));
@@ -54053,6 +54057,7 @@ static int js_proxy_get_own_property_names(JSContext *ctx,
 {
     JSProxyData *s;
     JSValue method, prop_array, val;
+    int64_t len64;
     uint32_t len, i, len2;
     JSPropertyEnum *tab, *tab2;
     JSAtom atom;
@@ -54080,8 +54085,13 @@ static int js_proxy_get_own_property_names(JSContext *ctx,
     len = 0;
     tab2 = NULL;
     len2 = 0;
-    if (js_get_length32(ctx, &len, prop_array))
+    if (js_get_length64(ctx, &len64, prop_array))
         goto fail;
+    if (len64 > INT32_MAX) {
+        JS_ThrowOutOfMemory(ctx);
+        goto fail;
+    }
+    len = len64;
     if (len > 0) {
         tab = js_mallocz(ctx, sizeof(tab[0]) * len);
         if (!tab)
