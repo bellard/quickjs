@@ -242,6 +242,31 @@ function test_array()
     a[10] = 2;
     assert(a.length, 11);
     assert(a.toString(), ",,,,,,,,,,2");
+
+    test_array_extension();
+}
+
+function test_array_extension()
+{
+    "use strict";
+    var a, c, s, o;
+    /* array prevent extension */
+    var b = [1, , 3];                    // a hole: not a fast array
+    Object.preventExtensions(b);
+    assert_throws(TypeError, () => b[3] = 9);
+    assert(b.length, 3);
+    
+    var c = [1, , 3]; Object.preventExtensions(c);
+    assert_throws(TypeError, () => c.push(9));
+    assert(c.length, 3);
+    
+    var s = [1, , 3]; Object.seal(s);
+    assert_throws(TypeError, () => s[5] = 1);
+    assert(s.length, 3);
+    
+    var o = [1, , 3]; Object.preventExtensions(o);
+    assert(Reflect.defineProperty(o, 7, { value: 1 }), false);
+    assert(o.length, 3);
 }
 
 function test_string()

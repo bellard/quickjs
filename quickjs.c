@@ -10389,6 +10389,8 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
                 JSShapeProperty *pslen;
             generic_array:
                 /* update the length field */
+                if (!p->extensible)
+                    goto not_extensible;
                 plen = &p->prop[0];
                 JS_ToUint32(ctx, &len, plen->u.value);
                 if ((idx + 1) > len) {
