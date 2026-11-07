@@ -25403,9 +25403,11 @@ static BOOL is_regexp_allowed(int tok)
     case TOK_FALSE:
     case TOK_TRUE:
     case TOK_THIS:
+    case TOK_PRIVATE_NAME:
     case ')':
     case ']':
     case '}': /* XXX: regexp may occur after */
+    case TOK_TEMPLATE: /* complete template literal; "${" is handled by the caller */
     case TOK_IDENT:
         return FALSE;
     default:
@@ -25485,6 +25487,7 @@ static int js_parse_skip_parens_token(JSParseState *s, int *pbits, BOOL no_line_
                 if (level >= sizeof(state))
                     goto done;
                 state[level++] = '`';
+                last_tok = '('; /* regexp allowed after it */
             }
             break;
         case TOK_EOF:
