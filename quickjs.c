@@ -9737,13 +9737,12 @@ static int expand_fast_array(JSContext *ctx, JSObject *p, uint32_t new_len)
 }
 
 /* Preconditions: 'p' must be of class JS_CLASS_ARRAY, p->fast_array =
-   TRUE and p->extensible = TRUE */
+   TRUE, p->extensible = TRUE and p->u.array.count < 2^31 - 1 */
 static inline int add_fast_array_element(JSContext *ctx, JSObject *p,
                                          JSValue val, int flags)
 {
     uint32_t new_len, array_len;
     /* extend the array by one */
-    /* XXX: convert to slow array if new_len > 2^31-1 elements */
     new_len = p->u.array.count + 1;
     /* update the length if necessary. We assume that if the length is
        not an integer, then if it >= 2^31.  */
@@ -9754,13 +9753,23 @@ static inline int add_fast_array_element(JSContext *ctx, JSObject *p,
                 JS_FreeValue(ctx, val);
                 return JS_ThrowTypeErrorReadOnly(ctx, flags, JS_ATOM_length);
             }
+            if (unlikely(new_len > p->u.array.u1.size)) {
+                if (expand_fast_array(ctx, p, new_len)) {
+                    JS_FreeValue(ctx, val);
+                    return -1;
+                }
+            }
             p->prop[0].u.value = JS_NewInt32(ctx, new_len);
+        } else {
+            goto test_resize;
         }
-    }
-    if (unlikely(new_len > p->u.array.u1.size)) {
-        if (expand_fast_array(ctx, p, new_len)) {
-            JS_FreeValue(ctx, val);
-            return -1;
+    } else {
+    test_resize:
+        if (unlikely(new_len > p->u.array.u1.size)) {
+            if (expand_fast_array(ctx, p, new_len)) {
+                JS_FreeValue(ctx, val);
+                return -1;
+            }
         }
     }
     p->u.array.u.values[new_len - 1] = val;
@@ -10070,6 +10079,8 @@ int JS_SetPropertyInternal(JSContext *ctx, JSValueConst obj,
                         JS_FreeValue(ctx, val);
                         return JS_ThrowTypeErrorOrFalse(ctx, flags, "object is not extensible");
                     }
+                    if (idx == INT32_MAX)
+                        goto generic_create_prop;
                     /* fast case */
                     return add_fast_array_element(ctx, p, val, flags);
                 } else {
@@ -10167,6 +10178,7 @@ static int JS_SetPropertyValue(JSContext *ctx, JSValueConst this_obj,
             if (unlikely(idx >= (uint32_t)p->u.array.count)) {
                 /* fast path to add an element to the array */
                 if (unlikely(idx != (uint32_t)p->u.array.count ||
+                             idx == INT32_MAX ||
                              !p->fast_array ||
                              !can_extend_fast_array(p))) {
                     goto slow_path;
@@ -10353,6 +10365,8 @@ static int JS_CreateProperty(JSContext *ctx, JSObject *p,
                     if (idx == p->u.array.count) {
                         if (!p->extensible)
                             goto not_extensible;
+                        if (idx == INT32_MAX)
+                            goto convert_to_array;
                         if (flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET))
                             goto convert_to_array;
                         prop_flags = get_prop_flags(flags, 0);
