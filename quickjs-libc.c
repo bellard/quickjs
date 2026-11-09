@@ -2369,6 +2369,8 @@ static int js_waker_init(JSWaker *w)
 
     if (pipe(fds) < 0)
         return -1;
+    fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
+    fcntl(fds[1], F_SETFL, fcntl(fds[1], F_GETFL) | O_NONBLOCK);
     w->read_fd = fds[0];
     w->write_fd = fds[1];
     return 0;
@@ -2382,7 +2384,10 @@ static void js_waker_signal(JSWaker *w)
         ret = write(w->write_fd, "", 1);
         if (ret == 1)
             break;
-        if (ret < 0 && (errno != EAGAIN || errno != EINTR))
+        /* if errno = EAGAIN the pipe is full and we consider it is
+           likely that the poll() will be waked anyway, so we don't
+           need to block */
+        if (ret < 0 && errno != EINTR)
             break;
     }
 }
