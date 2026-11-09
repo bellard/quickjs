@@ -4553,6 +4553,18 @@ static JSValue string_buffer_end(StringBuffer *s)
     return JS_MKPTR(JS_TAG_STRING, str);
 }
 
+static JSValue string_concat_values_free(JSContext *ctx, int argc,
+                                         JSValue *argv)
+{
+    StringBuffer b_s, *b = &b_s;
+    int i;
+
+    string_buffer_init(ctx, b, 0);
+    for (i = 0; i < argc; i++)
+        string_buffer_concat_value_free(b, argv[i]);
+    return string_buffer_end(b);
+}
+
 /* create a string from a UTF-8 buffer */
 JSValue JS_NewStringLen(JSContext *ctx, const char *buf, size_t buf_len)
 {
@@ -18853,6 +18865,16 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             *sp++ = ret_val;
             BREAK;
 
+        CASE(OP_concat):
+            call_argc = get_u16(pc);
+            pc += 2;
+            ret_val = string_concat_values_free(ctx, call_argc, sp - call_argc);
+            sp -= call_argc;
+            if (JS_IsException(ret_val))
+                goto exception;
+            *sp++ = ret_val;
+            BREAK;
+
         CASE(OP_apply):
             {
                 int magic;
@@ -21205,9 +21227,9 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             }
             BREAK;
 
-#if 0
         CASE(OP_to_string):
             if (JS_VALUE_GET_TAG(sp[-1]) != JS_TAG_STRING) {
+                sf->cur_pc = pc;
                 ret_val = JS_ToString(ctx, sp[-1]);
                 if (JS_IsException(ret_val))
                     goto exception;
@@ -21215,7 +21237,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 sp[-1] = ret_val;
             }
             BREAK;
-#endif
+
         CASE(OP_with_get_var):
         CASE(OP_with_put_var):
         CASE(OP_with_delete_var):
@@ -25294,32 +25316,23 @@ static __exception int js_parse_template(JSParseState *s, int call, int *argc)
                 JS_FreeValue(s->ctx, cooked.u.str.str);
                 if (ret)
                     return -1;
-                if (depth == 0) {
-                    if (s->token.u.str.sep == '`')
-                        goto done1;
-                } else {
-                    emit_op(s, OP_add);
-                }
+                if (depth == 0 && s->token.u.str.sep == '`')
+                    goto done1;
                 depth++;
             } else {
                 JS_FreeValue(s->ctx, cooked.u.str.str);
             }
         }
+        if (depth >= 65534)
+            return js_parse_error(s, "template string too deep");
         if (s->token.u.str.sep == '`')
             goto done;
         if (next_token(s))
             return -1;
         if (js_parse_expr(s))
             return -1;
-        /* XXX: should instead add OP_to_string and OP_concat so that
-           all the strings can be concatenated at the end (faster) */
-        if (!call) {
-            /* ToString right away, before the next substitution is evaluated
-               (ECMA-262 13.2.8.6). OP_to_propkey keeps a symbol, which
-               OP_add then rejects, as ToString does. */
-            emit_op(s, OP_to_propkey);
-            emit_op(s, OP_add);
-        }
+        if (!call)
+            emit_op(s, OP_to_string);
         depth++;
         if (s->token.val != '}') {
             return js_parse_error(s, "expected '}' after template expression");
@@ -25339,6 +25352,9 @@ static __exception int js_parse_template(JSParseState *s, int call, int *argc)
         seal_template_obj(ctx, raw_array);
         seal_template_obj(ctx, template_object);
         *argc = depth + 1;
+    } else {
+        emit_op(s, OP_concat);
+        emit_u16(s, depth);
     }
  done1:
     return next_token(s);
