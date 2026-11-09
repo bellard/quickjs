@@ -23,15 +23,20 @@ static const JSClassDef js_plainyearmonth_class = {
     .finalizer = js_plainyearmonth_finalizer,
 };
 
-static JSValue js_create_plainyearmonth(JSContext *ctx, int year, int month, int referenceISODay)
+static int pym_is_valid_year_month(int year, int month)
 {
-    return js_create_plainyearmonth_with_calendar(ctx, year, month, referenceISODay, CAL_ISO8601);
+    return month >= 1 && month <= 12 &&
+           ((year > -271821 || (year == -271821 && month >= 4)) &&
+            (year < 275760 || (year == 275760 && month <= 9)));
 }
 
-JSValue js_create_plainyearmonth_with_calendar(JSContext *ctx, int year, int month, int referenceISODay, CalendarType calendar)
+static JSValue js_create_plainyearmonth_with_calendar2(JSContext *ctx, JSValueConst new_target, int year, int month, int referenceISODay, CalendarType calendar)
 {
     JSPlainYearMonthData *s;
     JSValue obj;
+    /* XXX: test the day too ? */
+    if (!pym_is_valid_year_month(year, month))
+        return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
         return JS_EXCEPTION;
@@ -39,7 +44,7 @@ JSValue js_create_plainyearmonth_with_calendar(JSContext *ctx, int year, int mon
     s->iso_month = month;
     s->iso_day = referenceISODay;
     s->calendar = calendar;
-    obj = JS_NewObjectClass(ctx, (int)js_plainyearmonth_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_plainyearmonth_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
@@ -48,12 +53,15 @@ JSValue js_create_plainyearmonth_with_calendar(JSContext *ctx, int year, int mon
     return obj;
 }
 
+JSValue js_create_plainyearmonth_with_calendar(JSContext *ctx, int year, int month, int referenceISODay, CalendarType calendar)
+{
+    return js_create_plainyearmonth_with_calendar2(ctx, JS_UNDEFINED, year, month, referenceISODay, calendar);
+}
+
 static JSValue ti_create_plainyearmonth_from_fields(JSContext *ctx, TIPreparedFields *fields,
                                               int overflow_constrain)
 {
     int year, month, dummy_day = 1;
-    JSValue obj;
-    JSPlainYearMonthData *s;
 
     if (ti_resolve_date_from_fields(ctx, fields, overflow_constrain, &year, &month, &dummy_day, 0) < 0)
         return JS_EXCEPTION;
@@ -72,46 +80,14 @@ static JSValue ti_create_plainyearmonth_from_fields(JSContext *ctx, TIPreparedFi
         }
     }
 
-    if (fields->calendar == CAL_ISO8601 || fields->calendar == CAL_GREGORY) {
-        int is_valid = month >= 1 && month <= 12 &&
-                       ((year > -271821 || (year == -271821 && month >= 4)) &&
-                        (year < 275760 || (year == 275760 && month <= 9)));
-        if (!is_valid)
-            return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
-    }
-
     {
-        int iso_d = 1;
+        int iso_y, iso_m, iso_d = 1;
         /* Convert calendar date to ISO for all non-ISO/non-Gregory calendars */
-        if (fields->calendar != CAL_ISO8601 && fields->calendar != CAL_GREGORY) {
-            int iso_y, iso_m;
-            ti_calendar_date_to_iso(fields->calendar, year, month, 1, &iso_y, &iso_m, &iso_d);
-            year = iso_y;
-            month = iso_m;
-        }
-        {
-            int is_valid = month >= 1 && month <= 12 &&
-                           ((year > -271821 || (year == -271821 && month >= 4)) &&
-                            (year < 275760 || (year == 275760 && month <= 9)));
-            if (!is_valid)
-                return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
-        }
-        obj = js_create_plainyearmonth(ctx, year, month, iso_d);
+        ti_calendar_date_to_iso(fields->calendar, year, month, 1, &iso_y, &iso_m, &iso_d);
+        year = iso_y;
+        month = iso_m;
+        return js_create_plainyearmonth_with_calendar(ctx, year, month, iso_d, fields->calendar);
     }
-    if (!JS_IsException(obj)) {
-        s = JS_GetOpaque(obj, js_plainyearmonth_class_id);
-        if (s) {
-            s->calendar = fields->calendar;
-        }
-    }
-    return obj;
-}
-
-static int pym_is_valid_year_month(int year, int month)
-{
-    return month >= 1 && month <= 12 &&
-           ((year > -271821 || (year == -271821 && month >= 4)) &&
-            (year < 275760 || (year == 275760 && month <= 9)));
 }
 
 static int pym_to_integer_with_truncation(JSContext *ctx, JSValueConst val, int *pres)
@@ -136,18 +112,11 @@ static JSValue js_plainyearmonth_constructor(JSContext *ctx, JSValueConst new_ta
                                               int argc, JSValueConst *argv)
 {
     int year, month, day = 1;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.PlainYearMonth constructor cannot be called as a function");
-    }
     if (pym_to_integer_with_truncation(ctx, argv[0], &year) < 0)
         return JS_EXCEPTION;
     if (pym_to_integer_with_truncation(ctx, argv[1], &month) < 0)
         return JS_EXCEPTION;
     if (!pym_is_valid_year_month(year, month))
-        return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
-    if (year < -271821 || (year == -271821 && month < 4))
-        return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
-    if (year > 275760 || (year == 275760 && month > 9))
         return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
     {
         CalendarType calendar = CAL_ISO8601;
@@ -164,22 +133,7 @@ static JSValue js_plainyearmonth_constructor(JSContext *ctx, JSValueConst new_ta
             return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
         if (argc <= 3 || JS_IsUndefined(argv[3]))
             day = 1;
-        {
-            JSPlainYearMonthData *s = js_mallocz(ctx, sizeof(*s));
-            JSValue obj;
-            if (!s)
-                return JS_EXCEPTION;
-            s->iso_year = year;
-            s->iso_month = month;
-            s->iso_day = day;
-            s->calendar = calendar;
-            obj = js_create_temporal_object(ctx, new_target, js_plainyearmonth_class_id, s);
-            if (JS_IsException(obj)) {
-                js_free(ctx, s);
-                return JS_EXCEPTION;
-            }
-            return obj;
-        }
+        return js_create_plainyearmonth_with_calendar2(ctx, new_target, year, month, day, calendar);
     }
 }
 
@@ -672,9 +626,7 @@ static JSValue js_plainyearmonth_add_subtract(JSContext *ctx, JSValueConst this_
     /* Convert ISO to calendar space for arithmetic */
     pym_get_calendar_date(s, &cal_year, &cal_month, &cal_day);
     /* Check that base date is within ISO limits */
-    if (s->iso_year < -271821 || (s->iso_year == -271821 && (s->iso_month < 4 || (s->iso_month == 4 && s->iso_day < 19))))
-        return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
-    if (s->iso_year > 275760 || (s->iso_year == 275760 && (s->iso_month > 9 || (s->iso_month == 9 && s->iso_day > 13))))
+    if (!ti_is_date_within_iso_limits(s->iso_year, s->iso_month, s->iso_day))
         return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
     {
         int orig_mc = 0, orig_has_l = 0;
@@ -705,10 +657,6 @@ static JSValue js_plainyearmonth_add_subtract(JSContext *ctx, JSValueConst this_
     {
         int iso_y, iso_m, iso_d;
         ti_calendar_date_to_iso(s->calendar, cal_year, cal_month, cal_day, &iso_y, &iso_m, &iso_d);
-        if (iso_y < -271821 || (iso_y == -271821 && iso_m < 4))
-            return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
-        if (iso_y > 275760 || (iso_y == 275760 && iso_m > 9))
-            return JS_ThrowRangeError(ctx, "invalid PlainYearMonth");
         return js_create_plainyearmonth_with_calendar(ctx, iso_y, iso_m, iso_d, s->calendar);
     }
 }

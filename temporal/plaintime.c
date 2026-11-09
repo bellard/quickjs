@@ -23,7 +23,7 @@ static const JSClassDef js_plaintime_class = {
     .finalizer = js_plaintime_finalizer,
 };
 
-JSValue js_create_plaintime(JSContext *ctx, const JSPlainTimeData *t)
+static JSValue js_create_plaintime2(JSContext *ctx, JSValueConst new_target, const JSPlainTimeData *t)
 {
     JSPlainTimeData *s;
     JSValue obj;
@@ -31,13 +31,18 @@ JSValue js_create_plaintime(JSContext *ctx, const JSPlainTimeData *t)
     if (!s)
         return JS_EXCEPTION;
     *s = *t;
-    obj = JS_NewObjectClass(ctx, (int)js_plaintime_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_plaintime_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
     }
     JS_SetOpaque(obj, s);
     return obj;
+}
+
+JSValue js_create_plaintime(JSContext *ctx, const JSPlainTimeData *t)
+{
+    return js_create_plaintime2(ctx, JS_UNDEFINED, t);
 }
 
 /* Forward declaration */
@@ -89,10 +94,6 @@ static JSValue js_plaintime_constructor(JSContext *ctx, JSValueConst new_target,
                                          int argc, JSValueConst *argv)
 {
     JSPlainTimeData t = {0};
-    JSValue obj;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.PlainTime constructor cannot be called as a function");
-    }
     if (argc > 0 && pt_to_integer_with_truncation(ctx, argv[0], &t.hour) < 0)
         return JS_EXCEPTION;
     if (argc > 1 && pt_to_integer_with_truncation(ctx, argv[1], &t.minute) < 0)
@@ -107,18 +108,7 @@ static JSValue js_plaintime_constructor(JSContext *ctx, JSValueConst new_target,
         return JS_EXCEPTION;
     if (!pt_is_valid_time(t.hour, t.minute, t.second, t.millisecond, t.microsecond, t.nanosecond))
         return JS_ThrowRangeError(ctx, "invalid PlainTime");
-    {
-        JSPlainTimeData *s = js_mallocz(ctx, sizeof(*s));
-        if (!s)
-            return JS_EXCEPTION;
-        *s = t;
-        obj = js_create_temporal_object(ctx, new_target, js_plaintime_class_id, s);
-        if (JS_IsException(obj)) {
-            js_free(ctx, s);
-            return JS_EXCEPTION;
-        }
-        return obj;
-    }
+    return js_create_plaintime2(ctx, new_target, &t);
 }
 
 /* Getters */

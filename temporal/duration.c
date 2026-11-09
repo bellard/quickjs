@@ -54,7 +54,7 @@ static TIUnit ti_larger_of_two_units(TIUnit a, TIUnit b)
     return a < b ? a : b;
 }
 
-JSValue js_create_duration(JSContext *ctx, const JSDurationData *d)
+static JSValue js_create_duration2(JSContext *ctx, JSValueConst new_target, const JSDurationData *d)
 {
     JSDurationData *s;
     JSValue obj;
@@ -64,13 +64,18 @@ JSValue js_create_duration(JSContext *ctx, const JSDurationData *d)
     *s = *d;
     /* Round fields to float64-representable integers to match spec behavior */
     duration_round_fields_to_float64(s);
-    obj = JS_NewObjectClass(ctx, (int)js_duration_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_duration_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
     }
     JS_SetOpaque(obj, s);
     return obj;
+}
+
+JSValue js_create_duration(JSContext *ctx, const JSDurationData *d)
+{
+    return js_create_duration2(ctx, JS_UNDEFINED, d);
 }
 
 static int to_integer_if_integral(JSContext *ctx, JSValueConst val, int64_t *pres)
@@ -625,10 +630,6 @@ static JSValue js_duration_constructor(JSContext *ctx, JSValueConst new_target,
 {
     JSDurationData d = {0};
     js_int128_t tmp_microseconds = 0, tmp_nanoseconds = 0;
-    JSValue obj;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.Duration constructor cannot be called as a function");
-    }
     if (argc > 0 && to_integer_if_integral(ctx, argv[0], &d.years) < 0)
         return JS_EXCEPTION;
     if (argc > 1 && to_integer_if_integral(ctx, argv[1], &d.months) < 0)
@@ -655,18 +656,7 @@ static JSValue js_duration_constructor(JSContext *ctx, JSValueConst new_target,
         return JS_ThrowRangeError(ctx, "duration out of range");
     if (duration_is_out_of_range(&d))
         return JS_ThrowRangeError(ctx, "duration out of range");
-    {
-        JSDurationData *s = js_mallocz(ctx, sizeof(*s));
-        if (!s)
-            return JS_EXCEPTION;
-        *s = d;
-        obj = js_create_temporal_object(ctx, new_target, js_duration_class_id, s);
-        if (JS_IsException(obj)) {
-            js_free(ctx, s);
-            return JS_EXCEPTION;
-        }
-        return obj;
-    }
+    return js_create_duration2(ctx, new_target, &d);
 }
 
 /* Temporal.Duration.from */

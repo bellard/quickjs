@@ -209,7 +209,6 @@ void ti_append_calendar_annotation(char *buf, int buf_size, CalendarType cal, in
 int ti_canonicalize_timezone_identifier(const char *str, int64_t offset_ns, char *out, size_t out_size);
 int ti_validate_constructor_calendar(JSContext *ctx, JSValueConst v, CalendarType *out);
 int ti_validate_timezone_identifier(JSContext *ctx, JSValueConst v, const char **out_str);
-JSValue js_create_temporal_object(JSContext *ctx, JSValueConst new_target, JSClassID class_id, void *opaque);
 int is_valid_epoch_timespec(const JSTimeSpec *ts);
 
 static inline js_int128_t ti_sec_nsec_to_ns(int64_t secs, uint32_t nsecs)

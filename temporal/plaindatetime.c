@@ -40,17 +40,17 @@ JSValue js_create_plaindatetime(JSContext *ctx, int year, int month, int day,
                                                   millisecond, microsecond, nanosecond, CAL_ISO8601);
 }
 
-JSValue js_create_plaindatetime_with_calendar(JSContext *ctx, int year, int month, int day,
-                                                int hour, int minute, int second,
-                                                int millisecond, int microsecond, int nanosecond,
-                                                CalendarType calendar)
+static JSValue js_create_plaindatetime_with_calendar2(JSContext *ctx, JSValueConst new_target, int year, int month, int day,
+                                                      int hour, int minute, int second,
+                                                      int millisecond, int microsecond, int nanosecond,
+                                                      CalendarType calendar)
 {
     JSPlainDateTimeData *s;
     JSValue obj;
-    if ((calendar == CAL_ISO8601 || calendar == CAL_GREGORY) &&
-        !pdt_is_within_limits(year, month, day, hour, minute, second,
-                              millisecond, microsecond, nanosecond))
+    if (!pdt_is_within_limits(year, month, day, hour, minute, second,
+                              millisecond, microsecond, nanosecond)) {
         return JS_ThrowRangeError(ctx, "PlainDateTime outside valid ISO range");
+    }
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
         return JS_EXCEPTION;
@@ -64,13 +64,22 @@ JSValue js_create_plaindatetime_with_calendar(JSContext *ctx, int year, int mont
     s->microsecond = microsecond;
     s->nanosecond = nanosecond;
     s->calendar = calendar;
-    obj = JS_NewObjectClass(ctx, (int)js_plaindatetime_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_plaindatetime_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
     }
     JS_SetOpaque(obj, s);
     return obj;
+}
+
+JSValue js_create_plaindatetime_with_calendar(JSContext *ctx, int year, int month, int day,
+                                                int hour, int minute, int second,
+                                                int millisecond, int microsecond, int nanosecond,
+                                                CalendarType calendar)
+{
+    return js_create_plaindatetime_with_calendar2(ctx, JS_UNDEFINED, year, month, day, hour, minute, second,
+                                                  millisecond, microsecond, nanosecond, calendar);
 }
 
 static JSValue ti_create_plaindatetime_from_fields(JSContext *ctx, TIPreparedFields *fields,
@@ -110,7 +119,7 @@ static JSValue ti_create_plaindatetime_from_fields(JSContext *ctx, TIPreparedFie
         if (ns > 999) ns = 999; else if (ns < 0) ns = 0;
     }
 
-    if (fields->calendar != CAL_ISO8601 && fields->calendar != CAL_GREGORY) {
+    {
         int iso_y, iso_m, iso_d;
         ti_calendar_date_to_iso(fields->calendar, year, month, day, &iso_y, &iso_m, &iso_d);
         year = iso_y; month = iso_m; day = iso_d;
@@ -219,9 +228,7 @@ static JSValue js_plaindatetime_constructor(JSContext *ctx, JSValueConst new_tar
 {
     int year, month, day, hour = 0, minute = 0, second = 0;
     int millisecond = 0, microsecond = 0, nanosecond = 0;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.PlainDateTime constructor cannot be called as a function");
-    }
+    CalendarType calendar = CAL_ISO8601;
     if (JS_IsUndefined(argv[0])) {
         JS_ThrowRangeError(ctx, "value must be an integer");
         return JS_EXCEPTION;
@@ -256,40 +263,13 @@ static JSValue js_plaindatetime_constructor(JSContext *ctx, JSValueConst new_tar
         return JS_ThrowRangeError(ctx, "invalid PlainDateTime date");
     if (!pdt_is_valid_time(hour, minute, second, millisecond, microsecond, nanosecond))
         return JS_ThrowRangeError(ctx, "invalid PlainDateTime time");
-    {
-        CalendarType calendar = CAL_ISO8601;
-        if (argc > 9) {
-            int cal_res = ti_validate_constructor_calendar(ctx, argv[9], &calendar);
-            if (cal_res < 0)
-                return JS_EXCEPTION;
-        }
-        if ((calendar == CAL_ISO8601 || calendar == CAL_GREGORY) &&
-            !pdt_is_within_limits(year, month, day, hour, minute, second,
-                                   millisecond, microsecond, nanosecond))
-            return JS_ThrowRangeError(ctx, "PlainDateTime outside valid range");
-        {
-            JSPlainDateTimeData *s = js_mallocz(ctx, sizeof(*s));
-            JSValue obj;
-            if (!s)
-                return JS_EXCEPTION;
-            s->year = year;
-            s->month = month;
-            s->day = day;
-            s->hour = hour;
-            s->minute = minute;
-            s->second = second;
-            s->millisecond = millisecond;
-            s->microsecond = microsecond;
-            s->nanosecond = nanosecond;
-            s->calendar = calendar;
-        obj = js_create_temporal_object(ctx, new_target, js_plaindatetime_class_id, s);
-        if (JS_IsException(obj)) {
-            js_free(ctx, s);
+    if (argc > 9) {
+        int cal_res = ti_validate_constructor_calendar(ctx, argv[9], &calendar);
+        if (cal_res < 0)
             return JS_EXCEPTION;
-        }
-        return obj;
-        }
     }
+    return js_create_plaindatetime_with_calendar2(ctx, new_target, year, month, day, hour, minute, second,
+                                                  millisecond, microsecond, nanosecond, calendar);
 }
 
 /* Getters */
@@ -963,9 +943,6 @@ static JSValue js_plaindatetime_with(JSContext *ctx, JSValueConst this_val,
         ti_calendar_date_to_iso(s->calendar, year, month, day, &iso_y, &iso_m, &iso_d);
         year = iso_y; month = iso_m; day = iso_d;
     }
-    if (!pdt_is_within_limits(year, month, day, hour, minute, second,
-                              millisecond, microsecond, nanosecond))
-        return JS_ThrowRangeError(ctx, "PlainDateTime outside valid range");
     return js_create_plaindatetime_with_calendar(ctx, year, month, day, hour, minute, second,
                                     millisecond, microsecond, nanosecond, s->calendar);
 }
@@ -1579,8 +1556,6 @@ static JSValue js_plaindatetime_toZonedDateTime(JSContext *ctx, JSValueConst thi
                 }
             }
         }
-        if (!is_valid_epoch_timespec(&ts))
-            return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
         return js_create_zoneddatetime(ctx, &ts, timeZone, s->calendar);
     }
 }

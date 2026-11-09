@@ -25,21 +25,28 @@ static const JSClassDef js_instant_class = {
     .finalizer = js_instant_finalizer,
 };
 
-JSValue js_create_instant(JSContext *ctx, const JSTimeSpec *ts)
+static JSValue js_create_instant2(JSContext *ctx, JSValueConst new_target, const JSTimeSpec *ts)
 {
     JSInstantData *s;
     JSValue obj;
+    if (!is_valid_epoch_timespec(ts))
+        return JS_ThrowRangeError(ctx, "epochNanoseconds out of range");
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
         return JS_EXCEPTION;
     s->ts = *ts;
-    obj = JS_NewObjectClass(ctx, (int)js_instant_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_instant_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
     }
     JS_SetOpaque(obj, s);
     return obj;
+}
+
+JSValue js_create_instant(JSContext *ctx, const JSTimeSpec *ts)
+{
+    return js_create_instant2(ctx, JS_UNDEFINED, ts);
 }
 
 /* --- Date math helpers --- */
@@ -342,32 +349,13 @@ static JSValue ti_to_temporal_instant(JSContext *ctx, JSValueConst item)
 static JSValue js_instant_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
-    (void)argc;
-    JSValue obj = JS_UNDEFINED;
     JSTimeSpec ts;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.Instant constructor cannot be called as a function");
-    }
     if (JS_IsUndefined(argv[0])) {
         return JS_ThrowTypeError(ctx, "Temporal.Instant requires an epochNanoseconds argument");
     }
     if (ti_bigint_to_timespec(ctx, argv[0], &ts) < 0)
         return JS_EXCEPTION;
-    if (!is_valid_epoch_timespec(&ts)) {
-        return JS_ThrowRangeError(ctx, "epochNanoseconds out of range");
-    }
-    {
-        JSInstantData *s = js_mallocz(ctx, sizeof(*s));
-        if (!s)
-            return JS_EXCEPTION;
-        s->ts = ts;
-        obj = js_create_temporal_object(ctx, new_target, js_instant_class_id, s);
-        if (JS_IsException(obj)) {
-            js_free(ctx, s);
-            return JS_EXCEPTION;
-        }
-        return obj;
-    }
+    return js_create_instant2(ctx, new_target, &ts);
 }
 
 /* Temporal.Instant.fromEpochMilliseconds */
@@ -408,8 +396,6 @@ static JSValue js_instant_fromEpochMilliseconds(JSContext *ctx, JSValueConst thi
     if (js_number_to_int64(ctx, val, &ms) < 0)
         return JS_EXCEPTION;
     ms_to_timespec(ms, &ts);
-    if (!is_valid_epoch_timespec(&ts))
-        return JS_ThrowRangeError(ctx, "epochMilliseconds out of range");
     return js_create_instant(ctx, &ts);
 }
 
@@ -422,8 +408,6 @@ static JSValue js_instant_fromEpochNanoseconds(JSContext *ctx, JSValueConst this
     JSTimeSpec ts;
     if (ti_bigint_to_timespec(ctx, argv[0], &ts) < 0)
         return JS_EXCEPTION;
-    if (!is_valid_epoch_timespec(&ts))
-        return JS_ThrowRangeError(ctx, "epochNanoseconds out of range");
     return js_create_instant(ctx, &ts);
 }
 
@@ -1051,8 +1035,6 @@ static JSValue js_instant_round(JSContext *ctx, JSValueConst this_val,
     
     /* Convert back to JSTimeSpec */
     ti_ns_to_timespec(rounded_ns, &result);
-    if (!is_valid_epoch_timespec(&result))
-        return JS_ThrowRangeError(ctx, "rounded value out of range");
     return js_create_instant(ctx, &result);
 }
 
@@ -1377,11 +1359,6 @@ static JSValue js_instant_add_subtract(JSContext *ctx, JSValueConst this_val,
         total_ns = -total_ns;
 
     total_ns += ti_timespec_to_ns(&s->ts);
-
-    if (total_ns < (js_int128_t)(-INSTANT_MAX_SECS) * 1000000000 ||
-        total_ns > (js_int128_t)INSTANT_MAX_SECS * 1000000000)
-        return JS_ThrowRangeError(ctx, "instant arithmetic overflow");
-
     ti_ns_to_timespec(total_ns, &result);
     return js_create_instant(ctx, &result);
 }

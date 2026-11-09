@@ -36,18 +36,20 @@ static const JSClassDef js_zoneddatetime_class = {
     .finalizer = js_zoneddatetime_finalizer,
 };
 
-JSValue js_create_zoneddatetime(JSContext *ctx, const JSTimeSpec *ts,
+static JSValue js_create_zoneddatetime2(JSContext *ctx, JSValueConst new_target, const JSTimeSpec *ts,
                                         const char *timeZone, CalendarType calendar)
 {
     JSZonedDateTimeData *s;
     JSValue obj;
+    if (!is_valid_epoch_timespec(ts))
+        return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
         return JS_EXCEPTION;
     s->ts = *ts;
     pstrcpy(s->timeZone, sizeof(s->timeZone), timeZone);
     s->calendar = calendar;
-    obj = JS_NewObjectClass(ctx, (int)js_zoneddatetime_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_zoneddatetime_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
@@ -56,6 +58,12 @@ JSValue js_create_zoneddatetime(JSContext *ctx, const JSTimeSpec *ts,
     return obj;
 }
 
+JSValue js_create_zoneddatetime(JSContext *ctx, const JSTimeSpec *ts,
+                                const char *timeZone, CalendarType calendar)
+{
+    return js_create_zoneddatetime2(ctx, JS_UNDEFINED, ts, timeZone, calendar);
+}
+    
 /* Apply timezone offset to UTC epoch seconds to get local wall-clock time */
 /* Create a ZonedDateTime from prepared fields */
 JSValue ti_create_zoneddatetime_from_fields(JSContext *ctx, TIPreparedFields *fields,
@@ -234,9 +242,6 @@ JSValue ti_create_zoneddatetime_from_fields(JSContext *ctx, TIPreparedFields *fi
         }
     }
 
-    if (!is_valid_epoch_timespec(&ts))
-        return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
-
     return js_create_zoneddatetime(ctx, &ts, timeZone, fields->calendar);
 }
 static void zdt_apply_timezone_offset(JSContext *ctx, JSZonedDateTimeData *s,
@@ -271,15 +276,11 @@ static void zdt_apply_timezone_offset(JSContext *ctx, JSZonedDateTimeData *s,
 static JSValue js_zoneddatetime_constructor(JSContext *ctx, JSValueConst new_target,
                                              int argc, JSValueConst *argv)
 {
-    JSZonedDateTimeData *s;
     JSValue obj;
     JSTimeSpec ts;
     const char *timeZone = "UTC";
     CalendarType calendar = CAL_ISO8601;
     int tz_allocated = 0;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.ZonedDateTime constructor cannot be called as a function");
-    }
     if (ti_bigint_to_timespec(ctx, argv[0], &ts) < 0)
         return JS_EXCEPTION;
     if (!is_valid_epoch_timespec(&ts))
@@ -298,20 +299,7 @@ static JSValue js_zoneddatetime_constructor(JSContext *ctx, JSValueConst new_tar
             return JS_EXCEPTION;
         }
     }
-    s = js_mallocz(ctx, sizeof(*s));
-    if (!s) {
-        if (tz_allocated) JS_FreeCString(ctx, timeZone);
-        return JS_EXCEPTION;
-    }
-    s->ts = ts;
-    pstrcpy(s->timeZone, sizeof(s->timeZone), timeZone);
-    s->calendar = calendar;
-    obj = js_create_temporal_object(ctx, new_target, js_zoneddatetime_class_id, s);
-    if (JS_IsException(obj)) {
-        js_free(ctx, s);
-        if (tz_allocated) JS_FreeCString(ctx, timeZone);
-        return JS_EXCEPTION;
-    }
+    obj = js_create_zoneddatetime2(ctx, new_target, &ts, timeZone, calendar);
     if (tz_allocated) JS_FreeCString(ctx, timeZone);
     return obj;
 }
@@ -901,13 +889,6 @@ static JSValue js_zoneddatetime_startOfDay(JSContext *ctx, JSValueConst this_val
         ts.secs = utc_sec;
     } else {
         ts.secs -= offset_sec;
-    }
-    /* Validate epoch nanoseconds are within Instant limits */
-    {
-        js_int128_t epoch_ns = ti_timespec_to_ns(&ts);
-        js_int128_t limit = (js_int128_t)8640000000000LL * 1000000000LL;
-        if (epoch_ns < -limit || epoch_ns > limit)
-            return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
     }
     return js_create_zoneddatetime(ctx, &ts, s->timeZone, s->calendar);
 }
@@ -1657,8 +1638,6 @@ static JSValue js_zoneddatetime_round(JSContext *ctx, JSValueConst this_val,
 
     ti_ns_to_timespec(rounded_ns, &result);
 
-    if (!is_valid_epoch_timespec(&result))
-        return JS_ThrowRangeError(ctx, "outside representable range");
     return js_create_zoneddatetime(ctx, &result, s->timeZone, s->calendar);
 }
 
@@ -2040,8 +2019,6 @@ static JSValue js_zoneddatetime_with(JSContext *ctx, JSValueConst this_val,
             }
         }
     }
-    if (!is_valid_epoch_timespec(&ts))
-        return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
     return js_create_zoneddatetime(ctx, &ts, s->timeZone, s->calendar);
 }
 
@@ -2134,8 +2111,6 @@ static JSValue js_zoneddatetime_withPlainTime(JSContext *ctx, JSValueConst this_
         }
     }
     JS_FreeValue(ctx, pt_val);
-    if (!is_valid_epoch_timespec(&ts))
-        return JS_ThrowRangeError(ctx, "invalid epoch nanoseconds");
     return js_create_zoneddatetime(ctx, &ts, s->timeZone, s->calendar);
 }
 
@@ -2754,12 +2729,6 @@ static JSValue js_zoneddatetime_add_subtract(JSContext *ctx, JSValueConst this_v
             total_ns += sign * ti_duration_time_fields_to_ns(&d);
             ti_ns_to_timespec(total_ns, &ts);
         }
-    }
-    {
-        js_int128_t epoch_ns = ti_timespec_to_ns(&ts);
-        js_int128_t limit = (js_int128_t)8640000000000LL * 1000000000LL;
-        if (epoch_ns < -limit || epoch_ns > limit)
-            return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
     }
     return js_create_zoneddatetime(ctx, &ts, s->timeZone, s->calendar);
 }
@@ -3398,9 +3367,6 @@ JSValue js_zoneddatetime_from(JSContext *ctx, JSValueConst this_val,
                 ts.nsecs = (uint32_t)new_nsec;
             }
         }
-        /* Validate epoch nanoseconds are within valid range */
-        if (!is_valid_epoch_timespec(&ts))
-            return JS_ThrowRangeError(ctx, "invalid ZonedDateTime string");
         {
             CalendarType cal = r.has_calendar ? r.calendar : CAL_ISO8601;
             if (cal == CAL_UNKNOWN)

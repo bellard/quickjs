@@ -23,15 +23,10 @@ static const JSClassDef js_plaindate_class = {
     .finalizer = js_plaindate_finalizer,
 };
 
-JSValue js_create_plaindate_with_calendar(JSContext *ctx, int year, int month, int day, CalendarType calendar)
+static JSValue js_create_plaindate_with_calendar2(JSContext *ctx, JSValueConst new_target, int year, int month, int day, CalendarType calendar)
 {
-    if (calendar == CAL_ISO8601 || calendar == CAL_GREGORY) {
-        /* ISO date range: -271821-04-19 to +275760-09-13 */
-        if (year < -271821 || year > 275760 ||
-            (year == -271821 && (month < 4 || (month == 4 && day < 19))) ||
-            (year == 275760 && (month > 9 || (month == 9 && day > 13))))
-            return JS_ThrowRangeError(ctx, "PlainDate out of range");
-    }
+    if (!ti_is_date_within_iso_limits(year, month, day))
+        return JS_ThrowRangeError(ctx, "PlainDate out of range");
     {
         JSPlainDateData *s;
         JSValue obj;
@@ -42,7 +37,7 @@ JSValue js_create_plaindate_with_calendar(JSContext *ctx, int year, int month, i
         s->month = month;
         s->day = day;
         s->calendar = calendar;
-        obj = JS_NewObjectClass(ctx, (int)js_plaindate_class_id);
+        obj = JS_CreateFromConstructor(ctx, new_target, js_plaindate_class_id);
         if (JS_IsException(obj)) {
             js_free(ctx, s);
             return JS_EXCEPTION;
@@ -50,6 +45,11 @@ JSValue js_create_plaindate_with_calendar(JSContext *ctx, int year, int month, i
         JS_SetOpaque(obj, s);
         return obj;
     }
+}
+
+JSValue js_create_plaindate_with_calendar(JSContext *ctx, int year, int month, int day, CalendarType calendar)
+{
+    return js_create_plaindate_with_calendar2(ctx, JS_UNDEFINED, year, month, day, calendar);
 }
 
 JSValue js_create_plaindate(JSContext *ctx, int year, int month, int day)
@@ -60,20 +60,12 @@ JSValue js_create_plaindate(JSContext *ctx, int year, int month, int day)
 JSValue ti_create_plaindate_from_fields(JSContext *ctx, TIPreparedFields *fields,
                                          int overflow_constrain)
 {
-    int year, month, day;
-    JSValue obj;
+    int year, month, day, iso_y, iso_m, iso_d;
 
     if (ti_resolve_date_from_fields(ctx, fields, overflow_constrain, &year, &month, &day, 1) < 0)
         return JS_EXCEPTION;
-
-    {
-        int iso_y = year, iso_m = month, iso_d = day;
-        if (fields->calendar != CAL_ISO8601 && fields->calendar != CAL_GREGORY) {
-            ti_calendar_date_to_iso(fields->calendar, year, month, day, &iso_y, &iso_m, &iso_d);
-        }
-        obj = js_create_plaindate_with_calendar(ctx, iso_y, iso_m, iso_d, fields->calendar);
-    }
-    return obj;
+    ti_calendar_date_to_iso(fields->calendar, year, month, day, &iso_y, &iso_m, &iso_d);
+    return js_create_plaindate_with_calendar(ctx, iso_y, iso_m, iso_d, fields->calendar);
 }
 
 int pd_is_leap_year(int year)
@@ -84,6 +76,8 @@ int pd_is_leap_year(int year)
 int pd_days_in_month(int year, int month)
 {
     static const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (month < 1 || month > 12)
+        return 30; /* fail safe */
     if (month == 2 && pd_is_leap_year(year))
         return 29;
     return days[month - 1];
@@ -139,9 +133,7 @@ static JSValue js_plaindate_constructor(JSContext *ctx, JSValueConst new_target,
                                          int argc, JSValueConst *argv)
 {
     int year, month, day;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.PlainDate constructor cannot be called as a function");
-    }
+    CalendarType calendar = CAL_ISO8601;
     if (pd_to_integer_with_truncation(ctx, argv[0], &year) < 0)
         return JS_EXCEPTION;
     if (pd_to_integer_with_truncation(ctx, argv[1], &month) < 0)
@@ -150,33 +142,12 @@ static JSValue js_plaindate_constructor(JSContext *ctx, JSValueConst new_target,
         return JS_EXCEPTION;
     if (!pd_is_valid_date(year, month, day))
         return JS_ThrowRangeError(ctx, "invalid PlainDate");
-    if (year < -271821 || year > 275760 ||
-        (year == -271821 && (month < 4 || (month == 4 && day < 19))) ||
-        (year == 275760 && (month > 9 || (month == 9 && day > 13))))
-        return JS_ThrowRangeError(ctx, "PlainDate out of range");
-    {
-        JSPlainDateData *s = js_mallocz(ctx, sizeof(*s));
-        JSValue obj;
-        if (!s)
+    calendar = CAL_ISO8601;
+    if (argc > 3) {
+        if (ti_validate_constructor_calendar(ctx, argv[3], &calendar) < 0)
             return JS_EXCEPTION;
-        s->year = year;
-        s->month = month;
-        s->day = day;
-        s->calendar = CAL_ISO8601;
-        if (argc > 3) {
-            int cal_res = ti_validate_constructor_calendar(ctx, argv[3], &s->calendar);
-            if (cal_res < 0) {
-                js_free(ctx, s);
-                return JS_EXCEPTION;
-            }
-        }
-        obj = js_create_temporal_object(ctx, new_target, js_plaindate_class_id, s);
-        if (JS_IsException(obj)) {
-            js_free(ctx, s);
-            return JS_EXCEPTION;
-        }
-        return obj;
     }
+    return js_create_plaindate_with_calendar2(ctx, new_target, year, month, day, calendar);
 }
 
 /* Getters */
@@ -758,17 +729,7 @@ static JSValue js_plaindate_add_subtract(JSContext *ctx, JSValueConst this_val,
         ti_calendar_date_to_iso(s->calendar, year, month, day, &iso_y, &iso_m, &iso_d);
         year = iso_y; month = iso_m; day = iso_d;
     }
-    if (year < -271821 || year > 275760)
-        return JS_ThrowRangeError(ctx, "invalid PlainDate");
-    /* Check against ISO date bounds */
-    if (year == -271821 && (month < 4 || (month == 4 && day < 19)))
-        return JS_ThrowRangeError(ctx, "invalid PlainDate");
-    if (year == 275760 && (month > 9 || (month == 9 && day > 13)))
-        return JS_ThrowRangeError(ctx, "invalid PlainDate");
-    {
-        JSValue obj = js_create_plaindate_with_calendar(ctx, year, month, day, s->calendar);
-        return obj;
-    }
+    return js_create_plaindate_with_calendar(ctx, year, month, day, s->calendar);
 }
 
 static JSValue js_plaindate_difference(JSContext *ctx, JSValueConst this_val,
@@ -1085,8 +1046,6 @@ static JSValue js_plaindate_toZonedDateTime(JSContext *ctx, JSValueConst this_va
             }
         }
     }
-    if (!is_valid_epoch_timespec(&ts))
-        return JS_ThrowRangeError(ctx, "epoch nanoseconds outside valid limits");
     return js_create_zoneddatetime(ctx, &ts, timeZone, s->calendar);
 }
 

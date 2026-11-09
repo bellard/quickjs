@@ -3880,16 +3880,7 @@ int ti_validate_timezone_identifier(JSContext *ctx, JSValueConst v, const char *
     *out_str = str;
     return 1;
 }
-JSValue js_create_temporal_object(JSContext *ctx, JSValueConst new_target,
-                                                 JSClassID class_id, void *opaque)
-{
-    
-    JSValue obj = JS_CreateFromConstructor(ctx, new_target, class_id);
-    if (JS_IsException(obj))
-        return JS_EXCEPTION;
-    JS_SetOpaque(obj, opaque);
-    return obj;
-}
+
 int is_valid_epoch_timespec(const JSTimeSpec *ts)
 {
     if (ts->secs > INSTANT_MAX_SECS || ts->secs < -INSTANT_MAX_SECS)

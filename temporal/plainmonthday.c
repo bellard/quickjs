@@ -24,12 +24,11 @@ static const JSClassDef js_plainmonthday_class = {
     .finalizer = js_plainmonthday_finalizer,
 };
 
-JSValue js_create_plainmonthday_with_calendar(JSContext *ctx, int iso_year, int iso_month, int iso_day, CalendarType calendar)
+static JSValue js_create_plainmonthday_with_calendar2(JSContext *ctx, JSValueConst new_target, int iso_year, int iso_month, int iso_day, CalendarType calendar)
 {
     JSPlainMonthDayData *s;
     JSValue obj;
-    /* Validate ISO year range (ISO date limits: -271821 to 275760) */
-    if (iso_year < -271821 || iso_year > 275760)
+    if (!ti_is_date_within_iso_limits(iso_year, iso_month, iso_day))
         return JS_ThrowRangeError(ctx, "PlainMonthDay out of range");
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
@@ -38,13 +37,18 @@ JSValue js_create_plainmonthday_with_calendar(JSContext *ctx, int iso_year, int 
     s->iso_month = iso_month;
     s->iso_day = iso_day;
     s->calendar = calendar;
-    obj = JS_NewObjectClass(ctx, (int)js_plainmonthday_class_id);
+    obj = JS_CreateFromConstructor(ctx, new_target, js_plainmonthday_class_id);
     if (JS_IsException(obj)) {
         js_free(ctx, s);
         return JS_EXCEPTION;
     }
     JS_SetOpaque(obj, s);
     return obj;
+}
+
+JSValue js_create_plainmonthday_with_calendar(JSContext *ctx, int iso_year, int iso_month, int iso_day, CalendarType calendar)
+{
+    return js_create_plainmonthday_with_calendar2(ctx, JS_UNDEFINED, iso_year, iso_month, iso_day, calendar);
 }
 
 static int pmd_to_integer_with_truncation(JSContext *ctx, JSValueConst val, int *pres)
@@ -73,9 +77,6 @@ static JSValue js_plainmonthday_constructor(JSContext *ctx, JSValueConst new_tar
                                              int argc, JSValueConst *argv)
 {
     int month, day, year = 1972;
-    if (JS_IsUndefined(new_target)) {
-        return JS_ThrowTypeError(ctx, "Temporal.PlainMonthDay constructor cannot be called as a function");
-    }
     if (pmd_to_integer_with_truncation(ctx, argv[0], &month) < 0)
         return JS_EXCEPTION;
     if (pmd_to_integer_with_truncation(ctx, argv[1], &day) < 0)
@@ -95,27 +96,7 @@ static JSValue js_plainmonthday_constructor(JSContext *ctx, JSValueConst new_tar
         }
         if (month < 1 || month > 12 || day < 1 || day > pd_days_in_month(year, month))
             return JS_ThrowRangeError(ctx, "invalid PlainMonthDay");
-        /* ISODateWithinLimits check for CreateTemporalMonthDay */
-        if (year < -271821 || (year == -271821 && (month < 4 || (month == 4 && day < 19))))
-            return JS_ThrowRangeError(ctx, "date outside supported range");
-        if (year > 275760 || (year == 275760 && (month > 9 || (month == 9 && day > 13))))
-            return JS_ThrowRangeError(ctx, "date outside supported range");
-        {
-            JSPlainMonthDayData *s = js_mallocz(ctx, sizeof(*s));
-            JSValue obj;
-            if (!s)
-                return JS_EXCEPTION;
-            s->iso_year = year;
-            s->iso_month = month;
-            s->iso_day = day;
-            s->calendar = calendar;
-            obj = js_create_temporal_object(ctx, new_target, js_plainmonthday_class_id, s);
-            if (JS_IsException(obj)) {
-                js_free(ctx, s);
-                return JS_EXCEPTION;
-            }
-            return obj;
-        }
+        return js_create_plainmonthday_with_calendar2(ctx, new_target, year, month, day, calendar);
     }
 }
 
@@ -409,6 +390,17 @@ static JSValue js_plainmonthday_with(JSContext *ctx, JSValueConst this_val,
             return JS_ThrowRangeError(ctx, "month and monthCode must agree");
         {
             int ref_year = has_year ? year_for_overflow : orig_cal_y;
+            int max_month = ti_calendar_months_in_year(s->calendar, ref_year);
+
+            if (month < 1 || month > max_month) {
+                if (!overflow_constrain)
+                    return JS_ThrowRangeError(ctx, "invalid PlainMonthDay");
+                if (month > max_month)
+                    month = max_month;
+                else if (month < 1)
+                    month = 1;
+            }
+
             int dim = ti_calendar_days_in_month(s->calendar, ref_year, month);
             if (day > dim || day < 1) {
                 if (!overflow_constrain)
