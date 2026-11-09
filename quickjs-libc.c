@@ -2619,7 +2619,7 @@ static int js_os_poll(JSContext *ctx)
 {
     JSRuntime *rt = JS_GetRuntime(ctx);
     JSThreadState *ts = JS_GetRuntimeOpaque(rt);
-    int min_delay, nfds;
+    int min_delay, nfds, atomics_async_waker_fd_index;
     int64_t cur_time, delay;
     JSOSRWHandler *rh;
     struct list_head *el;
@@ -2698,6 +2698,7 @@ static int js_os_poll(JSContext *ctx)
         }
     }
 
+    atomics_async_waker_fd_index = nfds;
     if (js_poll_add_poll_fd(ts, &nfds, ts->atomics_async_waker.read_fd, POLLIN))
         return -1;
 
@@ -2728,7 +2729,7 @@ static int js_os_poll(JSContext *ctx)
                 }
             }
         }
-        if (ts->poll_fds[ts->atomics_async_waker.read_fd].revents != 0) {
+        if (ts->poll_fds[atomics_async_waker_fd_index].revents != 0) {
             js_waker_clear(&ts->atomics_async_waker);
         }
     }

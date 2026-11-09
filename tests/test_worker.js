@@ -44,10 +44,20 @@ function test_worker()
             break;
         case "sab_done":
             {
-                let buf = ev.buf;
                 /* check that the SharedArrayBuffer was modified */
-                assert(buf[2], 10);
-                worker.postMessage({ type: "abort" });
+                assert(ev.buf[2], 10);
+                /* start the waitAsync() test */
+                let sab = new SharedArrayBuffer(4);
+                let buf = new Int32Array(sab);
+                worker.postMessage({ type: "wait_async", buf: buf });
+            }
+            break;
+        case "notify":
+            {
+                let buf = ev.buf;
+                Atomics.store(buf, 0, 1);
+                /* notify the waitAsync() */
+                Atomics.notify(buf, 0, 1);
             }
             break;
         case "done":

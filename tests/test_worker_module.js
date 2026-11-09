@@ -17,6 +17,10 @@ function handle_msg(e) {
         ev.buf[2] = 10;
         parent.postMessage({ type: "sab_done", buf: ev.buf });
         break;
+    case "wait_async":
+        Atomics.waitAsync(ev.buf, 0, 0, Infinity).value.then( () => { parent.postMessage({ type: "done" }); } );
+        parent.postMessage({ type: "notify", buf: ev.buf });
+        break;
     }
 }
 
