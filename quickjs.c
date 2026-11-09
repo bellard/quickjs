@@ -10644,21 +10644,25 @@ int JS_DefineProperty(JSContext *ctx, JSValueConst this_obj,
 
                 if ((prs->flags & JS_PROP_TMASK) != JS_PROP_GETSET) {
                     JSPropertyGetSet *getset;
-                    if (js_shape_prepare_update(ctx, p, &prs))
+                    getset = js_malloc(ctx, sizeof(JSPropertyGetSet));
+                    if (!getset)
                         return -1;
+                    if (js_shape_prepare_update(ctx, p, &prs)) {
+                        js_free(ctx, getset);
+                        return -1;
+                    }
                     /* convert to getset */
                     if ((prs->flags & JS_PROP_TMASK) == JS_PROP_VARREF) {
                         if (unlikely(p->class_id == JS_CLASS_GLOBAL_OBJECT)) {
-                            if (remove_global_object_property(ctx, p, prs, pr))
+                            if (remove_global_object_property(ctx, p, prs, pr)) {
+                                js_free(ctx, getset);
                                 return -1;
+                            }
                         }
                         free_var_ref(ctx->rt, pr->u.var_ref);
                     } else {
                         JS_FreeValue(ctx, pr->u.value);
                     }
-                    getset = js_malloc(ctx, sizeof(JSPropertyGetSet));
-                    if (!getset)
-                        return -1;
                     prs->flags = (prs->flags &
                                   (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) |
                         JS_PROP_GETSET;
