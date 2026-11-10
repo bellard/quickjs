@@ -2425,9 +2425,13 @@ static JSValue intl_mv_format_scientific(JSContext *ctx, IntlMV *mv, JSNumberFor
     /* Integer part of mantissa */
     {
         char *int_buf = js_malloc(ctx, (size_t)digits_before + 1);
+        int n;
         if (!int_buf) goto sci_fail;
-        memcpy(int_buf, mv->digits, (size_t)digits_before);
-        int_buf[digits_before] = '\0';
+        n = min_int(digits_before, mv->num_digits);
+        memcpy(int_buf, mv->digits, n);
+        while (n < digits_before)
+            int_buf[n++] = '0';
+        int_buf[n] = '\0';
         dbuf_putstr(&db, int_buf);
         if (!JS_IsUndefined(parts))
             nf_add_part(ctx, parts, "integer", int_buf);

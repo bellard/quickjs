@@ -224,7 +224,8 @@ function test_numberFormat() {
     assert(new Intl.NumberFormat('en', { style: 'percent' }).format(0.5), "50%", "en percent");
     assert(new Intl.NumberFormat('en', { style: 'currency', currency: 'EUR' }).format(1234.56),
            "€1,234.56", "en EUR currency");
-
+    assert(new Intl.NumberFormat("en", { notation: "engineering" }).format(1e23), "100E21");
+    
     // de
     assert(new Intl.NumberFormat('de').format(1234567.89), "1.234.567,89", "de number");
     assert(new Intl.NumberFormat('de').format(1000000), "1.000.000", "de grouping");
