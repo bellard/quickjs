@@ -982,7 +982,7 @@ char *canonicalize_locale(JSContext *ctx, const char *locale)
         strntolower(subtags[i], len);
         /* variant alias mappings */
         if (!strcmp(subtags[i], "heploc"))
-            pstrcpy(subtags[i], sizeof(buf), "alalc97");
+            subtags[i] = (char *)"alalc97";
     }
     {
         /* Special case: hepburn + heploc -> alalc97 (remove hepburn) */
