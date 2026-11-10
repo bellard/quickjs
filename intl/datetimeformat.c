@@ -2736,7 +2736,7 @@ static JSValue js_datetimeformat_constructor(JSContext *ctx,
             dbuf_put(&db, (uint8_t *)"", (size_t)1);
             if (dbuf_error(&db)) {
                 dbuf_free(&db);
-                return JS_EXCEPTION;
+                goto fail;
             }
             js_free(ctx, s->locale);
             s->locale = js_strdup(ctx, (char *)db.buf);
@@ -3809,9 +3809,12 @@ static JSValue js_datetimeformat_resolvedOptions(JSContext *ctx, JSValueConst th
     }
 
     obj = JS_NewObject(ctx);
-    if (JS_IsException(obj))
+    if (JS_IsException(obj)) {
+        JS_FreeValue(ctx, unwrapped);
         return JS_EXCEPTION;
+    }
 
+    /* XXX: handle JS_DefineProperty errors */
     JS_DefinePropertyValueStr(ctx, obj, "locale",
                                JS_NewString(ctx, s->locale), JS_PROP_C_W_E);
     JS_DefinePropertyValueStr(ctx, obj, "calendar",

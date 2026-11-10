@@ -129,20 +129,40 @@ static JSValue js_listformat_constructor(JSContext *ctx,
     return JS_EXCEPTION;
 }
 
+typedef struct {
+    const char **items;
+    int count;
+} StringList;
+
+static void free_string_list(JSContext *ctx, StringList *list)
+{
+    int i;
+    for(i = 0; i < list->count; i++) {
+        if (list->items[i])
+            JS_FreeCString(ctx, list->items[i]);
+    }
+    js_free(ctx, list->items);
+}
+
 /* StringListFromIterable abstract operation.
-   Returns a JSValue array of strings, or JS_EXCEPTION on error.
+   Return 0 if OK, -1 if ERROR.
    Uses JS_GetIterator / JS_IteratorNext / JS_IteratorClose.  */
-static JSValue string_list_from_iterable(JSContext *ctx, JSValueConst iterable)
+static int string_list_from_iterable(JSContext *ctx, StringList *list, JSValueConst iterable)
 {
     JSValue iter = JS_UNDEFINED;
     JSValue next_method = JS_UNDEFINED;
-    JSValue r = JS_UNDEFINED;
+    int ret;
     JSValue v;
     BOOL done;
-    int64_t k;
-
+    uint32_t list_size;
+    const char *str;
+    
+    list->items = NULL;
+    list->count = 0;
+    list_size = 0;
+    
     if (JS_IsUndefined(iterable))
-        return JS_NewArray(ctx);
+        return 0;
 
     iter = JS_GetIterator(ctx, iterable, FALSE);
     if (JS_IsException(iter))
@@ -150,11 +170,8 @@ static JSValue string_list_from_iterable(JSContext *ctx, JSValueConst iterable)
     next_method = JS_GetPropertyStr(ctx, iter, "next");
     if (JS_IsException(next_method))
         goto exception;
-    r = JS_NewArray(ctx);
-    if (JS_IsException(r))
-        goto exception;
 
-    for (k = 0;; k++) {
+    for (;;) {
         v = JS_IteratorNext(ctx, iter, next_method, &done);
         if (JS_IsException(v))
             goto exception;
@@ -167,28 +184,44 @@ static JSValue string_list_from_iterable(JSContext *ctx, JSValueConst iterable)
             JS_ThrowTypeError(ctx, "iterable yielded non-string value");
             goto exception_close;
         }
-        if (JS_DefinePropertyValueUint32(ctx, r, (uint32_t)k, v,
-                                        JS_PROP_C_W_E | JS_PROP_THROW) < 0)
+        if ((list->count + 1) > list_size) {
+            const char **new_items;
+            if (list_size == 0)
+                list_size = 4;
+            else
+                list_size = list_size + list_size / 2;
+            if (list_size > INT32_MAX) {
+                JS_FreeValue(ctx, v);
+                JS_ThrowOutOfMemory(ctx);
+                goto exception_close;
+            }
+            new_items = js_realloc(ctx, list->items, sizeof(new_items[0]) * list_size);
+            if (!new_items) {
+                JS_FreeValue(ctx, v);
+                goto exception_close;
+            }
+            list->items = new_items;
+        }
+        str = JS_ToCString(ctx, v);
+        JS_FreeValue(ctx, v);
+        if (!str)
             goto exception_close;
+        list->items[list->count++] = str;
     }
+    ret = 0;
  done:
     JS_FreeValue(ctx, next_method);
     JS_FreeValue(ctx, iter);
-    return r;
+    return ret;
  exception_close:
     JS_IteratorClose(ctx, iter, TRUE);
  exception:
-    JS_FreeValue(ctx, r);
-    r = JS_EXCEPTION;
+    free_string_list(ctx, list);
+    ret = -1;
     goto done;
 }
 
 /* Helpers for list formatting */
-
-typedef struct {
-    const char **items;
-    int count;
-} StringList;
 
 static int is_locale_spanish(const char *locale)
 {
@@ -407,55 +440,15 @@ static JSValue js_listformat_format(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
     JSListFormatData *s = JS_GetOpaque2(ctx, this_val, js_listformat_class_id);
-    JSValue arr = JS_UNDEFINED;
     JSValue ret = JS_UNDEFINED;
     StringList list;
-    int64_t len = 0, i;
-    const char **items = NULL;
     DynBuf db;
 
     if (!s)
         return JS_EXCEPTION;
 
-    arr = string_list_from_iterable(ctx, argv[0]);
-    if (JS_IsException(arr))
+    if (string_list_from_iterable(ctx, &list, argv[0]))
         return JS_EXCEPTION;
-
-    {
-        JSValue len_val = JS_GetPropertyStr(ctx, arr, "length");
-        if (JS_IsException(len_val))
-            goto fail;
-        if (JS_ToInt64(ctx, &len, len_val) < 0) {
-            JS_FreeValue(ctx, len_val);
-            goto fail;
-        }
-        JS_FreeValue(ctx, len_val);
-    }
-
-    {
-        size_t alloc_count = (len > 0) ? (size_t)len : 1;
-        items = js_malloc(ctx, sizeof(*items) * alloc_count);
-    }
-    if (!items)
-        goto fail;
-
-    for (i = 0; i < len; i++) {
-        JSValue val;
-        const char *str;
-        val = JS_GetPropertyUint32(ctx, arr, (uint32_t)i);
-        if (JS_IsException(val)) {
-            JS_FreeValue(ctx, val);
-            goto fail;
-        }
-        str = JS_ToCString(ctx, val);
-        JS_FreeValue(ctx, val);
-        if (!str)
-            goto fail;
-        items[i] = str;
-    }
-
-    list.items = items;
-    list.count = (int)len;
 
     js_intl_dbuf_init(ctx, &db);
     js_listformat_format_to_dbuf(ctx, s, &list, &db);
@@ -470,14 +463,7 @@ static JSValue js_listformat_format(JSContext *ctx, JSValueConst this_val,
     dbuf_free(&db);
 
  fail:
-    if (items) {
-        for (i = 0; i < len; i++) {
-            if (items[i])
-                JS_FreeCString(ctx, items[i]);
-        }
-        js_free(ctx, items);
-    }
-    JS_FreeValue(ctx, arr);
+    free_string_list(ctx, &list);
     return ret;
 }
 
@@ -485,66 +471,18 @@ static JSValue js_listformat_formatToParts(JSContext *ctx, JSValueConst this_val
                                             int argc, JSValueConst *argv)
 {
     JSListFormatData *s = JS_GetOpaque2(ctx, this_val, js_listformat_class_id);
-    JSValue arr = JS_UNDEFINED;
     JSValue ret = JS_UNDEFINED;
     StringList list;
-    int64_t len = 0, i;
-    const char **items = NULL;
 
     if (!s)
         return JS_EXCEPTION;
 
-    arr = string_list_from_iterable(ctx, argv[0]);
-    if (JS_IsException(arr))
+    if (string_list_from_iterable(ctx, &list, argv[0]))
         return JS_EXCEPTION;
-
-    {
-        JSValue len_val = JS_GetPropertyStr(ctx, arr, "length");
-        if (JS_IsException(len_val))
-            goto fail;
-        if (JS_ToInt64(ctx, &len, len_val) < 0) {
-            JS_FreeValue(ctx, len_val);
-            goto fail;
-        }
-        JS_FreeValue(ctx, len_val);
-    }
-
-    {
-        size_t alloc_count = (len > 0) ? (size_t)len : 1;
-        items = js_malloc(ctx, sizeof(*items) * alloc_count);
-    }
-    if (!items)
-        goto fail;
-
-    for (i = 0; i < len; i++) {
-        JSValue val;
-        const char *str;
-        val = JS_GetPropertyUint32(ctx, arr, (uint32_t)i);
-        if (JS_IsException(val)) {
-            JS_FreeValue(ctx, val);
-            goto fail;
-        }
-        str = JS_ToCString(ctx, val);
-        JS_FreeValue(ctx, val);
-        if (!str)
-            goto fail;
-        items[i] = str;
-    }
-
-    list.items = items;
-    list.count = (int)len;
 
     ret = js_listformat_format_to_parts(ctx, s, &list);
 
- fail:
-    if (items) {
-        for (i = 0; i < len; i++) {
-            if (items[i])
-                JS_FreeCString(ctx, items[i]);
-        }
-        js_free(ctx, items);
-    }
-    JS_FreeValue(ctx, arr);
+    free_string_list(ctx, &list);
     return ret;
 }
 
