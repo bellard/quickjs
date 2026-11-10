@@ -18,5 +18,6 @@
 
 static int nbinterrupts = 0;
 
+JSContext *JS_NewCustomContext(JSRuntime *rt);
 void reset_nbinterrupts();
 void test_one_input_init(JSRuntime *rt, JSContext *ctx);
