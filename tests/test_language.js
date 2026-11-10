@@ -472,6 +472,8 @@ function test_spread()
 
     x = [ ...[ , ] ];
     assert(Object.getOwnPropertyNames(x).toString(), "0,length");
+
+    assert(JSON.stringify({ ..."ab" }), '{"0":"a","1":"b"}');
 }
 
 function test_function_length()
