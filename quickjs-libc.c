@@ -2482,6 +2482,65 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
 }
 #endif /* !USE_WORKER */
 
+#if !defined(USE_WORKER) && defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+/*
+ * OSS-Fuzz builds of quickjs disable workers (build.sh comments out
+ * "#define USE_WORKER") so that process and thread spawning stays out of
+ * the fuzzers' reach.  The Atomics.waitAsync waker below is nevertheless
+ * used unconditionally by js_std_init_handlers(), js_std_atomics_waker(),
+ * js_os_poll() and js_std_free_handlers(), which broke the linking of
+ * non-worker builds.  Provide pipe-based implementations identical to the
+ * worker ones so that non-worker fuzzing builds link again and behave the
+ * same.  Guarded by FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION (set only in
+ * OSS-Fuzz builds): production builds never see this code.
+ */
+static int js_waker_init(JSWaker *w)
+{
+    int fds[2];
+
+    if (pipe(fds) < 0)
+        return -1;
+    w->read_fd = fds[0];
+    w->write_fd = fds[1];
+    return 0;
+}
+
+static void js_waker_signal(JSWaker *w)
+{
+    int ret;
+
+    for(;;) {
+        ret = write(w->write_fd, "", 1);
+        if (ret == 1)
+            break;
+        if (ret < 0 && (errno != EAGAIN || errno != EINTR))
+            break;
+    }
+}
+
+static void js_waker_clear(JSWaker *w)
+{
+    uint8_t buf[16];
+    int ret;
+
+    for(;;) {
+        ret = read(w->read_fd, buf, sizeof(buf));
+        if (ret >= 0)
+            break;
+        if (errno != EAGAIN && errno != EINTR)
+            break;
+    }
+}
+
+static void js_waker_close(JSWaker *w)
+{
+    close(w->read_fd);
+    close(w->write_fd);
+    w->read_fd = -1;
+    w->write_fd = -1;
+}
+#endif /* !USE_WORKER && FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION */
+
 #if defined(_WIN32)
 
 static int js_os_poll(JSContext *ctx)
