@@ -295,7 +295,10 @@ fuzz_compile: $(OBJDIR)/fuzz_compile.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
 fuzz_regexp: $(OBJDIR)/fuzz_regexp.o $(OBJDIR)/libregexp.fuzz.o $(OBJDIR)/cutils.fuzz.o $(OBJDIR)/libunicode.fuzz.o
 	$(CC) $(CFLAGS_OPT) $^ -o fuzz_regexp $(LIB_FUZZING_ENGINE)
 
-libfuzzer: fuzz_eval fuzz_compile fuzz_regexp
+fuzz_bytecode: $(OBJDIR)/fuzz_bytecode.o $(OBJDIR)/fuzz_common.o libquickjs.fuzz.a
+	$(CC) $(CFLAGS_OPT) $^ -o fuzz_bytecode $(LIB_FUZZING_ENGINE)
+
+libfuzzer: fuzz_eval fuzz_compile fuzz_regexp fuzz_bytecode
 
 ifneq ($(CROSS_PREFIX),)
 
