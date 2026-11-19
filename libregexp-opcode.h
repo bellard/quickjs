@@ -37,6 +37,7 @@ DEF(line_start, 1)
 DEF(line_start_m, 1)
 DEF(line_end, 1)
 DEF(line_end_m, 1)
+DEF(line_end_z, 1) /* optional line terminator or "\r\n" followed by buffer end */
 DEF(goto, 5)
 DEF(split_goto_first, 5)
 DEF(split_next_first, 5)
