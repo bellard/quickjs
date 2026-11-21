@@ -8206,6 +8206,10 @@ int JS_OrdinaryIsInstanceOf(JSContext *ctx, JSValueConst val,
     p = JS_VALUE_GET_OBJ(obj);
     if (p->class_id == JS_CLASS_BOUND_FUNCTION) {
         JSBoundFunction *s = p->u.bound_function;
+        if (js_check_stack_overflow(ctx->rt, 0)) {
+            JS_ThrowStackOverflow(ctx);
+            return -1;
+        }
         return JS_IsInstanceOf(ctx, val, s->func_obj);
     }
 
