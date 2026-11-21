@@ -26498,7 +26498,9 @@ static __exception int js_parse_array_literal(JSParseState *s)
         if (s->token.val == ',') {
             if (next_token(s))
                 return -1;
-        }
+        } else
+        if (s->token.val != ']')
+            goto done;
     }
     if (s->token.val == ']') {
         if (need_length) {
