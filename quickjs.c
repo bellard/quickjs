@@ -16980,6 +16980,10 @@ static JSValue JS_IteratorNext3(JSContext *ctx, JSValueConst enum_obj,
             JSCFunctionType func;
             JSValueConst args[1];
 
+            if (js_check_stack_overflow(ctx->rt, 0)) {
+                JS_ThrowStackOverflow(ctx);
+                goto fail;
+            }
             /* in case the function expects one argument */
             if (argc == 0) {
                 args[0] = JS_UNDEFINED;
