@@ -16964,9 +16964,10 @@ JSValue JS_GetIterator(JSContext *ctx, JSValueConst obj, BOOL is_async)
 }
 
 /* return *pdone = 2 if the iterator object is not parsed */
-static JSValue JS_IteratorNext2(JSContext *ctx, JSValueConst enum_obj,
+static JSValue JS_IteratorNext3(JSContext *ctx, JSValueConst enum_obj,
                                 JSValueConst method,
-                                int argc, JSValueConst *argv, int *pdone)
+                                int argc, JSValueConst *argv, int *pdone,
+                                BOOL check_object)
 {
     JSValue obj;
 
@@ -16992,7 +16993,7 @@ static JSValue JS_IteratorNext2(JSContext *ctx, JSValueConst enum_obj,
     obj = JS_Call(ctx, method, enum_obj, argc, argv);
     if (JS_IsException(obj))
         goto fail;
-    if (!JS_IsObject(obj)) {
+    if (check_object && !JS_IsObject(obj)) {
         JS_FreeValue(ctx, obj);
         JS_ThrowTypeError(ctx, "iterator must return an object");
         goto fail;
@@ -17002,6 +17003,13 @@ static JSValue JS_IteratorNext2(JSContext *ctx, JSValueConst enum_obj,
  fail:
     *pdone = FALSE;
     return JS_EXCEPTION;
+}
+
+static JSValue JS_IteratorNext2(JSContext *ctx, JSValueConst enum_obj,
+                                JSValueConst method,
+                                int argc, JSValueConst *argv, int *pdone)
+{
+    return JS_IteratorNext3(ctx, enum_obj, method, argc, argv, pdone, TRUE);
 }
 
 /* Note: always return JS_UNDEFINED when *pdone = TRUE. */
@@ -45519,7 +45527,7 @@ static JSValue js_iterator_wrap_next(JSContext *ctx, JSValueConst this_val,
     if (!it)
         return JS_EXCEPTION;
     if (magic == GEN_MAGIC_NEXT) {
-        return JS_IteratorNext(ctx, it->wrapped_iter, it->wrapped_next, pdone);
+        return JS_IteratorNext3(ctx, it->wrapped_iter, it->wrapped_next, 0, NULL, pdone, FALSE);
     } else {
         method = JS_GetProperty(ctx, it->wrapped_iter, JS_ATOM_return);
         if (JS_IsException(method))
@@ -45528,8 +45536,8 @@ static JSValue js_iterator_wrap_next(JSContext *ctx, JSValueConst this_val,
             *pdone = TRUE;
             return JS_UNDEFINED;
         }
-        ret = JS_IteratorNext2(ctx, it->wrapped_iter, method, 0, NULL, pdone);
-        JS_FreeValue(ctx, method);
+        ret = JS_CallFree(ctx, method, it->wrapped_iter, 0, NULL);
+        *pdone = 2;
         return ret;
     }
 }
