@@ -28423,9 +28423,7 @@ static __exception int js_parse_expr_binary(JSParseState *s, int level,
         atom = JS_DupAtom(s->ctx, s->token.u.ident.atom);
         if (next_token(s))
             goto fail_private_in;
-        if (s->token.val != TOK_IN)
-            goto fail_private_in;
-        if (next_token(s))
+        if (js_parse_expect(s, TOK_IN))
             goto fail_private_in;
         if (js_parse_expr_binary(s, level - 1, parse_flags)) {
         fail_private_in:
