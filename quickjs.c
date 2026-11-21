@@ -47194,9 +47194,18 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
             JSValue item;
             while (it->count > 0) {
                 it->count--;
-                item = JS_IteratorNext(ctx, it->obj, it->next, pdone);
+                item = JS_IteratorNext2(ctx, it->obj, it->next, 0, NULL, pdone);
                 if (JS_IsException(item))
                     goto fail_no_close;
+                if (*pdone == 2) {
+                    JSValue done_val;
+                    done_val = JS_GetProperty(ctx, item, JS_ATOM_done);
+                    if (JS_IsException(done_val)) {
+                        JS_FreeValue(ctx, item);
+                        goto fail_no_close;
+                    }
+                    *pdone = JS_ToBoolFree(ctx, done_val);
+                }
                 JS_FreeValue(ctx, item);
                 if (*pdone) {
                     ret = JS_UNDEFINED;
