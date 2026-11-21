@@ -4793,7 +4793,7 @@ static BOOL JS_ConcatStringInPlace(JSContext *ctx, JSString *p1, JSValueConst op
 
         if (p2->len == 0)
             return TRUE;
-        if (js_rc(p1)->ref_count != 1)
+        if (js_rc(p1)->ref_count != 1 || p1->atom_type != 0)
             return FALSE;
         size1 = js_malloc_usable_size(ctx, p1);
         if (p1->is_wide_char) {
