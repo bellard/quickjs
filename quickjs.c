@@ -21213,6 +21213,8 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         break;
                     }
                     pc += diff - 5;
+                    if (unlikely(js_poll_interrupts(ctx)))
+                        goto exception;
                 } else {
                 no_with:
                     /* if not jumping, drop the object argument */
