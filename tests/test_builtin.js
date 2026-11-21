@@ -119,6 +119,20 @@ function test_function()
     g = constructor1.bind(null, 1);
     r = new g();
     assert(r.x, 1);
+
+    // a callable proxy stays callable after revoke, so toString works
+    var native = "function () {\n    [native code]\n}";
+    g = Proxy.revocable(function f() {}, {});
+    g.revoke();
+    assert(Function.prototype.toString.call(g.proxy), native);
+    // and it does not read "name" through the proxy
+    var keys = [];
+    g = new Proxy(function f() {}, {
+        get(t, k) { keys.push(k); return Reflect.get(t, k); }
+    });
+    assert(Function.prototype.toString.call(g), native);
+    assert(keys.length, 0);
+    assert_throws(TypeError, () => Function.prototype.toString.call(new Proxy({}, {})));
 }
 
 function test()
