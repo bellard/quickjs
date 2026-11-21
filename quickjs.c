@@ -57525,113 +57525,116 @@ static JSValue js_promise_all(JSContext *ctx, JSValueConst this_val,
         check_function(ctx, promise_resolve))
         goto fail_reject;
     iter = JS_GetIterator(ctx, argv[0], FALSE);
-    if (JS_IsException(iter)) {
-        JSValue error;
-    fail_reject:
-        error = JS_GetException(ctx);
-        ret = JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1,
-                       (JSValueConst *)&error);
-        JS_FreeValue(ctx, error);
-        if (JS_IsException(ret))
-            goto fail;
-        JS_FreeValue(ctx, ret);
-    } else {
-        next_method = JS_GetProperty(ctx, iter, JS_ATOM_next);
-        if (JS_IsException(next_method))
-            goto fail_reject;
-        values = JS_NewArray(ctx);
-        if (JS_IsException(values))
-            goto fail_reject;
-        resolve_element_env = JS_NewArray(ctx);
-        if (JS_IsException(resolve_element_env))
-            goto fail_reject;
-        /* remainingElementsCount field */
-        if (JS_DefinePropertyValueUint32(ctx, resolve_element_env, 0,
-                                         JS_NewInt32(ctx, 1),
-                                         JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE) < 0)
-            goto fail_reject;
+    if (JS_IsException(iter))
+        goto fail_reject;
+    next_method = JS_GetProperty(ctx, iter, JS_ATOM_next);
+    if (JS_IsException(next_method))
+        goto fail_reject;
+    values = JS_NewArray(ctx);
+    if (JS_IsException(values))
+        goto fail_reject;
+    resolve_element_env = JS_NewArray(ctx);
+    if (JS_IsException(resolve_element_env))
+        goto fail_reject;
+    /* remainingElementsCount field */
+    if (JS_DefinePropertyValueUint32(ctx, resolve_element_env, 0,
+                                     JS_NewInt32(ctx, 1),
+                                     JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE) < 0)
+        goto fail_reject;
 
-        index = 0;
-        for(;;) {
-            /* XXX: conformance: should close the iterator if error on 'done'
-               access, but not on 'value' access */
-            item = JS_IteratorNext(ctx, iter, next_method, &done);
-            if (JS_IsException(item))
-                goto fail_reject;
-            if (done)
-                break;
-            next_promise = JS_Call(ctx, promise_resolve,
-                                   this_val, 1, (JSValueConst *)&item);
-            JS_FreeValue(ctx, item);
-            if (JS_IsException(next_promise)) {
-            fail_reject1:
-                JS_IteratorClose(ctx, iter, TRUE);
-                goto fail_reject;
-            }
-            resolve_element_data[0] = JS_NewBool(ctx, FALSE);
-            resolve_element_data[1] = (JSValueConst)JS_NewInt32(ctx, index);
-            resolve_element_data[2] = values;
-            resolve_element_data[3] = resolving_funcs[is_promise_any];
-            resolve_element_data[4] = resolve_element_env;
-            resolve_element =
-                JS_NewCFunctionData(ctx, js_promise_all_resolve_element, 1,
-                                    magic, 5, resolve_element_data);
-            if (JS_IsException(resolve_element)) {
-                JS_FreeValue(ctx, next_promise);
-                goto fail_reject1;
-            }
-
-            if (magic == PROMISE_MAGIC_allSettled) {
-                reject_element =
-                    JS_NewCFunctionData(ctx, js_promise_all_resolve_element, 1,
-                                        magic | 4, 5, resolve_element_data);
-                if (JS_IsException(reject_element)) {
-                    JS_FreeValue(ctx, next_promise);
-                    goto fail_reject1;
-                }
-            } else if (magic == PROMISE_MAGIC_any) {
-                if (JS_DefinePropertyValueUint32(ctx, values, index,
-                                                 JS_UNDEFINED, JS_PROP_C_W_E) < 0)
-                    goto fail_reject1;
-                reject_element = resolve_element;
-                resolve_element = JS_DupValue(ctx, resolving_funcs[0]);
-            } else {
-                reject_element = JS_DupValue(ctx, resolving_funcs[1]);
-            }
-
-            if (remainingElementsCount_add(ctx, resolve_element_env, 1) < 0) {
-                JS_FreeValue(ctx, next_promise);
-                JS_FreeValue(ctx, resolve_element);
-                JS_FreeValue(ctx, reject_element);
-                goto fail_reject1;
-            }
-
-            then_args[0] = resolve_element;
-            then_args[1] = reject_element;
-            ret = JS_InvokeFree(ctx, next_promise, JS_ATOM_then, 2, then_args);
-            JS_FreeValue(ctx, resolve_element);
-            JS_FreeValue(ctx, reject_element);
-            if (check_exception_free(ctx, ret))
-                goto fail_reject1;
-            index++;
+    index = 0;
+    for(;;) {
+        /* XXX: conformance: should close the iterator if error on 'done'
+           access, but not on 'value' access */
+        item = JS_IteratorNext(ctx, iter, next_method, &done);
+        if (JS_IsException(item))
+            goto fail_reject;
+        if (done)
+            break;
+        next_promise = JS_Call(ctx, promise_resolve,
+                               this_val, 1, (JSValueConst *)&item);
+        JS_FreeValue(ctx, item);
+        if (JS_IsException(next_promise))
+            goto fail_reject1;
+        resolve_element_data[0] = JS_NewBool(ctx, FALSE);
+        resolve_element_data[1] = (JSValueConst)JS_NewInt32(ctx, index);
+        resolve_element_data[2] = values;
+        resolve_element_data[3] = resolving_funcs[is_promise_any];
+        resolve_element_data[4] = resolve_element_env;
+        resolve_element =
+            JS_NewCFunctionData(ctx, js_promise_all_resolve_element, 1,
+                                magic, 5, resolve_element_data);
+        if (JS_IsException(resolve_element)) {
+            JS_FreeValue(ctx, next_promise);
+            goto fail_reject1;
         }
 
-        is_zero = remainingElementsCount_add(ctx, resolve_element_env, -1);
-        if (is_zero < 0)
-            goto fail_reject;
-        if (is_zero) {
-            if (magic == PROMISE_MAGIC_any) {
-                JSValue error;
-                error = js_aggregate_error_constructor(ctx, values);
-                if (JS_IsException(error))
-                    goto fail_reject;
-                JS_FreeValue(ctx, values);
-                values = error;
+        if (magic == PROMISE_MAGIC_allSettled) {
+            reject_element =
+                JS_NewCFunctionData(ctx, js_promise_all_resolve_element, 1,
+                                    magic | 4, 5, resolve_element_data);
+            if (JS_IsException(reject_element)) {
+                JS_FreeValue(ctx, next_promise);
+                JS_FreeValue(ctx, resolve_element);
+                goto fail_reject1;
             }
-            ret = JS_Call(ctx, resolving_funcs[is_promise_any], JS_UNDEFINED,
-                          1, (JSValueConst *)&values);
-            if (check_exception_free(ctx, ret))
+        } else if (magic == PROMISE_MAGIC_any) {
+            if (JS_DefinePropertyValueUint32(ctx, values, index,
+                                             JS_UNDEFINED, JS_PROP_C_W_E) < 0) {
+                JS_FreeValue(ctx, next_promise);
+                JS_FreeValue(ctx, resolve_element);
+                goto fail_reject1;
+            }
+            reject_element = resolve_element;
+            resolve_element = JS_DupValue(ctx, resolving_funcs[0]);
+        } else {
+            reject_element = JS_DupValue(ctx, resolving_funcs[1]);
+        }
+
+        if (remainingElementsCount_add(ctx, resolve_element_env, 1) < 0) {
+            JS_FreeValue(ctx, next_promise);
+            JS_FreeValue(ctx, resolve_element);
+            JS_FreeValue(ctx, reject_element);
+            goto fail_reject1;
+        }
+
+        then_args[0] = resolve_element;
+        then_args[1] = reject_element;
+        ret = JS_InvokeFree(ctx, next_promise, JS_ATOM_then, 2, then_args);
+        JS_FreeValue(ctx, resolve_element);
+        JS_FreeValue(ctx, reject_element);
+        if (check_exception_free(ctx, ret)) {
+        fail_reject1:
+            JS_IteratorClose(ctx, iter, TRUE);
+            goto fail_reject;
+        }
+        index++;
+    }
+
+    is_zero = remainingElementsCount_add(ctx, resolve_element_env, -1);
+    if (is_zero < 0)
+        goto fail_reject;
+    if (is_zero) {
+        if (magic == PROMISE_MAGIC_any) {
+            JSValue error;
+            error = js_aggregate_error_constructor(ctx, values);
+            if (JS_IsException(error))
                 goto fail_reject;
+            JS_FreeValue(ctx, values);
+            values = error;
+        }
+        ret = JS_Call(ctx, resolving_funcs[is_promise_any], JS_UNDEFINED,
+                      1, (JSValueConst *)&values);
+        if (check_exception_free(ctx, ret)) {
+            JSValue error;
+        fail_reject:
+            error = JS_GetException(ctx);
+            ret = JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1,
+                          (JSValueConst *)&error);
+            JS_FreeValue(ctx, error);
+            if (JS_IsException(ret))
+                goto fail;
+            JS_FreeValue(ctx, ret);
         }
     }
  done:
