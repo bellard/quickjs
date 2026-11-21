@@ -8112,8 +8112,11 @@ static int JS_SetPrototypeInternal(JSContext *ctx, JSValueConst obj,
         JS_DupValue(ctx, proto_val);
     }
 
-    if (js_shape_prepare_update(ctx, p, NULL))
+    if (js_shape_prepare_update(ctx, p, NULL)) {
+        if (proto)
+            JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, proto));
         return -1;
+    }
     sh = p->shape;
     if (sh->proto)
         JS_FreeValue(ctx, JS_MKPTR(JS_TAG_OBJECT, sh->proto));
