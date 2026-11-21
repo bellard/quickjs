@@ -27892,6 +27892,7 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
                         int scope;
                         name = get_u32(fd->byte_code.buf + fd->last_opcode_pos + 1);
                         scope = get_u16(fd->byte_code.buf + fd->last_opcode_pos + 5);
+                        drop_count = 1;
                         if (name == JS_ATOM_eval && call_type == FUNC_CALL_NORMAL && !has_optional_chain) {
                             /* direct 'eval' */
                             opcode = OP_eval;
@@ -27907,9 +27908,9 @@ static __exception int js_parse_postfix_expr(JSParseState *s, int parse_flags)
                             if (has_with_scope(fd, scope)) {
                                 opcode = OP_scope_get_ref;
                                 fd->byte_code.buf[fd->last_opcode_pos] = opcode;
+                                drop_count = 2;
                             }
                         }
-                        drop_count = 1;
                     }
                     break;
                 case OP_get_super_value:
