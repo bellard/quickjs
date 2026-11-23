@@ -191,7 +191,7 @@ static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
     JSValue v;
     u.d = d;
     /* normalize NaN */
-    if (js_unlikely((u.u64 & 0x7fffffffffffffff) > 0x7ff0000000000000))
+    if (js_unlikely(d != d))
         v = JS_NAN;
     else
         v = u.u64 - JS_FLOAT64_ADDEND;
