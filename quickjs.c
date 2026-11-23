@@ -49962,7 +49962,7 @@ typedef enum {
 /* we add one extra limb to avoid having to test for overflows during the sum */
 #define SUM_PRECISE_ACC_LEN 39
 
-#define SUM_PRECISE_COUNTER_INIT 250
+#define SUM_PRECISE_COUNTER_INIT 126
 
 typedef struct {
     SumPreciseStateEnum state;

@@ -421,6 +421,7 @@ function test_math()
     assert(Math.hypot(3, 4), 5);
     assert(Math.abs(Math.hypot(3, 4, 5) - 7.0710678118654755) <= 1e-15);
     assert(Math.sumPrecise([1,Number.EPSILON/2,Number.MIN_VALUE]), 1.0000000000000002);
+    assert(Math.sumPrecise(new Array(300).fill(Math.pow(2,53)-1)), 2702159776422297000);
 }
 
 function test_number()
