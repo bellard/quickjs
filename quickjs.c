@@ -214,6 +214,7 @@ typedef enum JSErrorEnum {
    ARG_SCOPE_END values are reserved. */
 #define JS_MAX_LOCAL_VARS 65534
 #define JS_STACK_SIZE_MAX 65534
+#define JS_MAX_SCOPES     65533
 #define JS_STRING_LEN_MAX ((1 << 30) - 1)
 
 /* strings <= this length are not concatenated using ropes. if too
@@ -24759,12 +24760,16 @@ static int find_lexical_decl(JSContext *ctx, JSFunctionDef *fd, JSAtom name,
     return -1;
 }
 
-static int push_scope(JSParseState *s) {
+static int push_scope(JSParseState *s)
+{
     if (s->cur_func) {
         JSFunctionDef *fd = s->cur_func;
         int scope = fd->scope_count;
-        /* XXX: should check for scope overflow */
-        if ((fd->scope_count + 1) > fd->scope_size) {
+        if (scope >= JS_MAX_SCOPES) {
+            JS_ThrowInternalError(s->ctx, "too many scopes");
+            return -1;
+        }
+        if ((scope + 1) > fd->scope_size) {
             int new_size;
             size_t slack;
             JSVarScope *new_buf;
@@ -25770,6 +25775,7 @@ static JSFunctionDef *js_new_function_def(JSContext *ctx,
                                           const char *filename,
                                           const uint8_t *source_ptr,
                                           GetLineColCache *get_line_col_cache);
+static void js_free_function_def(JSContext *ctx, JSFunctionDef *fd);
 static void emit_return(JSParseState *s, BOOL hasval);
 
 static __exception int js_parse_left_hand_side_expr(JSParseState *s)
@@ -25797,7 +25803,12 @@ static __exception int js_parse_class_default_ctor(JSParseState *s,
     fd->has_this_binding = TRUE;
     fd->new_target_allowed = TRUE;
 
-    push_scope(s);  /* enter body scope */
+    /* enter body scope */
+    if (push_scope(s) < 0) {
+        js_free_function_def(s->ctx, fd);
+        return -1;
+    }
+    
     fd->body_scope = fd->scope_level;
     if (has_super) {
         fd->is_derived_class_constructor = TRUE;
@@ -25982,7 +25993,8 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
         class_var_name = JS_DupAtom(ctx, class_var_name);
     }
 
-    push_scope(s);
+    if (push_scope(s) < 0)
+        goto fail;
 
     if (s->token.val == TOK_EXTENDS) {
         class_flags = JS_DEFINE_CLASS_HAS_HERITAGE;
@@ -26005,7 +26017,8 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
         goto fail;
 
     /* this scope contains the private fields */
-    push_scope(s);
+    if (push_scope(s) < 0)
+        goto fail;
 
     emit_op(s, OP_push_const);
     ctor_cpool_offset = fd->byte_code.size;
@@ -26069,7 +26082,8 @@ static __exception int js_parse_class(JSParseState *s, BOOL is_class_expr,
                     goto fail;
                 }
                 // stack is now: fclosure
-                push_scope(s);
+                if (push_scope(s) < 0)
+                    goto fail;
                 emit_op(s, OP_scope_get_var);
                 emit_atom(s, JS_ATOM_this);
                 emit_u16(s, 0);
@@ -29296,7 +29310,8 @@ static __exception int js_parse_block(JSParseState *s)
         return -1;
     if (s->token.val != '}') {
         BlockEnv using_be;
-        push_scope(s);
+        if (push_scope(s) < 0)
+            return -1;
         /* new BlockEnv for potential 'using' declarations */
         push_break_entry(s->cur_func, &using_be,
                          JS_ATOM_NULL, -1, -1, 0);
@@ -29596,7 +29611,8 @@ static __exception int js_parse_for_in_of(JSParseState *s, int label_name,
     /* create scope for the lexical variables declared in the enumeration
        expressions. XXX: Not completely correct because of weird capturing
        semantics in `for (i of o) a.push(function(){return i})` */
-    push_scope(s);
+    if (push_scope(s) < 0)
+        return -1;
 
     /* local for_in scope starts here so individual elements
        can be closed in statement. */
@@ -30007,7 +30023,8 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
             if (next_token(s))
                 goto fail;
             /* create a new scope for `let f;if(1) function f(){}` */
-            push_scope(s);
+            if (push_scope(s) < 0)
+                goto fail;
             set_eval_ret_undefined(s);
             if (js_parse_expr_paren(s))
                 goto fail;
@@ -30143,7 +30160,8 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
 
             /* create scope for the lexical variables declared in the initial,
                test and increment expressions */
-            push_scope(s);
+            if (push_scope(s) < 0)
+                goto fail;
 
             label_cont = new_label(s);
             label_break = new_label(s);
@@ -30299,7 +30317,8 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
             if (js_parse_expr_paren(s))
                 goto fail;
 
-            push_scope(s);
+            if (push_scope(s) < 0)
+                goto fail;
             label_break = new_label(s);
             push_break_entry(s->cur_func, &break_entry,
                              label_name, label_break, -1, 1);
@@ -30424,7 +30443,8 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
                 if (next_token(s))
                     goto fail;
 
-                push_scope(s);  /* catch variable */
+                if (push_scope(s) < 0)  /* catch variable */
+                    goto fail;
                 emit_label(s, label_catch);
 
                 if (s->token.val == '{') {
@@ -30460,7 +30480,8 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
                 /* XXX: should keep the address to nop it out if there is no finally block */
                 emit_goto(s, OP_catch, label_catch2);
 
-                push_scope(s);  /* catch block */
+                if (push_scope(s) < 0)  /* catch block */
+                    goto fail;
                 push_break_entry(s->cur_func, &block_env, JS_ATOM_NULL,
                                  -1, -1, 1);
                 block_env.label_finally = label_finally;
@@ -30558,7 +30579,8 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
             if (js_parse_expr_paren(s))
                 goto fail;
 
-            push_scope(s);
+            if (push_scope(s) < 0)
+                goto fail;
             with_idx = define_var(s, s->cur_func, JS_ATOM__with_,
                                   JS_VAR_DEF_WITH);
             if (with_idx < 0)
@@ -38090,7 +38112,8 @@ static __exception int js_parse_function_decl2(JSParseState *s,
     /* in generators, yield expression is forbidden during the parsing
        of the arguments */
     fd->in_function_body = TRUE;
-    push_scope(s);  /* enter body scope */
+    if (push_scope(s) < 0)  /* enter body scope */
+        goto fail;
     fd->body_scope = fd->scope_level;
 
     if (s->token.val == TOK_ARROW && func_type == JS_PARSE_FUNC_ARROW) {
@@ -38486,7 +38509,8 @@ static JSValue __JS_EvalInternal(JSContext *ctx, JSValueConst this_obj,
     s->is_module = (m != NULL);
     s->allow_html_comments = !s->is_module;
 
-    push_scope(s); /* body scope */
+    if (push_scope(s) < 0) /* body scope */
+        goto fail;
     fd->body_scope = fd->scope_level;
 
     err = js_parse_program(s);
