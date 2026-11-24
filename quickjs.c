@@ -35183,6 +35183,15 @@ static __exception int add_closure_variables(JSContext *ctx, JSFunctionDef *s,
         cv->var_idx = i;
         cv->var_name = JS_DupAtom(ctx, cv0->var_name);
     }
+    // same limit as add_closure_var(): the indexes and the count are
+    // stored on 16 bits. The arguments, variables and closure variables
+    // of the calling function are limited separately, so their sum can
+    // exceed it.
+    if (s->closure_var_count > JS_MAX_LOCAL_VARS) {
+        JS_ThrowSyntaxError(ctx, "too many closure variables used (only %d allowed)",
+                            JS_MAX_LOCAL_VARS - 1);
+        return -1;
+    }
     return 0;
 }
 
