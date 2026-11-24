@@ -27486,6 +27486,11 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                         goto var_error;
                     if (js_define_var(s, var_name, tok))
                         goto var_error;
+                    if (export_flag) {
+                        if (!add_export_entry(s, s->cur_func->module, var_name, var_name,
+                                              JS_EXPORT_TYPE_LOCAL))
+                            goto var_error;
+                    }
                     if (need_var_reference(s, tok)) {
                         /* Must make a reference for proper `with` semantics */
                         emit_op(s, OP_scope_get_var);
