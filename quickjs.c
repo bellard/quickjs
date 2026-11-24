@@ -24857,7 +24857,7 @@ static int push_scope(JSParseState *s)
         JSFunctionDef *fd = s->cur_func;
         int scope = fd->scope_count;
         if (scope >= JS_MAX_SCOPES) {
-            JS_ThrowInternalError(s->ctx, "too many scopes");
+            JS_ThrowSyntaxError(s->ctx, "too many scopes");
             return -1;
         }
         if (js_expand_array_static(s->ctx, &fd->scopes, &fd->scope_size, scope + 1,
@@ -24913,7 +24913,7 @@ static int add_var(JSContext *ctx, JSFunctionDef *fd, JSAtom name)
 
     /* the local variable indexes are currently stored on 16 bits */
     if (fd->var_count >= JS_MAX_LOCAL_VARS) {
-        JS_ThrowInternalError(ctx, "too many local variables");
+        JS_ThrowSyntaxError(ctx, "too many local variables");
         return -1;
     }
     if (js_expand_array(ctx, &fd->vars,
@@ -24993,7 +24993,7 @@ static int add_arg(JSContext *ctx, JSFunctionDef *fd, JSAtom name)
 
     /* the local variable indexes are currently stored on 16 bits */
     if (fd->arg_count >= JS_MAX_LOCAL_VARS) {
-        JS_ThrowInternalError(ctx, "too many arguments");
+        JS_ThrowSyntaxError(ctx, "too many arguments");
         return -1;
     }
     if (js_expand_array(ctx, &fd->args, &fd->arg_size, fd->arg_count + 1))
@@ -33931,7 +33931,7 @@ static int add_closure_var(JSContext *ctx, JSFunctionDef *s,
 
     /* the closure variable indexes are currently stored on 16 bits */
     if (s->closure_var_count >= JS_MAX_LOCAL_VARS) {
-        JS_ThrowInternalError(ctx, "too many closure variables");
+        JS_ThrowSyntaxError(ctx, "too many closure variables");
         return -1;
     }
 
@@ -34073,6 +34073,8 @@ static int add_var_this(JSContext *ctx, JSFunctionDef *fd)
     return idx;
 }
 
+/* return >= 0 if the binding was resolved, -1 if the binding was not
+   resolved or -2 if error */
 static int resolve_pseudo_var(JSContext *ctx, JSFunctionDef *s,
                                JSAtom var_name)
 {
@@ -34083,26 +34085,38 @@ static int resolve_pseudo_var(JSContext *ctx, JSFunctionDef *s,
     switch(var_name) {
     case JS_ATOM_home_object:
         /* 'home_object' pseudo variable */
-        if (s->home_object_var_idx < 0)
+        if (s->home_object_var_idx < 0) {
             s->home_object_var_idx = add_var(ctx, s, var_name);
+            if (s->home_object_var_idx < 0)
+                return -2;
+        }
         var_idx = s->home_object_var_idx;
         break;
     case JS_ATOM_this_active_func:
         /* 'this.active_func' pseudo variable */
-        if (s->this_active_func_var_idx < 0)
+        if (s->this_active_func_var_idx < 0) {
             s->this_active_func_var_idx = add_var(ctx, s, var_name);
+            if (s->this_active_func_var_idx < 0)
+                return -2;
+        }
         var_idx = s->this_active_func_var_idx;
         break;
     case JS_ATOM_new_target:
         /* 'new.target' pseudo variable */
-        if (s->new_target_var_idx < 0)
+        if (s->new_target_var_idx < 0) {
             s->new_target_var_idx = add_var(ctx, s, var_name);
+            if (s->new_target_var_idx < 0)
+                return -2;
+        }
         var_idx = s->new_target_var_idx;
         break;
     case JS_ATOM_this:
         /* 'this' pseudo variable */
-        if (s->this_var_idx < 0)
+        if (s->this_var_idx < 0) {
             s->this_var_idx = add_var_this(ctx, s);
+            if (s->this_var_idx < 0)
+                return -2;
+        }
         var_idx = s->this_var_idx;
         break;
     default:
@@ -34138,7 +34152,7 @@ static inline __exception int capture_var(JSFunctionDef *s, JSVarDef *vd)
     if (!vd->is_captured) {
         /* the variable reference indexes are currently stored on 16 bits */
         if (unlikely(s->var_ref_count >= JS_MAX_LOCAL_VARS)) {
-            JS_ThrowInternalError(s->ctx, "too variable references");
+            JS_ThrowSyntaxError(s->ctx, "too variable references");
             return -1;
         }
         vd->is_captured = 1;
@@ -34199,17 +34213,24 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
             var_idx = find_var(ctx, s, var_name);
         }
 
-        if (var_idx < 0 && is_pseudo_var)
+        if (var_idx < 0 && is_pseudo_var) {
             var_idx = resolve_pseudo_var(ctx, s, var_name);
+            if (var_idx == -2)
+                return -1;
+        }
 
         if (var_idx < 0 && var_name == JS_ATOM_arguments &&
             s->has_arguments_binding) {
             /* 'arguments' pseudo variable */
             var_idx = add_arguments_var(ctx, s);
+            if (var_idx < 0)
+                return -1;
         }
         if (var_idx < 0 && s->is_func_expr && var_name == s->func_name) {
             /* add a new variable with the function name */
             var_idx = add_func_var(ctx, s, var_name);
+            if (var_idx < 0)
+                return -1;
         }
     }
     if (var_idx >= 0) {
@@ -34379,16 +34400,22 @@ static int resolve_scope_var(JSContext *ctx, JSFunctionDef *s,
         }
         if (is_pseudo_var) {
             var_idx = resolve_pseudo_var(ctx, fd, var_name);
+            if (var_idx == -2)
+                return -1;
             if (var_idx >= 0)
                 break;
         }
         if (var_name == JS_ATOM_arguments && fd->has_arguments_binding) {
             var_idx = add_arguments_var(ctx, fd);
+            if (var_idx < 0)
+                return -1;
             break;
         }
         if (fd->is_func_expr && fd->func_name == var_name) {
             /* add a new variable with the function name */
             var_idx = add_func_var(ctx, fd, var_name);
+            if (var_idx < 0)
+                return -1;
             break;
         }
 
@@ -34863,36 +34890,57 @@ static __exception int add_eval_variables(JSContext *ctx, JSFunctionDef *s)
        environment object */
     if (!s->is_eval && !(s->js_mode & JS_MODE_STRICT)) {
         s->var_object_idx = add_var(ctx, s, JS_ATOM__var_);
+        if (s->var_object_idx < 0)
+            return -1;
         if (s->has_parameter_expressions) {
             /* an additional variable object is needed for the
                argument scope */
             s->arg_var_object_idx = add_var(ctx, s, JS_ATOM__arg_var_);
+            if (s->arg_var_object_idx < 0)
+                return -1;
         }
     }
 
     /* eval can potentially use 'arguments' so we must define it */
     has_this_binding = s->has_this_binding;
     if (has_this_binding) {
-        if (s->this_var_idx < 0)
+        if (s->this_var_idx < 0) {
             s->this_var_idx = add_var_this(ctx, s);
-        if (s->new_target_var_idx < 0)
+            if (s->this_var_idx < 0)
+                return -1;
+        }
+        if (s->new_target_var_idx < 0) {
             s->new_target_var_idx = add_var(ctx, s, JS_ATOM_new_target);
-        if (s->is_derived_class_constructor && s->this_active_func_var_idx < 0)
+            if (s->new_target_var_idx < 0)
+                return -1;
+        }
+        if (s->is_derived_class_constructor && s->this_active_func_var_idx < 0) {
             s->this_active_func_var_idx = add_var(ctx, s, JS_ATOM_this_active_func);
-        if (s->has_home_object && s->home_object_var_idx < 0)
+            if (s->this_active_func_var_idx < 0)
+                return -1;
+        }
+        if (s->has_home_object && s->home_object_var_idx < 0) {
             s->home_object_var_idx = add_var(ctx, s, JS_ATOM_home_object);
+            if (s->home_object_var_idx < 0)
+                return -1;
+        }
     }
     has_arguments_binding = s->has_arguments_binding;
     if (has_arguments_binding) {
-        add_arguments_var(ctx, s);
+        if (add_arguments_var(ctx, s) < 0)
+            return -1;
         /* also add an arguments binding in the argument scope to
            raise an error if a direct eval in the argument scope tries
            to redefine it */
-        if (s->has_parameter_expressions && !(s->js_mode & JS_MODE_STRICT))
-            add_arguments_arg(ctx, s);
+        if (s->has_parameter_expressions && !(s->js_mode & JS_MODE_STRICT)) {
+            if (add_arguments_arg(ctx, s) < 0)
+                return -1;
+        }
     }
-    if (s->is_func_expr && s->func_name != JS_ATOM_NULL)
-        add_func_var(ctx, s, s->func_name);
+    if (s->is_func_expr && s->func_name != JS_ATOM_NULL) {
+        if (add_func_var(ctx, s, s->func_name) < 0)
+            return -1;
+    }
 
     for(i = 0; i < s->arg_count; i++) {
         vd = &s->args[i];
@@ -34925,25 +34973,40 @@ static __exception int add_eval_variables(JSContext *ctx, JSFunctionDef *s)
             break;
         /* add 'this' if it was not previously added */
         if (!has_this_binding && fd->has_this_binding) {
-            if (fd->this_var_idx < 0)
+            if (fd->this_var_idx < 0) {
                 fd->this_var_idx = add_var_this(ctx, fd);
-            if (fd->new_target_var_idx < 0)
+                if (fd->this_var_idx < 0)
+                    return -1;
+            }
+            if (fd->new_target_var_idx < 0) {
                 fd->new_target_var_idx = add_var(ctx, fd, JS_ATOM_new_target);
-            if (fd->is_derived_class_constructor && fd->this_active_func_var_idx < 0)
+                if (fd->new_target_var_idx < 0)
+                    return -1;
+            }
+            if (fd->is_derived_class_constructor && fd->this_active_func_var_idx < 0) {
                 fd->this_active_func_var_idx = add_var(ctx, fd, JS_ATOM_this_active_func);
-            if (fd->has_home_object && fd->home_object_var_idx < 0)
+                if (fd->this_active_func_var_idx < 0)
+                    return -1;
+            }
+            if (fd->has_home_object && fd->home_object_var_idx < 0) {
                 fd->home_object_var_idx = add_var(ctx, fd, JS_ATOM_home_object);
+                if (fd->home_object_var_idx < 0)
+                    return -1;
+            }
             has_this_binding = TRUE;
         }
         /* add 'arguments' if it was not previously added */
         if (!has_arguments_binding && fd->has_arguments_binding) {
-            add_arguments_var(ctx, fd);
+            if (add_arguments_var(ctx, fd) < 0)
+                return -1;
             has_arguments_binding = TRUE;
         }
         /* add function name */
-        if (fd->is_func_expr && fd->func_name != JS_ATOM_NULL)
-            add_func_var(ctx, fd, fd->func_name);
-
+        if (fd->is_func_expr && fd->func_name != JS_ATOM_NULL) {
+            if (add_func_var(ctx, fd, fd->func_name) < 0)
+                return -1;
+        }
+        
         /* add lexical variables */
         scope_idx = fd->scopes[scope_level].first;
         while (scope_idx >= 0) {
