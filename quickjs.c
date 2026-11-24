@@ -47245,7 +47245,7 @@ static JSValue js_iterator_proto_set_toStringTag(JSContext *ctx, JSValueConst th
         if (JS_SetProperty(ctx, this_val, JS_ATOM_Symbol_toStringTag, JS_DupValue(ctx, val)) < 0)
             return JS_EXCEPTION;
     } else {
-        if (JS_DefinePropertyValueC(ctx, this_val, JS_ATOM_Symbol_toStringTag, val, JS_PROP_C_W_E) < 0)
+        if (JS_DefinePropertyValueC(ctx, this_val, JS_ATOM_Symbol_toStringTag, val, JS_PROP_C_W_E | JS_PROP_THROW) < 0)
             return JS_EXCEPTION;
     }
     return JS_UNDEFINED;
