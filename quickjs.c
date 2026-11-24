@@ -9343,8 +9343,23 @@ static JSValue JS_GetPropertyValue(JSContext *ctx, JSValueConst this_obj,
     slow_path:
         /* ToObject() must be done before ToPropertyKey() */
         if (JS_IsNull(this_obj) || JS_IsUndefined(this_obj)) {
-            JS_FreeValue(ctx, prop);
-            return JS_ThrowTypeError(ctx, "cannot read property of %s", JS_IsNull(this_obj) ? "null" : "undefined");
+            /* avoid side effects, so only print the property name for common cases */
+            if (JS_IsNumber(prop) || JS_IsString(prop)) {
+                atom = JS_ValueToAtom(ctx, prop);
+                JS_FreeValue(ctx, prop);
+                if (unlikely(atom == JS_ATOM_NULL))
+                    return JS_EXCEPTION;
+                if (JS_IsNull(this_obj)) {
+                    JS_ThrowTypeErrorAtom(ctx, "cannot read property '%s' of null", atom);
+                } else {
+                    JS_ThrowTypeErrorAtom(ctx, "cannot read property '%s' of undefined", atom);
+                }
+                JS_FreeAtom(ctx, atom);
+                return JS_EXCEPTION;
+            } else {
+                JS_FreeValue(ctx, prop);
+                return JS_ThrowTypeError(ctx, "cannot read property of %s", JS_IsNull(this_obj) ? "null" : "undefined");
+            }
         }
         atom = JS_ValueToAtom(ctx, prop);
         JS_FreeValue(ctx, prop);
