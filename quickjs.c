@@ -65333,6 +65333,8 @@ static JSValue js_atomics_pause(JSContext *ctx, JSValueConst this_obj,
     return JS_UNDEFINED;
 }
 
+static int64_t js_atomics_get_time_ms(void);
+
 static int js_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
                              int64_t timeout_ms)
 {
@@ -65365,7 +65367,9 @@ static JSValue js_atomics_wait(JSContext *ctx,
     void *ptr;
     int64_t timeout;
     JSAtomicsWaiter waiter_s, *waiter;
-    int ret, size_log2, res;
+    int size_log2, res;
+    int64_t now, timeout_time, delay;
+    BOOL timed_out;
     double d;
 
     p = js_atomics_get_buf(ctx, argv[0], argv[1], &idx, 2, FALSE);
@@ -65427,17 +65431,40 @@ static JSValue js_atomics_wait(JSContext *ctx,
     waiter->async_state = 0;
     list_add_tail(&waiter->link, &js_atomics_waiter_list);
 
+    /* the result depends on 'linked' and not on the return code:
+       pthread_cond_timedwait() may time out after Atomics.notify() has
+       removed the waiter and wake-ups may be spurious */
     if (timeout == INT64_MAX) {
-        pthread_cond_wait(&waiter->cond, &js_atomics_mutex);
-        ret = 0;
+        timeout_time = INT64_MAX;
     } else {
-        ret = js_cond_timedwait(&waiter->cond, &js_atomics_mutex, timeout);
+        /* 'now' is truncated to 1 ms: round the deadline up so that the
+           wait is never shorter than 'timeout' */
+        now = js_atomics_get_time_ms();
+        if (timeout >= INT64_MAX - now - 1)
+            timeout_time = INT64_MAX;
+        else
+            timeout_time = now + timeout + 1;
     }
-    if (waiter->linked)
+    delay = timeout;
+    while (waiter->linked) {
+        if (timeout_time == INT64_MAX) {
+            if (pthread_cond_wait(&waiter->cond, &js_atomics_mutex))
+                break;
+        } else {
+            /* stop on a timeout and on errors */
+            if (js_cond_timedwait(&waiter->cond, &js_atomics_mutex, delay))
+                break;
+            delay = timeout_time - js_atomics_get_time_ms();
+            if (delay <= 0)
+                break;
+        }
+    }
+    timed_out = waiter->linked;
+    if (timed_out)
         list_del(&waiter->link);
     pthread_mutex_unlock(&js_atomics_mutex);
     pthread_cond_destroy(&waiter->cond);
-    if (ret == ETIMEDOUT) {
+    if (timed_out) {
         return JS_AtomToString(ctx, JS_ATOM_timed_out);
     } else {
         return JS_AtomToString(ctx, JS_ATOM_ok);
