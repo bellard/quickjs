@@ -42143,9 +42143,16 @@ static JSValue js_object_isSealed(JSContext *ctx, JSValueConst this_val,
     JSPropertyEnum *props;
     uint32_t len, i;
     int flags, res;
-
+    JSValue ret;
+    
     if (!JS_IsObject(obj))
         return JS_TRUE;
+
+    res = JS_IsExtensible(ctx, obj);
+    if (res < 0)
+        return JS_EXCEPTION;
+    if (res)
+        return JS_FALSE;
 
     p = JS_VALUE_GET_OBJ(obj);
     flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK;
@@ -42157,28 +42164,23 @@ static JSValue js_object_isSealed(JSContext *ctx, JSValueConst this_val,
         JSAtom prop = props[i].atom;
 
         res = JS_GetOwnPropertyInternal(ctx, &desc, p, prop);
-        if (res < 0)
-            goto exception;
+        if (res < 0) {
+            ret = JS_EXCEPTION;
+            goto done;
+        }
         if (res) {
             js_free_desc(ctx, &desc);
             if ((desc.flags & JS_PROP_CONFIGURABLE)
             ||  (is_frozen && (desc.flags & JS_PROP_WRITABLE))) {
-                res = FALSE;
+                ret = JS_FALSE;
                 goto done;
             }
         }
     }
-    res = JS_IsExtensible(ctx, obj);
-    if (res < 0)
-        return JS_EXCEPTION;
-    res ^= 1;
+    ret = JS_TRUE;
 done:
     JS_FreePropertyEnum(ctx, props, len);
-    return JS_NewBool(ctx, res);
-
-exception:
-    JS_FreePropertyEnum(ctx, props, len);
-    return JS_EXCEPTION;
+    return ret;
 }
 
 static JSValue js_object_fromEntries(JSContext *ctx, JSValueConst this_val,
