@@ -1097,25 +1097,32 @@ struct JSObject {
 };
 
 typedef struct JSMapRecord {
-    int ref_count; /* used during enumeration to avoid freeing the record */
-    BOOL empty : 8; /* TRUE if the record is deleted */
-    struct list_head link;
-    struct JSMapRecord *hash_next;
-    JSValue key;
+    JSValue key; /* JS_UNINITIALIZED if deleted */
     JSValue value;
+    uint32_t hash_next; /* 0 = end, otherwise index + 1 */
 } JSMapRecord;
 
 typedef struct JSMapState {
-    BOOL is_weak; /* TRUE if WeakSet/WeakMap */
-    struct list_head records; /* list of JSMapRecord.link */
-    uint32_t record_count;
-    JSMapRecord **hash_table;
-    int hash_bits;
-    uint32_t hash_size; /* = 2 ^ hash_bits */
+    BOOL is_weak : 8; /* TRUE if WeakSet/WeakMap */
+    uint8_t hash_bits;
+    JSMapRecord *records;
+    int record_size; /* allocated records */
+    int record_total; /* including deleted records */
+    int deleted_record_count;
     uint32_t record_count_threshold; /* count at which a hash table
                                         resize is needed */
+    uint32_t *hash_table;
+    uint32_t hash_size; /* = 2 ^ hash_bits */
+    struct list_head iterators; /* list of JSMapIteratorData.link */
     JSWeakRefHeader weakref_header; /* only used if is_weak = TRUE */
 } JSMapState;
+
+typedef struct JSMapIteratorData {
+    struct list_head link;
+    JSValue obj;
+    JSIteratorKindEnum kind;
+    int idx; /* -1 or index of the current element in JSMapState.records */
+} JSMapIteratorData;
 
 enum {
     __JS_ATOM_NULL = JS_ATOM_NULL,
@@ -14456,6 +14463,11 @@ static void js_print_error(JSPrintValueState *s, JSObject *p)
     }
 }
 
+static uint32_t map_get_size(JSMapState *s)
+{
+    return s->record_total - s->deleted_record_count;
+}
+
 static void js_print_object(JSPrintValueState *s, JSObject *p)
 {
     JSRuntime *rt = s->rt;
@@ -14562,18 +14574,19 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
         comma_state = 2;
     } else if (p->class_id == JS_CLASS_MAP || p->class_id == JS_CLASS_SET) {
         JSMapState *ms = p->u.opaque;
-        struct list_head *el;
+        uint32_t j, record_count;
         
         if (!ms)
             goto default_obj;
         js_print_atom(s, rt->class_array[p->class_id].class_name);
-        js_printf(s, "(%u) { ", ms->record_count);
+        record_count = map_get_size(ms);
+        js_printf(s, "(%u) { ", record_count);
         i = 0;
-        list_for_each(el, &ms->records) {
-            JSMapRecord *mr = list_entry(el, JSMapRecord, link);
-            js_print_comma(s, &comma_state);
-            if (mr->empty)
+        for(j = 0; j < ms->record_total; j++) {
+            JSMapRecord *mr = &ms->records[j];
+            if (JS_IsUninitialized(mr->key))
                 continue;
+            js_print_comma(s, &comma_state);
             js_print_value(s, mr->key);
             if (p->class_id == JS_CLASS_MAP) {
                 js_printf(s, " => ");
@@ -14583,8 +14596,8 @@ static void js_print_object(JSPrintValueState *s, JSObject *p)
             if (i >= s->options.max_item_count)
                 break;
         }
-        if (i < ms->record_count)
-            js_print_more_items(s, &comma_state, ms->record_count - i);
+        if (i < record_count)
+            js_print_more_items(s, &comma_state, record_count - i);
     } else if (p->class_id == JS_CLASS_REGEXP && s->ctx) {
         js_print_regexp(s, p);
         comma_state = 2;
@@ -54876,7 +54889,7 @@ static JSValue js_map_constructor(JSContext *ctx, JSValueConst new_target,
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
         goto fail;
-    init_list_head(&s->records);
+    init_list_head(&s->iterators);
     s->is_weak = is_weak;
     if (is_weak) {
         s->weakref_header.weakref_type = JS_WEAKREF_TYPE_MAP;
@@ -55076,8 +55089,9 @@ static JSMapRecord *map_find_record(JSContext *ctx, JSMapState *s,
     JSMapRecord *mr;
     uint32_t h;
     h = map_hash_key(key, s->hash_bits);
-    for(mr = s->hash_table[h]; mr != NULL; mr = mr->hash_next) {
-        if (mr->empty || (s->is_weak && !js_weakref_is_live(mr->key))) {
+    for(h = s->hash_table[h]; h != 0; h = mr->hash_next) {
+        mr = &s->records[h - 1];
+        if (s->is_weak && !js_weakref_is_live(key)) {
             /* cannot match */
         } else {
             if (js_same_value_zero(ctx, mr->key, key))
@@ -55089,10 +55103,9 @@ static JSMapRecord *map_find_record(JSContext *ctx, JSMapState *s,
 
 static void map_hash_resize(JSContext *ctx, JSMapState *s)
 {
-    uint32_t new_hash_size, h;
-    int new_hash_bits;
-    struct list_head *el;
-    JSMapRecord *mr, **new_hash_table;
+    uint32_t new_hash_size, h, *new_hash_table;
+    int new_hash_bits, i;
+    JSMapRecord *mr;
 
     /* XXX: no reporting of memory allocation failure */
     new_hash_bits = min_int(s->hash_bits + 1, 31);
@@ -55104,19 +55117,118 @@ static void map_hash_resize(JSContext *ctx, JSMapState *s)
 
     memset(new_hash_table, 0, sizeof(new_hash_table[0]) * new_hash_size);
 
-    list_for_each(el, &s->records) {
-        mr = list_entry(el, JSMapRecord, link);
-        if (mr->empty || (s->is_weak && !js_weakref_is_live(mr->key))) {
-        } else {
-            h = map_hash_key(mr->key, new_hash_bits);
-            mr->hash_next = new_hash_table[h];
-            new_hash_table[h] = mr;
-        }
+    for(i = 0; i < s->record_total; i++) {
+        mr = &s->records[i];
+        if (JS_IsUninitialized(mr->key))
+            continue;
+        h = map_hash_key(mr->key, new_hash_bits);
+        mr->hash_next = new_hash_table[h];
+        new_hash_table[h] = i + 1;
     }
     s->hash_table = new_hash_table;
     s->hash_bits = new_hash_bits;
     s->hash_size = new_hash_size;
     s->record_count_threshold = new_hash_size * 2;
+}
+
+static int map_iterator_cmp(const void *p1, const void *p2, void *opaque)
+{
+    JSMapIteratorData *it1 = *(JSMapIteratorData **)p1;
+    JSMapIteratorData *it2 = *(JSMapIteratorData **)p2;
+    return (it1->idx > it2->idx) - (it1->idx < it2->idx);
+}
+
+static void map_update_iterators(JSMapIteratorData **iterators, size_t *pidx, size_t iterator_count,
+                                 int old_idx, int new_idx)
+{
+    size_t idx = *pidx;
+    while (idx < iterator_count) {
+        JSMapIteratorData *it = iterators[idx];
+        /* Note: this code also works with it->idx = -1 which is kept
+           to -1 as new_idx = 0 in this case */
+        if (it->idx < old_idx) {
+            /* before: modify and skip */
+            it->idx = new_idx - 1;
+            idx++;
+        } else if (it->idx == old_idx) {
+            /* equal: modify and skip */
+            it->idx = new_idx;
+            idx++;
+        } else {
+            break;
+        }
+    }
+    *pidx = idx;
+}
+
+static void map_compact(JSContext *ctx, JSMapState *s)
+{
+    int i, j;
+    JSMapRecord *mr, *mr1;
+    uint32_t h;
+    JSMapRecord *new_records;
+    JSMapIteratorData **iterators;
+    size_t iterator_count, idx;
+    struct list_head *el;
+    
+    memset(s->hash_table, 0, sizeof(s->hash_table[0]) * s->hash_size);
+
+    /* sort the iterators by increasing JSMapIteratorData.idx in 'iterators' */
+    iterator_count = 0;
+    list_for_each(el, &s->iterators) {
+        iterator_count++;
+    }
+    if (iterator_count > 0) {
+        iterators = js_malloc_array(ctx, iterator_count, sizeof(iterators[0]));
+        if (!iterators)
+            return;
+        
+        idx = 0;
+        list_for_each(el, &s->iterators) {
+            JSMapIteratorData *it = list_entry(el, JSMapIteratorData, link);
+            iterators[idx++] = it;
+        }
+        
+        rqsort(iterators, iterator_count, sizeof(iterators[0]), map_iterator_cmp, NULL);
+    } else {
+        iterators = NULL;
+    }
+
+    idx = 0;
+    j = 0;
+    for(i = 0; i < s->record_total; i++) {
+        mr = &s->records[i];
+        if (JS_IsUninitialized(mr->key))
+            continue;
+        map_update_iterators(iterators, &idx, iterator_count, i, j);
+        mr1 = &s->records[j++];
+        mr1->key = mr->key;
+        mr1->value = mr->value;
+        h = map_hash_key(mr1->key, s->hash_bits);
+        mr1->hash_next = s->hash_table[h];
+        s->hash_table[h] = j; /* index + 1 */
+    }
+    
+    js_free(ctx, iterators);
+    
+    s->record_total = j;
+    s->deleted_record_count = 0;
+
+    /* reduce the size of the records */
+    new_records = js_realloc(ctx, s->records, (size_t)s->record_total * sizeof(s->records[0]));
+    if (new_records || s->record_total == 0) {
+        s->records = new_records;
+        s->record_size = s->record_total;
+    }
+}
+
+/* compact the deleted records if there are too many ones */
+static void map_try_compact(JSContext *ctx, JSMapState *s)
+{
+    if (unlikely(s->deleted_record_count >= 8 &&
+                 s->deleted_record_count >= s->record_total / 2)) {
+        map_compact(ctx, s);
+    }
 }
 
 static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
@@ -55125,11 +55237,13 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
     uint32_t h;
     JSMapRecord *mr;
 
-    mr = js_malloc(ctx, sizeof(*mr));
-    if (!mr)
+    if (unlikely(s->record_total >= INT32_MAX)) {
+        JS_ThrowOutOfMemory(ctx);
         return NULL;
-    mr->ref_count = 1;
-    mr->empty = FALSE;
+    }
+    if (js_expand_array_min(ctx, &s->records, &s->record_size, s->record_total + 1, 4))
+        return NULL;
+    mr = &s->records[s->record_total++];
     if (s->is_weak) {
         mr->key = js_weakref_new(ctx, key);
     } else {
@@ -55137,10 +55251,8 @@ static JSMapRecord *map_add_record(JSContext *ctx, JSMapState *s,
     }
     h = map_hash_key(key, s->hash_bits);
     mr->hash_next = s->hash_table[h];
-    s->hash_table[h] = mr;
-    list_add_tail(&mr->link, &s->records);
-    s->record_count++;
-    if (s->record_count >= s->record_count_threshold) {
+    s->hash_table[h] = s->record_total; /* index + 1 */
+    if (unlikely(s->record_total >= s->record_count_threshold)) {
         map_hash_resize(ctx, s);
     }
     return mr;
@@ -55160,67 +55272,50 @@ static JSMapRecord *set_add_record(JSContext *ctx, JSMapState *s,
 /* warning: the record must be removed from the hash table before */
 static void map_delete_record_internal(JSRuntime *rt, JSMapState *s, JSMapRecord *mr)
 {
-    if (mr->empty)
-        return;
-    
     if (s->is_weak) {
         js_weakref_free(rt, mr->key);
     } else {
         JS_FreeValueRT(rt, mr->key);
     }
     JS_FreeValueRT(rt, mr->value);
-    if (--mr->ref_count == 0) {
-        list_del(&mr->link);
-        js_free_rt(rt, mr);
-    } else {
-        /* keep a zombie record for iterators */
-        mr->empty = TRUE;
-        mr->key = JS_UNDEFINED;
-        mr->value = JS_UNDEFINED;
-    }
-    s->record_count--;
-}
-
-static void map_decref_record(JSRuntime *rt, JSMapRecord *mr)
-{
-    if (--mr->ref_count == 0) {
-        /* the record can be safely removed */
-        assert(mr->empty);
-        list_del(&mr->link);
-        js_free_rt(rt, mr);
-    }
+    mr->key = JS_UNINITIALIZED;
+    mr->value = JS_UNDEFINED;
+    s->deleted_record_count++;
 }
 
 static void map_delete_weakrefs(JSRuntime *rt, JSWeakRefHeader *wh)
 {
     JSMapState *s = container_of(wh, JSMapState, weakref_header);
-    struct list_head *el, *el1;
-    JSMapRecord *mr1, **pmr;
-    uint32_t h;
+    JSMapRecord *mr1;
+    uint32_t h, i, *phash_next;
 
-    list_for_each_safe(el, el1, &s->records) {
-        JSMapRecord *mr = list_entry(el, JSMapRecord, link);
+    for(i = 0; i < s->record_total; i++) {
+        JSMapRecord *mr = &s->records[i];
+        if (JS_IsUninitialized(mr->key))
+            continue;
         if (!js_weakref_is_live(mr->key)) {
 
             /* even if key is not live it can be hashed as a pointer */
             h = map_hash_key(mr->key, s->hash_bits);
-            pmr = &s->hash_table[h];
+            phash_next = &s->hash_table[h];
             for(;;) {
-                mr1 = *pmr;
+                h = *phash_next;
                 /* the entry may already be removed from the hash
                    table if the map was resized */
-                if (mr1 == NULL)
+                if (h == 0)
                     goto done; 
+                mr1 = &s->records[h - 1];
                 if (mr1 == mr)
                     break;
-                pmr = &mr1->hash_next;
+                phash_next = &mr1->hash_next;
             }
             /* remove from the hash table */
-            *pmr = mr1->hash_next;
+            *phash_next = mr1->hash_next;
         done:
             map_delete_record_internal(rt, s, mr);
         }
     }
+    /* XXX: call map_try_compact() ? */
 }
 
 static JSValue js_map_set(JSContext *ctx, JSValueConst this_val,
@@ -55271,30 +55366,32 @@ static JSValue js_map_get(JSContext *ctx, JSValueConst this_val,
 /* return JS_TRUE or JS_FALSE */
 static JSValue map_delete_record(JSContext *ctx, JSMapState *s, JSValueConst key)
 {
-    JSMapRecord *mr, **pmr;
-    uint32_t h;
+    JSMapRecord *mr;
+    uint32_t h, *phash_next;
 
     key = map_normalize_key_const(ctx, key);
     
     h = map_hash_key(key, s->hash_bits);
-    pmr = &s->hash_table[h];
+    phash_next = &s->hash_table[h];
     for(;;) {
-        mr = *pmr;
-        if (mr == NULL)
+        h = *phash_next;
+        if (h == 0)
             return JS_FALSE;
-        if (mr->empty || (s->is_weak && !js_weakref_is_live(mr->key))) {
+        mr = &s->records[h - 1];
+        if ((s->is_weak && !js_weakref_is_live(mr->key))) {
             /* not valid */
         } else {
             if (js_same_value_zero(ctx, mr->key, key))
                 break;
         }
-        pmr = &mr->hash_next;
+        phash_next = &mr->hash_next;
     }
 
     /* remove from the hash table */
-    *pmr = mr->hash_next;
+    *phash_next = mr->hash_next;
     
     map_delete_record_internal(ctx->rt, s, mr);
+    map_try_compact(ctx, s);
     return JS_TRUE;
 }
 
@@ -55362,7 +55459,7 @@ static JSValue js_map_clear(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv, int magic)
 {
     JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
-    struct list_head *el, *el1;
+    int i;
     JSMapRecord *mr;
 
     if (!s)
@@ -55370,11 +55467,13 @@ static JSValue js_map_clear(JSContext *ctx, JSValueConst this_val,
 
     /* remove from the hash table */
     memset(s->hash_table, 0, sizeof(s->hash_table[0]) * s->hash_size);
-    
-    list_for_each_safe(el, el1, &s->records) {
-        mr = list_entry(el, JSMapRecord, link);
+    for(i = 0; i < s->record_total; i++) {
+        mr = &s->records[i];
+        if (JS_IsUninitialized(mr->key))
+            continue;
         map_delete_record_internal(ctx->rt, s, mr);
     }
+    map_try_compact(ctx, s);
     return JS_UNDEFINED;
 }
 
@@ -55383,7 +55482,34 @@ static JSValue js_map_get_size(JSContext *ctx, JSValueConst this_val, int magic)
     JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
     if (!s)
         return JS_EXCEPTION;
-    return JS_NewUint32(ctx, s->record_count);
+    return JS_NewUint32(ctx, map_get_size(s));
+}
+
+/* 'obj' must be a Set or Map */
+static JSMapIteratorData *js_create_map_iterator_internal(JSContext *ctx, JSValueConst obj, int kind)
+{
+    JSMapIteratorData *it;
+    JSObject *p = JS_VALUE_GET_OBJ(obj);
+    JSMapState *s = p->u.map_state;
+
+    it = js_malloc(ctx, sizeof(*it));
+    if (!it)
+        return NULL;
+    it->obj = JS_DupValue(ctx, obj);
+    it->kind = kind;
+    it->idx = -1;
+    list_add_tail(&it->link, &s->iterators);
+    return it;
+}
+
+static void js_free_map_iterator_internal(JSRuntime *rt, JSMapIteratorData *it)
+{
+    /* During the GC sweep phase the Map finalizer may be
+       called before the Map iterator finalizer */
+    if (it->link.next)
+        list_del(&it->link);
+    JS_FreeValueRT(rt, it->obj);
+    js_free_rt(rt, it);
 }
 
 static JSValue js_map_forEach(JSContext *ctx, JSValueConst this_val,
@@ -55392,8 +55518,8 @@ static JSValue js_map_forEach(JSContext *ctx, JSValueConst this_val,
     JSMapState *s = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP + magic);
     JSValueConst func, this_arg;
     JSValue ret, args[3];
-    struct list_head *el;
     JSMapRecord *mr;
+    JSMapIteratorData *it;
 
     if (!s)
         return JS_EXCEPTION;
@@ -55404,13 +55530,17 @@ static JSValue js_map_forEach(JSContext *ctx, JSValueConst this_val,
         this_arg = JS_UNDEFINED;
     if (check_function(ctx, func))
         return JS_EXCEPTION;
-    /* Note: the list can be modified while traversing it, but the
-       current element is locked */
-    el = s->records.next;
-    while (el != &s->records) {
-        mr = list_entry(el, JSMapRecord, link);
-        if (!mr->empty) {
-            mr->ref_count++;
+    /* we add an explicit iterator so that the index is updated when
+       the map is compacted */
+    it = js_create_map_iterator_internal(ctx, this_val, JS_ITERATOR_KIND_VALUE);
+    if (!it)
+        return JS_EXCEPTION;
+    for(;;) {
+        it->idx++;
+        if (it->idx >= s->record_total)
+            break;
+        mr = &s->records[it->idx];
+        if (!JS_IsUninitialized(mr->key)) {
             /* must duplicate in case the record is deleted */
             args[1] = JS_DupValue(ctx, mr->key);
             if (magic)
@@ -55422,15 +55552,14 @@ static JSValue js_map_forEach(JSContext *ctx, JSValueConst this_val,
             JS_FreeValue(ctx, args[0]);
             if (!magic)
                 JS_FreeValue(ctx, args[1]);
-            el = el->next;
-            map_decref_record(ctx->rt, mr);
-            if (JS_IsException(ret))
-                return ret;
+            if (JS_IsException(ret)) {
+                js_free_map_iterator_internal(ctx->rt, it);
+                return JS_EXCEPTION;
+            }
             JS_FreeValue(ctx, ret);
-        } else {
-            el = el->next;
         }
     }
+    js_free_map_iterator_internal(ctx->rt, it);
     return JS_UNDEFINED;
 }
 
@@ -55554,25 +55683,32 @@ static void js_map_finalizer(JSRuntime *rt, JSValue val)
 {
     JSObject *p;
     JSMapState *s;
-    struct list_head *el, *el1;
+    int i;
     JSMapRecord *mr;
-
+    struct list_head *el, *el1;
+    
     p = JS_VALUE_GET_OBJ(val);
     s = p->u.map_state;
     if (s) {
-        /* if the object is deleted we are sure that no iterator is
-           using it */
-        list_for_each_safe(el, el1, &s->records) {
-            mr = list_entry(el, JSMapRecord, link);
-            if (!mr->empty) {
-                if (s->is_weak)
-                    js_weakref_free(rt, mr->key);
-                else
-                    JS_FreeValueRT(rt, mr->key);
-                JS_FreeValueRT(rt, mr->value);
-            }
-            js_free_rt(rt, mr);
+        /* the map may be deleted before its iterators in case of
+           cycle, hence we detach the iterators from the list here */
+        list_for_each_safe(el, el1, &s->iterators) {
+            JSMapIteratorData *it = list_entry(el, JSMapIteratorData, link);
+            it->link.prev = NULL;
+            it->link.next = NULL;
         }
+
+        for(i = 0; i < s->record_total; i++) {
+            mr = &s->records[i];
+            if (JS_IsUninitialized(mr->key))
+                continue;
+            if (s->is_weak)
+                js_weakref_free(rt, mr->key);
+            else
+                JS_FreeValueRT(rt, mr->key);
+            JS_FreeValueRT(rt, mr->value);
+        }
+        js_free_rt(rt, s->records);
         js_free_rt(rt, s->hash_table);
         if (s->is_weak) {
             list_del(&s->weakref_header.link);
@@ -55585,13 +55721,15 @@ static void js_map_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func)
 {
     JSObject *p = JS_VALUE_GET_OBJ(val);
     JSMapState *s;
-    struct list_head *el;
+    int i;
     JSMapRecord *mr;
 
     s = p->u.map_state;
     if (s) {
-        list_for_each(el, &s->records) {
-            mr = list_entry(el, JSMapRecord, link);
+        for(i = 0; i < s->record_total; i++) {
+            mr = &s->records[i];
+            if (JS_IsUninitialized(mr->key))
+                continue;
             if (!s->is_weak)
                 JS_MarkValue(rt, mr->key, mark_func);
             JS_MarkValue(rt, mr->value, mark_func);
@@ -55601,12 +55739,6 @@ static void js_map_mark(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func)
 
 /* Map Iterator */
 
-typedef struct JSMapIteratorData {
-    JSValue obj;
-    JSIteratorKindEnum kind;
-    JSMapRecord *cur_record;
-} JSMapIteratorData;
-
 static void js_map_iterator_finalizer(JSRuntime *rt, JSValue val)
 {
     JSObject *p;
@@ -55614,15 +55746,8 @@ static void js_map_iterator_finalizer(JSRuntime *rt, JSValue val)
 
     p = JS_VALUE_GET_OBJ(val);
     it = p->u.map_iterator_data;
-    if (it) {
-        /* During the GC sweep phase the Map finalizer may be
-           called before the Map iterator finalizer */
-        if (JS_IsLiveObject(rt, it->obj) && it->cur_record) {
-            map_decref_record(rt, it->cur_record);
-        }
-        JS_FreeValueRT(rt, it->obj);
-        js_free_rt(rt, it);
-    }
+    if (it)
+        js_free_map_iterator_internal(rt, it);
 }
 
 static void js_map_iterator_mark(JSRuntime *rt, JSValueConst val,
@@ -55632,7 +55757,6 @@ static void js_map_iterator_mark(JSRuntime *rt, JSValueConst val,
     JSMapIteratorData *it;
     it = p->u.map_iterator_data;
     if (it) {
-        /* the record is already marked by the object */
         JS_MarkValue(rt, it->obj, mark_func);
     }
 }
@@ -55653,14 +55777,11 @@ static JSValue js_create_map_iterator(JSContext *ctx, JSValueConst this_val,
     enum_obj = JS_NewObjectClass(ctx, JS_CLASS_MAP_ITERATOR + magic);
     if (JS_IsException(enum_obj))
         goto fail;
-    it = js_malloc(ctx, sizeof(*it));
+    it = js_create_map_iterator_internal(ctx, this_val, kind);
     if (!it) {
         JS_FreeValue(ctx, enum_obj);
         goto fail;
     }
-    it->obj = JS_DupValue(ctx, this_val);
-    it->kind = kind;
-    it->cur_record = NULL;
     JS_SetOpaque(enum_obj, it);
     return enum_obj;
  fail:
@@ -55674,7 +55795,6 @@ static JSValue js_map_iterator_next(JSContext *ctx, JSValueConst this_val,
     JSMapIteratorData *it;
     JSMapState *s;
     JSMapRecord *mr;
-    struct list_head *el;
 
     it = JS_GetOpaque2(ctx, this_val, JS_CLASS_MAP_ITERATOR + magic);
     if (!it) {
@@ -55685,17 +55805,12 @@ static JSValue js_map_iterator_next(JSContext *ctx, JSValueConst this_val,
         goto done;
     s = JS_GetOpaque(it->obj, JS_CLASS_MAP + magic);
     assert(s != NULL);
-    if (!it->cur_record) {
-        el = s->records.next;
-    } else {
-        mr = it->cur_record;
-        el = mr->link.next;
-        map_decref_record(ctx->rt, mr); /* the record can be freed here */
-    }
+
+    it->idx++;
     for(;;) {
-        if (el == &s->records) {
-            /* no more record  */
-            it->cur_record = NULL;
+        if (it->idx >= s->record_total) {
+            /* no more record */
+            list_del(&it->link);
             JS_FreeValue(ctx, it->obj);
             it->obj = JS_UNDEFINED;
         done:
@@ -55703,16 +55818,11 @@ static JSValue js_map_iterator_next(JSContext *ctx, JSValueConst this_val,
             *pdone = TRUE;
             return JS_UNDEFINED;
         }
-        mr = list_entry(el, JSMapRecord, link);
-        if (!mr->empty)
+        mr = &s->records[it->idx];
+        if (!JS_IsUninitialized(mr->key))
             break;
-        /* get the next record */
-        el = mr->link.next;
+        it->idx++;
     }
-
-    /* lock the record so that it won't be freed */
-    mr->ref_count++;
-    it->cur_record = mr;
     *pdone = FALSE;
 
     if (it->kind == JS_ITERATOR_KIND_KEY) {
@@ -55741,7 +55851,7 @@ static int get_set_record(JSContext *ctx, JSValueConst obj,
     
     s = JS_GetOpaque(obj, JS_CLASS_SET);
     if (s) {
-        size = s->record_count;
+        size = map_get_size(s);
     } else {
         JSValue v;
         double d;
@@ -55809,8 +55919,7 @@ static JSValue js_copy_set(JSContext *ctx, JSValueConst this_val)
 {
     JSValue newset;
     JSMapState *s, *t;
-    struct list_head *el;
-    JSMapRecord *mr;
+    int i;
    
     s = JS_GetOpaque2(ctx, this_val, JS_CLASS_SET);
     if (!s)
@@ -55823,9 +55932,9 @@ static JSValue js_copy_set(JSContext *ctx, JSValueConst this_val)
 
     // can't clone this_val using js_map_constructor(),
     // test262 mandates we don't call the .add method
-    list_for_each(el, &s->records) {
-        mr = list_entry(el, JSMapRecord, link);
-        if (mr->empty)
+    for(i = 0; i < s->record_total; i++) {
+        JSMapRecord *mr = &s->records[i];
+        if (JS_IsUninitialized(mr->key))
             continue;
         if (!set_add_record(ctx, t, mr->key))
             goto exception;
@@ -55854,7 +55963,7 @@ static JSValue js_set_isDisjointFrom(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
-    if (s->record_count <= size) {
+    if (map_get_size(s) <= size) {
         iter = js_create_map_iterator(ctx, this_val, 0, NULL, MAGIC_SET);
         if (JS_IsException(iter))
             goto exception;
@@ -55922,7 +56031,7 @@ static JSValue js_set_isSubsetOf(JSContext *ctx, JSValueConst this_val,
     if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
     found = FALSE;
-    if (s->record_count > size)
+    if (map_get_size(s) > size)
         goto fini;
     iter = js_create_map_iterator(ctx, this_val, 0, NULL, MAGIC_SET);
     if (JS_IsException(iter))
@@ -55969,7 +56078,7 @@ static JSValue js_set_isSupersetOf(JSContext *ctx, JSValueConst this_val,
     if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
     found = FALSE;
-    if (s->record_count < size)
+    if (map_get_size(s) < size)
         goto fini;
     iter = JS_Call(ctx, keys, argv[0], 0, NULL);
     if (JS_IsException(iter))
@@ -56019,7 +56128,7 @@ static JSValue js_set_intersection(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     if (get_set_record(ctx, argv[0], &size, &has, &keys) < 0)
         goto exception;
-    if (s->record_count > size) {
+    if (map_get_size(s) > size) {
         iter = JS_Call(ctx, keys, argv[0], 0, NULL);
         if (JS_IsException(iter))
             goto exception;
@@ -56116,7 +56225,7 @@ static JSValue js_set_difference(JSContext *ctx, JSValueConst this_val,
         goto exception;
     t = JS_GetOpaque(newset, JS_CLASS_SET);
     
-    if (s->record_count <= size) {
+    if (map_get_size(s) <= size) {
         iter = js_create_map_iterator(ctx, newset, 0, NULL, MAGIC_SET);
         if (JS_IsException(iter))
             goto exception;
