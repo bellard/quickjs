@@ -9386,6 +9386,29 @@ JSValue JS_GetPropertyUint32(JSContext *ctx, JSValueConst this_obj,
     return JS_GetPropertyValue(ctx, this_obj, JS_NewUint32(ctx, idx));
 }
 
+/* Check if an object has a property. Return value:
+   (-1, JS_EXCEPTION) for exception,
+   (TRUE, prop) if property exists, stored into *pval,
+   (FALSE, JS_UNDEFINED) if proprty does not exist.
+ */
+static int JS_TryGetProperty(JSContext *ctx, JSValueConst obj, JSAtom prop, JSValue *pval)
+{
+    int present = JS_HasProperty(ctx, obj, prop);
+    if (present < 0) {
+        *pval = JS_EXCEPTION;
+        return -1;
+    }
+    if (!present) {
+        *pval = JS_UNDEFINED;
+        return 0;
+    }
+    *pval = JS_GetProperty(ctx, obj, prop);
+    if (JS_IsException(*pval))
+        return -1;
+    else
+        return 1;
+}
+
 /* Check if an object has a generalized numeric property. Return value:
    -1 for exception,
    TRUE if property exists, stored into *pval,
@@ -9393,11 +9416,11 @@ JSValue JS_GetPropertyUint32(JSContext *ctx, JSValueConst this_obj,
  */
 static int JS_TryGetPropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx, JSValue *pval)
 {
-    JSValue val = JS_UNDEFINED;
     JSAtom prop;
     int present;
 
     if (likely((uint64_t)idx <= JS_ATOM_MAX_INT)) {
+        JSValue val = JS_UNDEFINED;
         /* fast path */
         present = JS_HasProperty(ctx, obj, __JS_AtomFromUInt32(idx));
         if (present > 0) {
@@ -9405,20 +9428,17 @@ static int JS_TryGetPropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx,
             if (unlikely(JS_IsException(val)))
                 present = -1;
         }
+        *pval = val;
     } else {
         prop = JS_NewAtomInt64(ctx, idx);
-        present = -1;
-        if (likely(prop != JS_ATOM_NULL)) {
-            present = JS_HasProperty(ctx, obj, prop);
-            if (present > 0) {
-                val = JS_GetProperty(ctx, obj, prop);
-                if (unlikely(JS_IsException(val)))
-                    present = -1;
-            }
+        if (unlikely(prop == JS_ATOM_NULL)) {
+            present = -1;
+            *pval = JS_EXCEPTION;
+        } else {
+            present = JS_TryGetProperty(ctx, obj, prop, pval);
             JS_FreeAtom(ctx, prop);
         }
     }
-    *pval = val;
     return present;
 }
 
@@ -41382,8 +41402,8 @@ static JSValue JS_ToObjectFree(JSContext *ctx, JSValue val)
 static int js_obj_to_desc(JSContext *ctx, JSPropertyDescriptor *d,
                           JSValueConst desc)
 {
-    JSValue val, getter, setter;
-    int flags;
+    JSValue val, getter, setter, prop;
+    int present, flags;
 
     if (!JS_IsObject(desc)) {
         JS_ThrowTypeErrorNotAnObject(ctx);
@@ -41393,50 +41413,52 @@ static int js_obj_to_desc(JSContext *ctx, JSPropertyDescriptor *d,
     val = JS_UNDEFINED;
     getter = JS_UNDEFINED;
     setter = JS_UNDEFINED;
-    if (JS_HasProperty(ctx, desc, JS_ATOM_enumerable)) {
-        JSValue prop = JS_GetProperty(ctx, desc, JS_ATOM_enumerable);
-        if (JS_IsException(prop))
-            goto fail;
+    present = JS_TryGetProperty(ctx, desc, JS_ATOM_enumerable, &prop);
+    if (present < 0)
+        goto fail;
+    if (present) {
         flags |= JS_PROP_HAS_ENUMERABLE;
         if (JS_ToBoolFree(ctx, prop))
             flags |= JS_PROP_ENUMERABLE;
     }
-    if (JS_HasProperty(ctx, desc, JS_ATOM_configurable)) {
-        JSValue prop = JS_GetProperty(ctx, desc, JS_ATOM_configurable);
-        if (JS_IsException(prop))
-            goto fail;
+    present = JS_TryGetProperty(ctx, desc, JS_ATOM_configurable, &prop);
+    if (present < 0)
+        goto fail;
+    if (present) {
         flags |= JS_PROP_HAS_CONFIGURABLE;
         if (JS_ToBoolFree(ctx, prop))
             flags |= JS_PROP_CONFIGURABLE;
     }
-    if (JS_HasProperty(ctx, desc, JS_ATOM_value)) {
+    present = JS_TryGetProperty(ctx, desc, JS_ATOM_value, &val);
+    if (present < 0)
+        goto fail;
+    if (present) {
         flags |= JS_PROP_HAS_VALUE;
-        val = JS_GetProperty(ctx, desc, JS_ATOM_value);
-        if (JS_IsException(val))
-            goto fail;
     }
-    if (JS_HasProperty(ctx, desc, JS_ATOM_writable)) {
-        JSValue prop = JS_GetProperty(ctx, desc, JS_ATOM_writable);
-        if (JS_IsException(prop))
-            goto fail;
+    present = JS_TryGetProperty(ctx, desc, JS_ATOM_writable, &prop);
+    if (present < 0)
+        goto fail;
+    if (present) {
         flags |= JS_PROP_HAS_WRITABLE;
         if (JS_ToBoolFree(ctx, prop))
             flags |= JS_PROP_WRITABLE;
     }
-    if (JS_HasProperty(ctx, desc, JS_ATOM_get)) {
+    present = JS_TryGetProperty(ctx, desc, JS_ATOM_get, &getter);
+    if (present < 0)
+        goto fail;
+    if (present) {
         flags |= JS_PROP_HAS_GET;
-        getter = JS_GetProperty(ctx, desc, JS_ATOM_get);
-        if (JS_IsException(getter) ||
-            !(JS_IsUndefined(getter) || JS_IsFunction(ctx, getter))) {
+        if (!(JS_IsUndefined(getter) || JS_IsFunction(ctx, getter))) {
             JS_ThrowTypeError(ctx, "invalid getter");
             goto fail;
         }
     }
-    if (JS_HasProperty(ctx, desc, JS_ATOM_set)) {
+    present = JS_TryGetProperty(ctx, desc, JS_ATOM_set, &setter);
+    if (present < 0)
+        goto fail;
+    if (present) {
         flags |= JS_PROP_HAS_SET;
-        setter = JS_GetProperty(ctx, desc, JS_ATOM_set);
-        if (JS_IsException(setter) ||
-            !(JS_IsUndefined(setter) || JS_IsFunction(ctx, setter))) {
+        if (!(JS_IsUndefined(setter) || JS_IsFunction(ctx, setter))) {
             JS_ThrowTypeError(ctx, "invalid setter");
             goto fail;
         }
@@ -42942,13 +42964,11 @@ static JSValue js_error_constructor(JSContext *ctx, JSValueConst new_target,
     if (arg_index < argc) {
         options = argv[arg_index];
         if (JS_IsObject(options)) {
-            int present = JS_HasProperty(ctx, options, JS_ATOM_cause);
+            JSValue cause;
+            int present = JS_TryGetProperty(ctx, options, JS_ATOM_cause, &cause);
             if (present < 0)
                 goto exception;
             if (present) {
-                JSValue cause = JS_GetProperty(ctx, options, JS_ATOM_cause);
-                if (JS_IsException(cause))
-                    goto exception;
                 if (JS_DefinePropertyValue(ctx, obj, JS_ATOM_cause, cause,
                                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0)
                     goto exception;
