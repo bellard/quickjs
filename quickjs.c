@@ -43182,7 +43182,7 @@ static JSValue js_array_constructor(JSContext *ctx, JSValueConst new_target,
             goto fail;
     } else {
         for(i = 0; i < argc; i++) {
-            if (JS_SetPropertyUint32(ctx, obj, i, JS_DupValue(ctx, argv[i])) < 0)
+            if (JS_CreateDataPropertyUint32(ctx, obj, i, JS_DupValue(ctx, argv[i]), JS_PROP_THROW) < 0)
                 goto fail;
         }
     }
