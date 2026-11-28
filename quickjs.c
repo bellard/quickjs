@@ -14063,7 +14063,14 @@ static JSValue JS_ToLocaleStringFree(JSContext *ctx, JSValue val,
 {
     if (JS_IsUndefined(val) || JS_IsNull(val))
         return JS_ToStringFree(ctx, val);
-    return JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, argc, argv);
+    if (ctx->locale_callbacks) {
+        JSValueConst locale_argv[2];
+        locale_argv[0] = (argc > 0) ? argv[0] : JS_UNDEFINED;
+        locale_argv[1] = (argc > 1) ? argv[1] : JS_UNDEFINED;
+        return JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, 2, locale_argv);
+    } else {
+        return JS_InvokeFree(ctx, val, JS_ATOM_toLocaleString, 0, NULL);
+    }
 }
 
 JSValue JS_ToPropertyKey(JSContext *ctx, JSValueConst val)
@@ -44706,10 +44713,7 @@ static JSValue js_array_join(JSContext *ctx, JSValueConst this_val,
             goto fail;
         if (!JS_IsNull(el) && !JS_IsUndefined(el)) {
             if (toLocaleString) {
-                JSValueConst locale_argv[2];
-                locale_argv[0] = (argc > 0) ? argv[0] : JS_UNDEFINED;
-                locale_argv[1] = (argc > 1) ? argv[1] : JS_UNDEFINED;
-                el = JS_ToLocaleStringFree(ctx, el, 2, locale_argv);
+                el = JS_ToLocaleStringFree(ctx, el, argc, argv);
             }
             if (string_buffer_concat_value_free(b, el))
                 goto fail;
@@ -60337,7 +60341,7 @@ static JSValue js_bigint_toLocaleString(JSContext *ctx, JSValueConst this_val,
         return ret;
     }
     
-    return js_bigint_toString(ctx, this_val, argc, argv);
+    return js_bigint_toString(ctx, this_val, 0, NULL);
 }
 
 static JSValue js_bigint_valueOf(JSContext *ctx, JSValueConst this_val,
@@ -62636,10 +62640,7 @@ static JSValue js_typed_array_join(JSContext *ctx, JSValueConst this_val,
             if (JS_IsException(el))
                 goto fail;
             if (toLocaleString) {
-                JSValueConst locale_argv[2];
-                locale_argv[0] = (argc > 0) ? argv[0] : JS_UNDEFINED;
-                locale_argv[1] = (argc > 1) ? argv[1] : JS_UNDEFINED;
-                el = JS_ToLocaleStringFree(ctx, el, 2, locale_argv);
+                el = JS_ToLocaleStringFree(ctx, el, argc, argv);
             }
             if (string_buffer_concat_value_free(b, el))
                 goto fail;
