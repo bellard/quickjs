@@ -783,7 +783,7 @@ function test_date()
 
 function test_regexp()
 {
-    var a, str;
+    var a, str, i;
     str = "abbbbbc";
     a = /(b+)c/.exec(str);
     assert(a[0], "bbbbbc");
@@ -877,6 +877,27 @@ function test_regexp()
 
     /* syntax check */
     assert(/-&&/v.test("-&&"), true);
+
+    /* more than 255 capture groups */
+    str = "";
+    for(i = 0; i < 300; i++)
+        str += "(a)?";
+    a = new RegExp("^" + str + "(b)\\301$").exec("aaabb");
+    assert(a.length, 302);
+    assert(a[1], "a");
+    assert(a[3], "a");
+    assert(a[4], undefined);
+    assert(a[300], undefined);
+    assert(a[301], "b");
+
+    str = "";
+    for(i = 0; i < 300; i++)
+        str += "(a)|";
+    a = new RegExp("^(?:" + str + "(?<last>b))+\\k<last>$").exec("aabb");
+    assert(a.length, 302);
+    assert(a[1], undefined);
+    assert(a[301], "b");
+    assert(a.groups.last, "b");
 }
 
 function test_symbol()
