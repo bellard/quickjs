@@ -53876,7 +53876,13 @@ static int js_proxy_has(JSContext *ctx, JSValueConst obj, JSAtom atom)
         if (res) {
             res2 = !(desc.flags & JS_PROP_CONFIGURABLE);
             js_free_desc(ctx, &desc);
-            if (res2 || !p->extensible) {
+            if (res2)
+                goto inconsistent;
+            res = JS_IsExtensible(ctx, s->target);
+            if (res < 0)
+                return -1;
+            if (!res) {
+            inconsistent:
                 JS_ThrowTypeError(ctx, "proxy: inconsistent has");
                 return -1;
             }
@@ -54109,9 +54115,14 @@ static int js_proxy_get_own_property(JSContext *ctx, JSPropertyDescriptor *pdesc
     if (JS_IsUndefined(trap_result_obj)) {
         if (target_desc_ret) {
             BOOL tmp;
-            tmp = !(target_desc.flags & JS_PROP_CONFIGURABLE) || !p->extensible;
+            tmp = !(target_desc.flags & JS_PROP_CONFIGURABLE);
             js_free_desc(ctx, &target_desc);
             if (tmp)
+                goto fail;
+            res = JS_IsExtensible(ctx, s->target);
+            if (res < 0)
+                return -1;
+            if (!res)
                 goto fail;
         }
         ret = FALSE;
@@ -54191,7 +54202,7 @@ static int js_proxy_define_own_property(JSContext *ctx, JSValueConst obj,
 {
     JSProxyData *s;
     JSValue method, ret1, prop_val, desc_val;
-    int res, ret;
+    int res, ret, extensible_target;
     JSObject *p;
     JSValueConst args[3];
     JSPropertyDescriptor desc;
@@ -54235,11 +54246,17 @@ static int js_proxy_define_own_property(JSContext *ctx, JSValueConst obj,
     res = JS_GetOwnPropertyInternal(ctx, &desc, p, prop);
     if (res < 0)
         return -1;
+    extensible_target = JS_IsExtensible(ctx, s->target);
+    if (extensible_target < 0) {
+        if (res)
+            js_free_desc(ctx, &desc);
+        return -1;
+    }
     setting_not_configurable = ((flags & (JS_PROP_HAS_CONFIGURABLE |
                                           JS_PROP_CONFIGURABLE)) ==
                                 JS_PROP_HAS_CONFIGURABLE);
     if (!res) {
-        if (!p->extensible || setting_not_configurable)
+        if (!extensible_target || setting_not_configurable)
             goto fail;
     } else {
         if (!check_define_prop_desc(ctx, &desc, val, getter, setter, flags))
