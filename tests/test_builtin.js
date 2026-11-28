@@ -259,6 +259,11 @@ function test_array()
 
     test_array_extension();
     test_array_iterator();
+
+    a = [4, 2, null];
+    assert(a.indexOf(1.25, { valueOf() { a.push(1.25); return 0; } }), -1);
+    a = [4, 2, null];
+    assert(a.includes(1.25, { valueOf() { a.push(1.25); return 0; } }), false);
 }
 
 function test_array_extension()
