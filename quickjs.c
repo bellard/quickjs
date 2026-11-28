@@ -4654,7 +4654,9 @@ JSValue JS_NewAtomString(JSContext *ctx, const char *str)
 
 /* return (NULL, 0) if exception. */
 /* return pointer into a JSString with a live ref_count */
-/* cesu8 determines if non-BMP1 codepoints are encoded as 1 or 2 utf-8 sequences */
+/* If cesu8 is false, a WTF-8 string is returned (UTF-8 with lone
+   surrogates if they are not in a pair). If cesu8 is true, paired or
+   unpaired surrogates are encoded. */
 const char *JS_ToCStringLen2(JSContext *ctx, size_t *plen, JSValueConst val1, BOOL cesu8)
 {
     JSValue val;

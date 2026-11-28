@@ -973,9 +973,10 @@ example is only used to test the binary object format functions.
 Strings are stored either as an 8 bit or a 16 bit array of
 characters. Hence random access to characters is always fast.
 
-The C API provides functions to convert Javascript Strings to C UTF-8 encoded
-strings. The most common case where the Javascript string contains
-only ASCII characters involves no copying.
+The C API provides functions to convert Javascript Strings to C WTF-8
+encoded strings (UTF-8 with lone surrogates if they are not in a
+pair). The most common case where the Javascript string contains only
+ASCII characters involves no copying.
 
 @subsection Objects
 
