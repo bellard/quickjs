@@ -366,6 +366,9 @@ function test_template()
     a = "aaa";
     b = "bbb";
     assert(`aaa${a, b}ccc`, "aaabbbccc");
+    function x() {}
+    var s = 'x`' + '${a}'.repeat(65534) + '`';
+    assert_throws(SyntaxError, () => eval(s));
 }
 
 function test_template_skip()

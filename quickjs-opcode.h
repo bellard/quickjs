@@ -105,6 +105,7 @@ DEF(      tail_call, 3, 1, 0, npop) /* arguments are not counted in n_pop */
 DEF(    call_method, 3, 2, 1, npop) /* arguments are not counted in n_pop */
 DEF(tail_call_method, 3, 2, 0, npop) /* arguments are not counted in n_pop */
 DEF(     array_from, 3, 0, 1, npop) /* arguments are not counted in n_pop */
+DEF(         concat, 3, 0, 1, npop) /* arguments are not counted in n_pop */
 DEF(          apply, 3, 3, 1, u16)
 DEF(         return, 1, 1, 0, none)
 DEF(   return_undef, 1, 0, 0, none)
@@ -184,7 +185,7 @@ DEF(            ret, 1, 1, 0, none) /* used to return from the finally block */
 DEF(      nip_catch, 1, 2, 1, none) /* catch ... a -> a */
 
 DEF(      to_object, 1, 1, 1, none)
-//DEF(      to_string, 1, 1, 1, none)
+DEF(      to_string, 1, 1, 1, none)
 DEF(     to_propkey, 1, 1, 1, none)
 
 DEF(   with_get_var, 10, 1, 0, atom_label_u8)     /* must be in the same order as scope_xxx */
