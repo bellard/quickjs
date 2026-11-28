@@ -482,6 +482,11 @@ function test_function_length()
     assert( (([a,b]) => {}).length, 1);
     assert( (({a,b}) => {}).length, 1);
     assert( ((c, [a,b] = 1, d) => {}).length, 1);
+    assert( ((a, ...b) => {}).length, 1);
+    assert( ((a, ...[b]) => {}).length, 1);
+    assert( ((a, ...{b}) => {}).length, 1);
+    assert( ((...[a, b]) => {}).length, 0);
+    assert( (function (a, ...[b]) {}).length, 1);
 }
 
 function test_argument_scope()
