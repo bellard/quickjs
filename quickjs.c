@@ -61330,7 +61330,7 @@ static JSValue js_array_buffer_transfer(JSContext *ctx,
         if (array_buffer_is_resizable(abuf)) { // carry over maxByteLength
             max_len = abuf->max_byte_length;
             if (new_len > max_len)
-                return JS_ThrowTypeError(ctx, "invalid array buffer length");
+                return JS_ThrowRangeError(ctx, "invalid array buffer length");
             // TODO(bnoordhuis) support externally managed RABs
             if (abuf->free_func == js_array_buffer_free)
                 pmax_len = &max_len;
