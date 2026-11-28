@@ -2441,6 +2441,10 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
 
         pthread_mutex_unlock(&ps->mutex);
 
+        /* 'func' might be destroyed when calling itself (if it frees the
+           handler), so must take extra care */
+        func = JS_DupValue(ctx, port->on_message_func);
+
         data_obj = JS_ReadObject(ctx, msg->data, msg->data_len,
                                  JS_READ_OBJ_SAB | JS_READ_OBJ_REFERENCE);
 
@@ -2455,18 +2459,15 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
         }
         JS_DefinePropertyValueStr(ctx, obj, "data", data_obj, JS_PROP_C_W_E);
 
-        /* 'func' might be destroyed when calling itself (if it frees the
-           handler), so must take extra care */
-        func = JS_DupValue(ctx, port->on_message_func);
         retval = JS_Call(ctx, func, JS_UNDEFINED, 1, (JSValueConst *)&obj);
         JS_FreeValue(ctx, obj);
-        JS_FreeValue(ctx, func);
         if (JS_IsException(retval)) {
         fail:
             js_std_dump_error(ctx);
         } else {
             JS_FreeValue(ctx, retval);
         }
+        JS_FreeValue(ctx, func);
         ret = 1;
     } else {
         pthread_mutex_unlock(&ps->mutex);
